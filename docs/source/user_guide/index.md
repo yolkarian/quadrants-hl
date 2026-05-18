@@ -33,6 +33,7 @@ parallelization
 
 interop
 metal_shared_queue
+hashlink
 ```
 
 ```{toctree}

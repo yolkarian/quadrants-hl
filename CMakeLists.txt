@@ -24,6 +24,16 @@ execute_process(
   OUTPUT_VARIABLE QD_COMMIT_HASH)
 string(STRIP ${QD_COMMIT_HASH} QD_COMMIT_HASH)
 string(STRIP ${QD_COMMIT_SHORT_HASH} QD_COMMIT_SHORT_HASH)
+if(NOT DEFINED QD_VERSION_MAJOR)
+    set(QD_VERSION_MAJOR 0)
+endif()
+if(NOT DEFINED QD_VERSION_MINOR)
+    set(QD_VERSION_MINOR 0)
+endif()
+if(NOT DEFINED QD_VERSION_PATCH)
+    set(QD_VERSION_PATCH 0)
+endif()
+
 
 message("Quadrants Version ${QD_VERSION_MAJOR}.${QD_VERSION_MINOR}.${QD_VERSION_PATCH}")
 message("       Commit ${QD_COMMIT_HASH}")
@@ -123,6 +133,11 @@ endif()
 
 include(cmake/QuadrantsCXXFlags.cmake)
 include(cmake/QuadrantsCore.cmake)
+option(QD_WITH_HASHLINK "Build the HashLink native bridge (quadrants.hdll)" OFF)
+set(QD_HASHLINK_ROOT "${CMAKE_SOURCE_DIR}/../hashlink" CACHE PATH "Path to a HashLink checkout or install")
+if (QD_WITH_HASHLINK)
+  add_subdirectory(bindings/hashlink/native)
+endif()
 
 option(QD_BUILD_TESTS "Build the CPP tests" OFF)
 

@@ -459,12 +459,13 @@ class TaskCodeGenAMDGPU : public TaskCodeGenLLVM {
       // the function's `+wavefrontsize32` / `+wavefrontsize64` target feature.  Returning the intrinsic (rather than a
       // Quadrants-side constant) lets LLVM pick the right value for the active wavefront mode without Quadrants
       // having to track it.
-      llvm_val[stmt] = builder->CreateIntrinsic(Intrinsic::amdgcn_wavefrontsize, ArrayRef<llvm::Value *>{});
+      llvm_val[stmt] = builder->CreateIntrinsic(Intrinsic::amdgcn_wavefrontsize, ArrayRef<llvm::Type *>{},
+                                                ArrayRef<llvm::Value *>{});
     } else if (stmt->func_name == "subgroupBarrier") {
       // Wave-scope thread reconvergence barrier.  `llvm.amdgcn.wave.barrier` is the LLVM intrinsic AMDGPU exposes for
       // wave-level sync: on chips where waves are lockstep (GCN) it acts as a compiler reordering barrier; on RDNA it
       // lowers to a real wave-scope hardware barrier.  Caller contract is uniform CF + all lanes active.
-      builder->CreateIntrinsic(Intrinsic::amdgcn_wave_barrier, ArrayRef<llvm::Value *>{});
+      builder->CreateIntrinsic(Intrinsic::amdgcn_wave_barrier, ArrayRef<llvm::Type *>{}, ArrayRef<llvm::Value *>{});
       llvm_val[stmt] = tlctx->get_constant(0);
     } else if (stmt->func_name == "subgroupMemoryBarrier") {
       // Subgroup-scope memory fence.  AMDGPU has no first-class wave-scope memory fence intrinsic, so we emit an LLVM
@@ -565,7 +566,8 @@ class TaskCodeGenAMDGPU : public TaskCodeGenLLVM {
   }
 
   std::tuple<llvm::Value *, llvm::Value *> get_spmd_info() override {
-    auto thread_idx = builder->CreateIntrinsic(Intrinsic::amdgcn_workitem_id_x, ArrayRef<llvm::Value *>{});
+    auto thread_idx =
+        builder->CreateIntrinsic(Intrinsic::amdgcn_workitem_id_x, ArrayRef<llvm::Type *>{}, ArrayRef<llvm::Value *>{});
     auto workgroup_dim_ =
         call("__ockl_get_local_size", llvm::ConstantInt::get(llvm::Type::getInt32Ty(*llvm_context), 0));
     auto block_dim = builder->CreateTrunc(workgroup_dim_, llvm::Type::getInt32Ty(*llvm_context));

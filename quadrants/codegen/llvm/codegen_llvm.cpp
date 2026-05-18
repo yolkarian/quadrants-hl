@@ -20,6 +20,7 @@
 #include "quadrants/program/adstack_size_expr_eval.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/AsmParser/Parser.h"
+#include "llvm/Config/llvm-config.h"
 #include "quadrants/codegen/ir_dump.h"
 #include "quadrants/util/environ_config.h"
 #include "quadrants/runtime/llvm/llvm_context_pass.h"
@@ -490,8 +491,11 @@ void TaskCodeGenLLVM::visit(UnaryOpStmt *stmt) {
       llvm_val[stmt] = builder->CreateBitCast(llvm_val[stmt->operand], tlctx->get_data_type(stmt->cast_type));
     }
   } else if (op == UnaryOpType::rsqrt) {
-    llvm::Function *sqrt_fn =
-        llvm::Intrinsic::getOrInsertDeclaration(module.get(), llvm::Intrinsic::sqrt, input->getType());
+#if LLVM_VERSION_MAJOR < 22
+    auto sqrt_fn = llvm::Intrinsic::getDeclaration(module.get(), llvm::Intrinsic::sqrt, input->getType());
+#else
+    auto sqrt_fn = llvm::Intrinsic::getOrInsertDeclaration(module.get(), llvm::Intrinsic::sqrt, input->getType());
+#endif
     auto intermediate = builder->CreateCall(sqrt_fn, input, "sqrt");
     llvm_val[stmt] = builder->CreateFDiv(tlctx->get_constant(stmt->ret_type, 1.0), intermediate);
   } else if (op == UnaryOpType::bit_not) {

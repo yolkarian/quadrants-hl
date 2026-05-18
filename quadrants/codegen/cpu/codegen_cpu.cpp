@@ -251,8 +251,9 @@ void KernelCodeGenCPU::optimize_module(llvm::Module *module) {
   options.GuaranteedTailCallOpt = false;
 
   llvm::StringRef mcpu = llvm::sys::getHostCPUName();
-  std::unique_ptr<llvm::TargetMachine> target_machine(target->createTargetMachine(
-      triple, mcpu.str(), "", options, llvm::Reloc::PIC_, llvm::CodeModel::Small, llvm::CodeGenOptLevel::Aggressive));
+  std::unique_ptr<llvm::TargetMachine> target_machine(
+      target->createTargetMachine(triple.str(), mcpu.str(), "", options, llvm::Reloc::PIC_, llvm::CodeModel::Small,
+                                  llvm::CodeGenOptLevel::Aggressive));
 
   QD_ERROR_UNLESS(target_machine.get(), "Could not allocate target machine!");
 
