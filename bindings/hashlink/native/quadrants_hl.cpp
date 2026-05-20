@@ -18,6 +18,7 @@
 #include "quadrants/program/ndarray.h"
 #include "quadrants/program/program.h"
 #include "quadrants/rhi/arch.h"
+#include "quadrants/util/lang_util.h"
 
 namespace {
 
@@ -144,6 +145,33 @@ quadrants::lang::DataType dtype_from_bridge_id(int dtype) {
       return PrimitiveType::f32;
     case 9:
       return PrimitiveType::f64;
+    default:
+      throw std::runtime_error("Unsupported Quadrants HashLink dtype id: " + std::to_string(dtype));
+  }
+}
+
+PrimitiveTypeID primitive_id_from_bridge_id(int dtype) {
+  switch (dtype) {
+    case 0:
+      return PrimitiveTypeID::i8;
+    case 1:
+      return PrimitiveTypeID::i16;
+    case 2:
+      return PrimitiveTypeID::i32;
+    case 3:
+      return PrimitiveTypeID::i64;
+    case 4:
+      return PrimitiveTypeID::u8;
+    case 5:
+      return PrimitiveTypeID::u16;
+    case 6:
+      return PrimitiveTypeID::u32;
+    case 7:
+      return PrimitiveTypeID::u64;
+    case 8:
+      return PrimitiveTypeID::f32;
+    case 9:
+      return PrimitiveTypeID::f64;
     default:
       throw std::runtime_error("Unsupported Quadrants HashLink dtype id: " + std::to_string(dtype));
   }
@@ -399,6 +427,63 @@ void fill_ndarray_float(QdContextState &state, qd_ndarray *arr, PrimitiveTypeID 
   }
 }
 
+void read_ndarray_bytes(QdContextState &state,
+                        qd_ndarray *arr,
+                        PrimitiveTypeID dtype,
+                        int flat_start,
+                        int count,
+                        vbyte *out,
+                        int out_byte_offset) {
+  Ndarray &array = require_typed_ndarray(state, arr, dtype);
+  if (out == nullptr) {
+    throw std::runtime_error("Quadrants byte read output buffer is null");
+  }
+  if (flat_start < 0) {
+    throw std::runtime_error("Quadrants byte read flat start is negative");
+  }
+  if (count < 0) {
+    throw std::runtime_error("Quadrants byte read count is negative");
+  }
+  if (out_byte_offset < 0) {
+    throw std::runtime_error("Quadrants byte read output byte offset is negative");
+  }
+
+  const std::size_t total = array.get_nelement();
+  const std::size_t start = static_cast<std::size_t>(flat_start);
+  const std::size_t element_count = static_cast<std::size_t>(count);
+  if (start > total || element_count > total - start) {
+    throw std::runtime_error("Quadrants byte read range is out of bounds");
+  }
+
+  state.program->check_adstack_overflow_and_assert();
+  state.program->synchronize();
+
+  const std::size_t element_size = array.get_element_size();
+  if (element_count > std::numeric_limits<std::size_t>::max() / element_size) {
+    throw std::runtime_error("Quadrants byte read size overflows size_t");
+  }
+  const std::size_t byte_count = element_count * element_size;
+  if (byte_count == 0) {
+    return;
+  }
+
+  quadrants::lang::Device::AllocParams alloc_params;
+  alloc_params.host_write = false;
+  alloc_params.host_read = true;
+  alloc_params.size = byte_count;
+  alloc_params.usage = quadrants::lang::AllocUsage::Storage;
+  auto [staging_buf, res] = array.ndarray_alloc_.device->allocate_memory_unique(alloc_params);
+  QD_ASSERT(res == quadrants::lang::RhiResult::success);
+  staging_buf->device->memcpy_internal(staging_buf->get_ptr(), array.ndarray_alloc_.get_ptr(start * element_size),
+                                       byte_count);
+
+  void *mapped{nullptr};
+  QD_ASSERT(staging_buf->device->map(*staging_buf, &mapped) == quadrants::lang::RhiResult::success);
+  QD_ASSERT(mapped != nullptr);
+  std::memcpy(reinterpret_cast<std::uint8_t *>(out) + static_cast<std::size_t>(out_byte_offset), mapped, byte_count);
+  staging_buf->device->unmap(*staging_buf);
+}
+
 void set_scalar_arg(LaunchContextBuilder &launch_context, int arg_id, DescriptorDType dtype, vdynamic *value) {
   switch (dtype) {
     case DescriptorDType::i8:
@@ -426,6 +511,15 @@ void set_scalar_arg(LaunchContextBuilder &launch_context, int arg_id, Descriptor
 }
 
 }  // namespace
+
+HL_PRIM void HL_NAME(runtime_set_lib_dir)(vbyte *path) {
+  guard([&]() {
+    if (path == nullptr) {
+      throw std::runtime_error("Quadrants runtime library directory is null");
+    }
+    quadrants::lang::compiled_lib_dir = std::string(reinterpret_cast<const char *>(path));
+  });
+}
 
 HL_PRIM qd_context *HL_NAME(context_create)(int arch) {
   return guard([&]() -> qd_context * {
@@ -638,11 +732,35 @@ HL_PRIM void HL_NAME(ndarray_fill_f32)(qd_context *ctx, qd_ndarray *arr, double 
   guard([&]() { fill_ndarray_float(require_context(ctx), arr, PrimitiveTypeID::f32, value); });
 }
 
+HL_PRIM void HL_NAME(ndarray_read_bytes)(qd_context *ctx,
+                                         qd_ndarray *arr,
+                                         int dtype,
+                                         int flat_start,
+                                         int count,
+                                         vbyte *out,
+                                         int out_byte_offset) {
+  guard([&]() {
+    read_ndarray_bytes(require_context(ctx), arr, primitive_id_from_bridge_id(dtype), flat_start, count, out,
+                       out_byte_offset);
+  });
+}
+
 HL_PRIM double HL_NAME(ndarray_read_f32)(qd_context *ctx, qd_ndarray *arr, int flat_index) {
   return guard([&]() -> double {
     QdContextState &state = require_context(ctx);
     Ndarray &array = require_typed_ndarray(state, arr, PrimitiveTypeID::f32);
     return array.read_float(flat_to_indices(array, flat_index));
+  });
+}
+
+HL_PRIM void HL_NAME(ndarray_read_f32_bytes)(qd_context *ctx,
+                                             qd_ndarray *arr,
+                                             int flat_start,
+                                             int count,
+                                             vbyte *out,
+                                             int out_byte_offset) {
+  guard([&]() {
+    read_ndarray_bytes(require_context(ctx), arr, PrimitiveTypeID::f32, flat_start, count, out, out_byte_offset);
   });
 }
 
@@ -738,6 +856,8 @@ HL_PRIM void HL_NAME(kernel_close)(qd_kernel *kernel) {
   guard([&]() { release_kernel_handle(kernel); });
 }
 
+DEFINE_PRIM(_VOID, runtime_set_lib_dir, _BYTES);
+
 DEFINE_PRIM(_QD_CONTEXT, context_create, _I32);
 DEFINE_PRIM(_VOID, context_sync, _QD_CONTEXT);
 DEFINE_PRIM(_VOID, context_close, _QD_CONTEXT);
@@ -768,7 +888,9 @@ DEFINE_PRIM(_VOID, ndarray_fill_u64, _QD_CONTEXT _QD_NDARRAY _I64);
 DEFINE_PRIM(_I64, ndarray_read_u64, _QD_CONTEXT _QD_NDARRAY _I32);
 DEFINE_PRIM(_VOID, ndarray_write_u64, _QD_CONTEXT _QD_NDARRAY _I32 _I64);
 DEFINE_PRIM(_VOID, ndarray_fill_f32, _QD_CONTEXT _QD_NDARRAY _F64);
+DEFINE_PRIM(_VOID, ndarray_read_bytes, _QD_CONTEXT _QD_NDARRAY _I32 _I32 _I32 _BYTES _I32);
 DEFINE_PRIM(_F64, ndarray_read_f32, _QD_CONTEXT _QD_NDARRAY _I32);
+DEFINE_PRIM(_VOID, ndarray_read_f32_bytes, _QD_CONTEXT _QD_NDARRAY _I32 _I32 _BYTES _I32);
 DEFINE_PRIM(_VOID, ndarray_write_f32, _QD_CONTEXT _QD_NDARRAY _I32 _F64);
 DEFINE_PRIM(_VOID, ndarray_fill_f64, _QD_CONTEXT _QD_NDARRAY _F64);
 DEFINE_PRIM(_F64, ndarray_read_f64, _QD_CONTEXT _QD_NDARRAY _I32);

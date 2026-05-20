@@ -69,9 +69,9 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(USE_LLD "Use lld (from llvm) linker" OFF)
 option(USE_MOLD "Use mold (A Modern Linker)" OFF)
-option(QD_WITH_BACKTRACE "Use backward-cpp to print out C++ stack trace upon failure" OFF)  # wheel-tag: bt
+option(QD_WITH_BACKTRACE "Use backward-cpp to print out C++ stack trace upon failure" OFF)
 option(QD_GENERATE_PDB "Generate Program Database (PDB) files (will make compilation uncacheable)" OFF)
-option(QD_WITH_LTO "Enable Link Time Optimization (LTO) (affects Windows + MSVC for now)" OFF)  # wheel-tag: lto
+option(QD_WITH_LTO "Enable Link Time Optimization (LTO) (affects Windows + MSVC for now)" OFF)
 
 if((LINUX OR APPLE) AND NOT IOS)
       # (penguinliong) Not compatible with -fembed-bitcode. Not sure where it
@@ -115,13 +115,8 @@ if (WIN32)
   message("CMAKE_MSVC_RUNTIME_LIBRARY: ${CMAKE_MSVC_RUNTIME_LIBRARY}")
 endif()
 
-# No support of Python for any case quadrants is integrated
-# in another project as submodule.
-set(PYBIND11_VERSION "2.13.6" CACHE STRING "Pybind11 version to use")
-option(QD_WITH_PYTHON "Build with Python language binding" ON)
-if (QD_WITH_PYTHON)
-    include(cmake/PythonNumpyPybind11.cmake)
-endif()
+option(QD_WITH_HASHLINK "Build the HashLink native bridge (quadrants.hdll)" OFF)
+set(QD_HASHLINK_ROOT "${CMAKE_SOURCE_DIR}/../hashlink" CACHE PATH "Path to a HashLink checkout or install")
 
 if (QD_WITH_BACKTRACE)
   add_subdirectory(external/backward_cpp)
@@ -131,10 +126,9 @@ if (QD_DISTRIBUTED_COMPILE)
     include(cmake/Distributed.cmake)
 endif()
 
+include(CTest)
 include(cmake/QuadrantsCXXFlags.cmake)
 include(cmake/QuadrantsCore.cmake)
-option(QD_WITH_HASHLINK "Build the HashLink native bridge (quadrants.hdll)" OFF)
-set(QD_HASHLINK_ROOT "${CMAKE_SOURCE_DIR}/../hashlink" CACHE PATH "Path to a HashLink checkout or install")
 if (QD_WITH_HASHLINK)
   add_subdirectory(bindings/hashlink/native)
 endif()
@@ -206,7 +200,7 @@ endif()
 configure_file(quadrants/common/version.h.in ${CMAKE_SOURCE_DIR}/quadrants/common/version.h)
 configure_file(quadrants/common/commit_hash.h.in ${CMAKE_SOURCE_DIR}/quadrants/common/commit_hash.h)
 
-option(QD_WITH_GRAPHVIZ "generate dependency graphs between targets" OFF)  # wheel-tag: viz
+option(QD_WITH_GRAPHVIZ "generate dependency graphs between targets" OFF)
 if (QD_WITH_GRAPHVIZ)
   set(GRAPHVIZ_GRAPH_NAME "ti_targets")
   add_custom_target(graphviz ALL

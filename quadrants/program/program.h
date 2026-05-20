@@ -111,7 +111,7 @@ class QD_DLL_EXPORT Program {
   // Drain the queue and raise on any pending user-visible assert (e.g. adstack overflow). Bound to `qd.sync()`.
   void synchronize_and_assert();
 
-  // Per-Quadrants-Python-entry poll for any pending adstack overflow signal. Unlike `synchronize_and_assert`
+  // Per-host-entry poll for any pending adstack overflow signal. Unlike `synchronize_and_assert`
   // this does NOT drain the queue: it only reads the pinned-host overflow flag (cheap host atomic load) and
   // raises if set. Wired at every host-read entry point (`Ndarray::read`, `SNodeRwAccessorsBank` reads via
   // `Program::launch_kernel`'s built-in poll) so a DLPack-bypass overflow surfaces within one entry of the
@@ -199,7 +199,7 @@ class QD_DLL_EXPORT Program {
 
   static int default_block_dim(const CompileConfig &config);
 
-  // Note this method is specific to LlvmProgramImpl, but we keep it here since it's exposed to python.
+  // Note this method is specific to LlvmProgramImpl, but we keep it here for host bindings.
   void print_memory_profiler_info();
 
   // Returns zero if the SNode is statically allocated

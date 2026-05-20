@@ -1,99 +1,52 @@
-# What is Quadrants?
+# Quadrants
 
-Quadrants is a high-performance multi-platform compiler for physics simulation being continuously developed by [Genesis AI](https://genesis-ai.company/).
+Quadrants is a high-performance multi-platform compiler for physics simulation workloads. It now targets the Haxe/HashLink ecosystem through a native HashLink library (`quadrants.hdll`) plus haxelib-compatible Haxe sources.
 
-It is designed for large-scale physics simulation and robotics workloads. It compiles Python code into highly optimized parallel kernels that run on:
+Supported native backends include:
 
-* NVIDIA GPUs (CUDA)
-* Vulkan-compatible GPUs (SPIR-V)
-* Apple Metal GPUs
-* AMD GPUs (ROCm HIP)
-* x86 and ARM64 CPUs
+- x86_64 and ARM64 CPU through LLVM
+- NVIDIA GPUs through CUDA
+- Vulkan-compatible GPUs through SPIR-V
+- Apple Metal GPUs
+- AMD GPUs through ROCm/HIP
 
-## The origin
+## Haxe/HashLink quick start
 
-The quadrants project was originally forked from [Taichi](https://github.com/taichi-dev/taichi) in June 2025. As the original Taichi is no longer being maintained and the codebase evolved into a fully independent compiler with its own direction and long-term roadmap, we decided to give it a name that reflects both its roots and its new identity. The name _Quadrants_ is inspired by the Chinese saying:
+Prerequisites:
 
-> 太极生两仪，两仪生四象
->
-> The Supreme Polarity (Taichi) gives rise to the Two Modes (Ying & Yang), which in turn give rise to the Four Forms (_Quadrants_).
+- CMake and a C++17 compiler
+- LLVM/Clang 22 or newer with `LLVMConfig.cmake`
+- `haxe` and `hl` on `PATH`
+- a HashLink checkout or install containing `src/hl.h` or `include/hl.h` and `libhl`
 
-_Quadrants_ captures the idea of progression originated from taichi — built on the same foundation, evolving in its own direction while acknowledging its roots.
-This project is now fully independent and does not aim to maintain backward compatibility with upstream Taichi.
+Build and install the HashLink component:
 
-## How Quadrants differs from upstream Taichi
-
-While the repository still resembles upstream in structure, major changes include:
-
-### Platform support
-
-* LLVM 22, ARM (aarch64) support
-
-### CI
-
-* Kernel-level [code coverage](https://genesis-embodied-ai.github.io/quadrants/user_guide/kernel_coverage.html) — device-side branch coverage in standard `coverage.py` format, integrated with pytest-cov
-* AI-driven checks for line wrapping, deleted comments, test coverage, and feature factorization
-
-### Structural improvements
-
-* `dataclasses.dataclass` structs — work with ndarrays and fields, nestable, passable to `qd.func`, zero kernel-runtime overhead
-* [`qd.Tensor`](https://genesis-embodied-ai.github.io/quadrants/user_guide/tensor.html) — unified API over fields and ndarrays with per-tensor layout control, pickle support, and a `backend=` switch
-* [`BufferView`](https://genesis-embodied-ai.github.io/quadrants/user_guide/buffer_view.html) — safe sub-range ndarray access with bounds checking in debug mode
-
-### Removed components
-
-To focus the compiler and reduce maintenance burden, we removed: GUI/GGUI, C-API, AOT, DX11/DX12, iOS/Android, OpenGL/GLES, argpack, CLI.
-
-### Performance
-
-* **Reduced launch latency** — ndarray CPU performance improved **4.5×**; ndarray GPU performance went from 11× slower than fields to ~30% slower (5090 GPU, Genesis benchmark)
-* **[Fastcache](https://genesis-embodied-ai.github.io/quadrants/user_guide/fastcache.html)** — opt-in source-level cache (`@qd.kernel(fastcache=True)`) that bypasses front-end AST parsing; reduces warm-cache kernel load from **7.2 s → 0.3 s** on Genesis benchmarks
-* **[GPU Graphs](https://genesis-embodied-ai.github.io/quadrants/user_guide/graph.html)** — `@qd.kernel(graph=True)` captures kernel sequences into a graph; `qd.graph_do_while` runs GPU-side iteration loops (hardware conditional nodes on CUDA SM 9.0+)
-* **[perf_dispatch](https://genesis-embodied-ai.github.io/quadrants/user_guide/perf_dispatch.html)** — auto-benchmarks multiple kernel implementations and selects the fastest at runtime
-* **[Zero-copy interop](https://genesis-embodied-ai.github.io/quadrants/user_guide/interop.html)** — `to_torch(copy=False)` / `to_numpy(copy=False)` via DLPack on CUDA, CPU, AMDGPU, and Metal; direct torch tensor pass-through into kernels
-
-### SIMT primitives
-
-* **[Tile16x16](https://genesis-embodied-ai.github.io/quadrants/user_guide/tile16.html)** — register-resident 16×16 matrix tiles with Cholesky, triangular solve, and rank-1 updates; 5× faster than shared-memory baselines on blocked linear algebra
-* **[Subgroup ops](https://genesis-embodied-ai.github.io/quadrants/user_guide/subgroup.html)** — cross-platform `shuffle`, `shuffle_down`, `reduce_add`, `reduce_all_add` across CUDA, AMDGPU, Metal and Vulkan
-
-### Autodiff
-
-* [**Autodiff with dynamic loops**](https://genesis-embodied-ai.github.io/quadrants/user_guide/autodiff.html#autodiff-with-dynamic-loops) — computes the gradient of any kernel transparently using reverse-mode differentiation and runtime-based memory allocation
-* Forward-mode AD, custom gradients (`@qd.ad.grad_replaced`), `qd.ad.Tape`
-
-
-### Debugging & development
-
-* **[Python backend](https://genesis-embodied-ai.github.io/quadrants/user_guide/python_backend.html)** — `qd.init(qd.python)` interprets kernels as plain Python so they can be stepped through in a standard Python debugger
-
----
-
-# Installation
-## Prerequisites
-- Python 3.10-3.13
-- Mac OS 14, 15, Windows, or Ubuntu 22.04-24.04 or compatible
-- ROCm 5.2 or newer for AMD GPU support
-
-## Procedure
-```
-pip install quadrants
+```bash
+cmake -S . -B build/hashlink \
+  -DQD_WITH_HASHLINK=ON \
+  -DQD_HASHLINK_ROOT=/path/to/hashlink \
+  -DQD_WITH_LLVM=ON
+cmake --build build/hashlink --target quadrants.hdll generate_llvm_runtime_x64
+cmake --install build/hashlink --component hashlink --prefix build/install
 ```
 
-(For how to build from source, see our CI build scripts, e.g. [linux build scripts](.github/workflows/scripts_new/linux_x86/) )
+Register the Haxe package and run the smoke test:
 
-# Documentation
+```bash
+haxelib dev quadrants "$PWD/build/install/share/quadrants/hashlink"
+haxe -lib quadrants -cp tests/hashlink -main Smoke -hl build/hashlink-smoke.hl
+hl build/hashlink-smoke.hl
+```
 
-- [docs](https://genesis-embodied-ai.github.io/quadrants/user_guide/index.html)
-- [API reference](https://genesis-embodied-ai.github.io/quadrants/autoapi/index.html)
+The installed haxelib package is rooted at `share/quadrants/hashlink` and contains `quadrants.hdll`, Haxe sources under `haxe/`, and runtime bitcode under `runtime/`.
 
-# Something is broken!
+## Documentation
 
-- [Create an issue](https://github.com/Genesis-Embodied-AI/quadrants/issues/new/choose)
+- [Getting started with Haxe/HashLink](docs/source/user_guide/getting_started.md)
+- [Haxe/HashLink integration](docs/source/user_guide/hashlink.md)
+- [Haxe/HashLink public API](docs/source/user_guide/haxe_api.md)
+- [User guide](https://genesis-embodied-ai.github.io/quadrants/user_guide/index.html)
 
-# Acknowledgements
+## Origin
 
-Quadrants stands on the shoulders of the original [Taichi](https://github.com/taichi-dev/taichi) project, built with care and vision by many contributors over the years.
-For the full list of contributors and credits, see the [original Taichi repository](https://github.com/taichi-dev/taichi).
-
-We are grateful for that foundation.
+Quadrants was originally forked from [Taichi](https://github.com/taichi-dev/taichi) in June 2025 and is now an independent compiler project.

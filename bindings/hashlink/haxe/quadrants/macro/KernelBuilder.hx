@@ -117,6 +117,7 @@ private class DescriptorBuilder {
   static inline var EXPR_UNARY_NEG = 38;
   static inline var EXPR_BIT_NOT = 39;
   static inline var EXPR_CONST_F64 = 40;
+  static inline var EXPR_ATOMIC_ADD = 41;
 
   static inline var STMT_LOCAL_ALLOC = 1;
   static inline var STMT_STORE_INDEX = 2;
@@ -354,7 +355,7 @@ private class DescriptorBuilder {
         }
         encodeExpression(rhs, writer);
       case EConst(CIdent(name)):
-        var localId = ensureLocal(name, lhs.pos, true, DTYPE_I32);
+        var localId = ensureLocalForAssignment(name, lhs.pos);
         writer.u8(STMT_ASSIGN);
         writer.u8(EXPR_LOCAL_LOAD);
         writer.u32(localId);
@@ -512,6 +513,10 @@ private class DescriptorBuilder {
 
   function encodeCall(callee:Expr, args:Array<Expr>, writer:ByteWriter, pos:Position):Void {
     var name = callName(callee, pos);
+    if (name == "atomicAdd") {
+      encodeAtomicAdd(args, writer, pos);
+      return;
+    }
     var opcode = switch (name) {
       case "abs": EXPR_UNARY_ABS;
       case "sin": EXPR_SIN;
@@ -534,6 +539,25 @@ private class DescriptorBuilder {
     for (arg in args) {
       encodeExpression(arg, writer);
     }
+  }
+
+  function encodeAtomicAdd(args:Array<Expr>, writer:ByteWriter, pos:Position):Void {
+    if (args.length != 2) {
+      Context.error("Quadrants HashLink function atomicAdd expects 2 argument(s)", pos);
+    }
+    switch (strip(args[0]).expr) {
+      case EArray(_, _):
+      default:
+        Context.error("Quadrants HashLink atomicAdd target must be an ndarray element", args[0].pos);
+    }
+    var access = collectArrayAccess(args[0]);
+    writer.u8(EXPR_ATOMIC_ADD);
+    encodeArrayBase(access.base, writer, access.indices.length);
+    writer.u32(access.indices.length);
+    for (index in access.indices) {
+      encodeExpression(index, writer);
+    }
+    encodeExpression(args[1], writer);
   }
 
   function callName(callee:Expr, pos:Position):String {
@@ -582,6 +606,14 @@ private class DescriptorBuilder {
     localIds[name] = id;
     locals.push({name: name, allocate: allocate, dtype: dtype});
     return id;
+  }
+
+  function ensureLocalForAssignment(name:String, pos:Position):Int {
+    var existing = localIds.get(name);
+    if (existing != null) {
+      return existing;
+    }
+    return ensureLocal(name, pos, true, DTYPE_I32);
   }
 
   function statementsOf(expression:Expr):Array<Expr> {

@@ -198,10 +198,10 @@ MetalPipeline *MetalPipeline::create_compute_pipeline(const MetalDevice &device,
       // `MetalDevice::create_pipeline`, which is `noexcept` and only catches
       // `std::exception`; `std::string` is not derived from it, so the throw
       // would cross the `noexcept` boundary and trip `std::terminate`,
-      // replacing the existing clean `RhiResult::error -> Python RuntimeError`
+      // replacing the existing clean `RhiResult::error -> host RuntimeError`
       // translation path with a fatal process abort. The detailed message above
       // is logged at warn level; the caller's `runtime.cpp:298 QD_ERROR_IF(res
-      // != success, ...)` then raises the kernel-name-bearing Python error.
+      // != success, ...)` then raises the kernel-name-bearing host error.
       QD_WARN("[metal_device.mm] {}", msgbuf.data());
       return nullptr;
     }
@@ -1472,7 +1472,7 @@ RhiResult MetalDevice::create_pipeline(Pipeline **out_pipeline,
   // logged via `RHI_LOG_ERROR` inside (examples: translator-internal MSL
   // errors, `XPC_ERROR_CONNECTION_INTERRUPTED` from the XPC-backed MSL
   // service). Propagate the failure as an `RhiResult::error` so the caller
-  // surfaces it as a Python-level exception instead of launching with a null
+  // surfaces it as a host-level exception instead of launching with a null
   // pipeline.
   if (*out_pipeline == nullptr) {
     return RhiResult::error;
@@ -1659,7 +1659,7 @@ MTLLibrary_id MetalDevice::get_mtl_library(const std::string &source) const {
     }
     // QD_WARN rather than QD_ERROR: see `create_compute_pipeline` for the
     // noexcept-boundary rationale. Caller converts the nullptr return to a
-    // `RhiResult::error` which then surfaces as a Python `RuntimeError`.
+    // `RhiResult::error` which then surfaces as a host `RuntimeError`.
     QD_WARN("[metal_device.mm] {}", msgbuf.data());
     return nil;
   }

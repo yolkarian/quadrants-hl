@@ -136,7 +136,7 @@ class TaskCodeGenCPU : public TaskCodeGenLLVM {
                                           "bls_buffer", nullptr, llvm::GlobalVariable::LocalExecTLSModel, 0);
     /* module->getOrInsertGlobal("bls_buffer", type);
     bls_buffer = module->getNamedGlobal("bls_buffer");
-    bls_buffer->setAlignment(llvm::MaybeAlign(8));*/ // TODO(changyu): Fix JIT session error: Symbols not found: [ __emutls_get_address ] in python 3.10
+    bls_buffer->setAlignment(llvm::MaybeAlign(8));*/ // TODO(changyu): Fix JIT session error: Symbols not found: [ __emutls_get_address ]
 
     // initialize the variable with an undef value to ensure it is added to the
     // symbol table
@@ -251,9 +251,8 @@ void KernelCodeGenCPU::optimize_module(llvm::Module *module) {
   options.GuaranteedTailCallOpt = false;
 
   llvm::StringRef mcpu = llvm::sys::getHostCPUName();
-  std::unique_ptr<llvm::TargetMachine> target_machine(
-      target->createTargetMachine(triple.str(), mcpu.str(), "", options, llvm::Reloc::PIC_, llvm::CodeModel::Small,
-                                  llvm::CodeGenOptLevel::Aggressive));
+  std::unique_ptr<llvm::TargetMachine> target_machine(target->createTargetMachine(
+      triple, mcpu.str(), "", options, llvm::Reloc::PIC_, llvm::CodeModel::Small, llvm::CodeGenOptLevel::Aggressive));
 
   QD_ERROR_UNLESS(target_machine.get(), "Could not allocate target machine!");
 

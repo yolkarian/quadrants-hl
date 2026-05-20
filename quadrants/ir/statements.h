@@ -999,8 +999,8 @@ class RangeForStmt : public Stmt {
 };
 
 /**
- * A parallel for loop over a SNode, similar to "for i in snode: body"
- * in Python. This statement must be at the top level before offloading.
+ * A parallel for loop over a SNode, similar to a frontend-level SNode iteration.
+ * This statement must be at the top level before offloading.
  */
 class StructForStmt : public Stmt {
  public:

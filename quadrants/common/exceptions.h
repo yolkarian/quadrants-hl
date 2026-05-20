@@ -139,8 +139,7 @@ struct ErrorEmitter {
     if constexpr ((std::is_same_v<std::decay_t<T>, DebugInfo *> ||
                    std::is_same_v<std::decay_t<T>, const DebugInfo *>) &&
                   std::is_base_of_v<QuadrantsError, std::decay_t<E>>) {
-      // Indicates a failed C++ API call from Python side, we should not print
-      // tb here
+      // Indicates a failed host API call, so do not prepend IR traceback here.
       error.msg_ = error_msg;
     } else {
       error.msg_ = p_dbg_info->get_last_tb() + error_msg;

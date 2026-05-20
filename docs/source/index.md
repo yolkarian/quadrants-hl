@@ -1,27 +1,22 @@
 # Quadrants
 
-Quadrants is a high-performance parallel programming framework for GPU and CPU computing. Write Python-like code that compiles to optimized GPU kernels for CUDA, Metal, and Vulkan backends.
+Quadrants is a high-performance compiler for CPU/GPU kernels used from Haxe through HashLink. The public package consists of haxelib-compatible Haxe sources and the native `quadrants.hdll` bridge, executed as HashLink JIT bytecode (`haxe -hl`, then `hl`).
 
-```python
-import quadrants as qd
+```haxe
+import quadrants.Context;
+import quadrants.Kernel;
+import quadrants.Types.Arch;
 
-qd.init(arch=qd.gpu)
+var ctx = new Context(Arch.Cpu);
+var a = ctx.ndarrayI32([4]);
+var out = ctx.ndarrayI32([4]);
 
-@qd.kernel
-def hello(a: qd.types.NDArray[qd.i32, 1]) -> None:
-    for i in range(10):
-        a[i] = i * 2
-
-a = qd.ndarray(qd.i32, (10,))
-hello(a)
+final k = Kernel.build(ctx, macro (a, out) -> {
+  for (i in 0...4) {
+    out[i] = a[i] * 2;
+  }
+});
 ```
-
-## Features
-
-- **Simple**: annotate Python functions with `@qd.kernel` to run on GPU
-- **Fast**: automatic parallelization of top-level for loops across GPU threads
-- **Portable**: supports CUDA, Metal, AMD, and Vulkan backends
-- **Flexible**: ndarrays, fields, structs, atomics, shared memory
 
 ```{toctree}
 :caption: Quadrants

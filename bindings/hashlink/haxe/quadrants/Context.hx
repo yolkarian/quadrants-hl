@@ -9,6 +9,7 @@ class Context {
   var closed:Bool = false;
 
   public function new(arch:Arch = Cpu) {
+    Native.ensureConfigured();
     handle = Native.context_create(arch);
   }
 

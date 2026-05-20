@@ -186,7 +186,7 @@ class MakeAdjoint : public ADTransform {
   // plain alloca overwritten each iteration, so reading `stmt` from a reversed dynamic loop would use the
   // last-iteration value regardless of which reverse iteration is running. This helper walks the value-tree at
   // IR-transform time and asserts the invariant. It covers the formula-reads-forward-stmt half of the per-op
-  // classification check; the missing-from-unary_collections half is covered by a Python-side audit of the
+  // classification check; the missing-from-unary_collections half is covered by a frontend-side audit of the
   // unary_collections set.
   void accumulate_unary_operand_checked(UnaryOpStmt *stmt, Stmt *value) {
     if (NonLinearOps::unary_collections.find(stmt->op_type) != NonLinearOps::unary_collections.end()) {

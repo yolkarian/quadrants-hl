@@ -27,7 +27,7 @@ struct CudaKernelNodeParams {
 // Mirrors CUDA driver API CUgraphNodeParams / CUDA_CONDITIONAL_NODE_PARAMS.
 // We define our own copy because Quadrants loads the CUDA driver dynamically
 // rather than linking against it, so we don't have access to those headers.
-// Field order verified against cuda-python bindings (handle, type, size,
+// Field order verified against CUDA driver bindings (handle, type, size,
 // phGraph_out, ctx). Introduced in CUDA 12.4; layout stable through 13.2+.
 //
 // Used to add the conditional while node via cuGraphAddNode. Normal kernel

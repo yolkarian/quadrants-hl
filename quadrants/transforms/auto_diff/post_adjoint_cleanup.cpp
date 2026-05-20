@@ -312,7 +312,7 @@ class BackupSSA : public BasicStmtVisitor {
 //
 // Within a single straight-line block, multiple `AdStackLoadTopStmt` reads of the same stack with no intervening
 // `AdStackPushStmt` / `AdStackPopStmt` for that stack return the same value, and multiple `AdStackLoadTopAdjStmt`
-// reads are equivalent under the same conditions plus no intervening `AdStackAccAdjointStmt`. After Python-side
+// reads are equivalent under the same conditions plus no intervening `AdStackAccAdjointStmt`. After frontend-side
 // static unrolling collapses an inner loop into straight-line IR, every iteration's read of an outer-loop-invariant
 // adstack value emits a separate LoadTop in the same block; each individual load is cheap (read u64 count + GEP) but
 // unrolled-loop counts of hundreds to thousands inflate PTX size and ptxas register-allocator cost. This pass walks

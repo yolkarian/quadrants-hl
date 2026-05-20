@@ -1,232 +1,96 @@
-# Getting started
+# Getting started with Haxe/HashLink
 
-## Installation
+Quadrants is used from Haxe by compiling your Haxe program to HashLink bytecode (`.hl`) and running it with the HashLink JIT (`hl`). The Haxe macro frontend emits a compact kernel descriptor at Haxe compile time; `quadrants.hdll` compiles and launches that kernel through the Quadrants native runtime at run time.
 
-### Pre-requisites
-- a supported platform (MacOS ARM64, Linux x64, Windows x64), see [Supported systems](./supported_systems.md)
-- a supported Python version installed, see [Supported systems](./supported_systems.md)
-- optionally, a supported GPU, see [Supported systems](./supported_systems.md)
+## Prerequisites
 
-### Procedure
+- `haxe` and `hl` on `PATH`.
+- A built or installed `quadrants.hdll`; see [Haxe/HashLink integration](hashlink.md#build-and-install).
+- Runtime bitcode for JIT backends, usually `runtime_x64.bc` or `runtime_arm64.bc` for `Arch.Cpu`.
+
+## Install-tree quick start
+
+After installing the HashLink component, register the Haxe package:
+
 ```bash
-pip install quadrants
+haxelib dev quadrants "$QD_INSTALL_DIR/share/quadrants/hashlink"
 ```
-### Sanity checking the installation
+
+Create `Main.hx`:
+
+```haxe
+import quadrants.Context;
+import quadrants.Kernel;
+import quadrants.Types.Arch;
+
+class Main {
+  static function main():Void {
+    final n = 16;
+    var ctx = new Context(Arch.Cpu);
+    var input = ctx.ndarrayI32([n]);
+    var output = ctx.ndarrayI32([n]);
+
+    for (i in 0...n) {
+      input.writeI32(i, i + 1);
+      output.writeI32(i, 0);
+    }
+
+    var k = Kernel.build(ctx, macro (input, output, n) -> {
+      for (i in 0...n) {
+        output[i] = input[i] * 2;
+      }
+    });
+
+    k.launch(input, output, n);
+    ctx.sync();
+
+    for (i in 0...n) {
+      if (output.readI32(i) != (i + 1) * 2) {
+        throw 'bad result at $i';
+      }
+    }
+
+    k.close();
+    ctx.close();
+    Sys.println("quadrants hashlink ok");
+  }
+}
+```
+
+Compile to HashLink bytecode and run it with the JIT:
+
 ```bash
-python -c 'import quadrants as qd; qd.init(arch=qd.gpu)'
-```
-(should not show any error messages)
-
-## A first Quadrants kernel
-
-Let's use a linear congruential generator - a pseudo-random number generator - since they are not easily possible for a compiler to optimize out. First, in normal python:
-
-```python
-def lcg_np(B: int, lcg_its: int, a: npt.NDArray) -> None:
-    for i in range(B):
-        x = a[i]
-        for j in range(lcg_its):
-            x = (1664525 * x + 1013904223) % 2147483647
-        a[i] = x
-```
-We are taking in a numpy array, of size B, looping over it. For each value in the array, we run 1000 iterations of LCG, then update the original value.
-
-Let's write out the full code, including creating a numpy array, and timing this method:
-
-```python
-import numpy as np
-import numpy.typing as npt
-import time
-
-
-def lcg_np(B: int, lcg_its: int, a: npt.NDArray) -> None:
-    for i in range(B):
-        x = a[i]
-        for j in range(lcg_its):
-            x = (1664525 * x + 1013904223) % 2147483647
-        a[i] = x
-
-B = 16000
-a = np.ndarray((B,), np.int32)
-
-start = time.time()
-lcg_np(B, 1000, a)
-end = time.time()
-print("elapsed", end - start)
+haxe -lib quadrants -main Main -hl build/main.hl
+hl build/main.hl
 ```
 
-You can find the full code also at [lcg_python.py](../../../python/quadrants/examples/lcg_python.py)
+Expected output:
 
-On a Macbook Air M4, this gives the following output:
 ```text
-# elapsed 5.552601099014282
+quadrants hashlink ok
 ```
 
-Now let's convert it to quadrants
+## Build-tree quick start
 
-Here is the function, written as a Quadrants kernel:
+When using the source tree directly, point the Haxe macro at the bridge and runtime directory while compiling:
 
-```python
-@qd.kernel
-def lcg_ti(B: int, lcg_its: int, a: qd.types.NDArray[qd.i32, 1]) -> None:
-    for i in range(B):
-        x = a[i]
-        for j in range(lcg_its):
-            x = (1664525 * x + 1013904223) % 2147483647
-        a[i] = x
+```bash
+QUADRANTS_HDLL="$QD_BUILD_DIR/quadrants.hdll" \
+QUADRANTS_RUNTIME_DIR="$QD_BUILD_DIR/runtime" \
+haxe -cp bindings/hashlink/haxe -main Main -hl build/main.hl
+QD_LIB_DIR="$QD_BUILD_DIR/runtime" \
+LD_LIBRARY_PATH="$QD_BUILD_DIR:${LD_LIBRARY_PATH:-}" \
+hl build/main.hl
 ```
 
-Yes, it's the same except:
-- added `@qd.kernel` annotation
-- changed type from `npt.NDArray` to `qd.types.NDArray[qd.i32, 1]`
+The same values can also be passed as Haxe defines:
 
-Before we run this we need to import quadrants, and initialize it:
-
-```python
-import quadrants as qd
-
-qd.init(arch=qd.gpu)
-```
-The `arch` parameter lets you choose between `gpu`, `cpu`, `metal`, `cuda`, `vulkan`, `amdgpu`, `x64`, `arm64`.
-- using `qd.gpu` will use the first GPU it finds
-
-We'll also need to create a quadrants ndarray:
-```python
-a = qd.ndarray(qd.i32, (B,))
-```
-By comparison with numpy array:
-- the parameters are reversed
-- we use `qd.i32` instead of `np.int32`
-
-When we time the kernel we have to be careful:
-- running the kernel function `lcg_ti()` starts the kernel
-- ... but it does not wait for it to finish
-
-We'll only wait for it to finish when we access data from the kernel, or we call an explicit synchronization function, like `qd.sync()`. So let's do that:
-```python
-qd.sync()
-end = time.time()
+```bash
+haxe -cp bindings/hashlink/haxe -D quadrants_hdll_path="$QD_BUILD_DIR/quadrants.hdll" -D quadrants_runtime_dir="$QD_BUILD_DIR/runtime" -main Main -hl build/main.hl
 ```
 
-In addition, whilst it looks like we aren't using the gpu before this, in fact we are: when we create the NDArray, the ndarray needs to be created in GPU memory, and again this happens asynchronously. So before calling start we also add qd.sync():
+## Next steps
 
-```python
-qd.sync()
-start = time.time()
-```
-
-The full program then becomes:
-
-```python
-import quadrants as qd
-import time
-
-
-@qd.kernel
-def lcg_ti(B: int, lcg_its: int, a: qd.types.NDArray[qd.i32, 1]) -> None:
-    for i in range(B):
-        x = a[i]
-        for j in range(lcg_its):
-            x = (1664525 * x + 1013904223) % 2147483647
-        a[i] = x
-
-qd.init(arch=qd.gpu)
-
-B = 16000
-a = qd.ndarray(qd.int32, (B,))
-
-qd.sync()
-start = time.time()
-
-lcg_ti(B, 1000, a)
-
-qd.sync()
-end = time.time()
-print("elapsed", end - start)
-```
-
-When run on a Macbook Air M4, the output is something like:
-```text
-# [Quadrants] version 1.8.0, llvm 15.0.7, commit 5afed1c9, osx, python 3.10.16
-# [Quadrants] Starting on arch=metal
-# elapsed 0.04660296440124512
-```
-Around 120x faster.
-
-On one of our linux boxes with a 5090 GPU, the results are:
-- numpy: 6.90 seconds
-- quadrants: 0.0199 seconds
-- => 346 times faster
-
-### What does Quadrants do with the kernel function?
-
-- any top level for loops are parallelized across the GPU cores (or CPU, if you run on CPU)
-    - in our case, there will be 16,000 threads
-    - compared to just a single thread in the numpy case
-
-### fields: even faster
-
-Quadrants ndarrays are easy to use, and flexible, but we can increase speed by another ~30% or so (depending on the kernel), by using fields.
-
-The kernel above doesn't load or store data except at the start and end: it's just exercising the GPU ALU. To see the difference between Quadrants ndarray and Quadrants field runtime speed, we need a kernel that does more loads and stores.
-
-We'll do a simple kernel that copies from one tensor to another. To avoid simply measuring the latency to read and write from/to global memory, we'll read and write the same values repeatedly.
-
-```python
-import argparse
-import time
-import quadrants as qd
-
-qd.init(arch=qd.gpu)
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--use-field", action="store_true")
-args = parser.parse_args()
-
-use_field = args.use_field
-if use_field:
-    V = qd.field
-    ParamType = qd.Template
-else:
-    V = qd.ndarray
-    ParamType = qd.types.NDArray[qd.i32, 1]
-
-@qd.kernel
-def copy_memory(N: int, a: ParamType, b: ParamType) -> None:
-    for n in range(N):
-        b[n % 100] = a[n % 100]
-
-N = 20_000
-a = V(qd.i32, (100,))
-b = V(qd.i32, (100,))
-
-# warmup
-copy_memory(N, a, b)
-
-num_its = 1000
-
-qd.sync()
-start = time.time()
-for it in range(num_its):
-    copy_memory(N, a, b)
-qd.sync()
-end = time.time()
-iteration_time = (end - start) / num_its * 1_000_000
-print("iteration time", iteration_time, "us")
-```
-
-Here are the outputs, using a 5090 gpu, on ubuntu:
-```text
-$ python doc/mem_copy.py
-[Quadrants] version 1.8.0, llvm 15.0.4, commit b4755383, linux, python 3.10.15
-[Quadrants] Starting on arch=cuda
-iteration time 29.45709228515625 us
-
-$ python doc/mem_copy.py --use-field
-[Quadrants] version 1.8.0, llvm 15.0.4, commit b4755383, linux, python 3.10.15
-[Quadrants] Starting on arch=cuda
-iteration time 21.44002914428711 us
-```
-=> in this test, fields are around 28% faster than ndarrays.
-
-Technical note: the exact ratio depends on the kernel. In addition it's possible to construct toy examples like this where ndarray appears to be faster than fields, but in many commonly used kernels, such as Genesis func narrow phase kernel, for collisions, we observe fields are around ~30% faster
+- Read [Haxe/HashLink public API](haxe_api.md) for the replacement surface for the old Python binding.
+- Read [Haxe kernel language](kernel_language.md) for the supported kernel DSL subset.
+- Read [Supported systems](supported_systems.md) before enabling CUDA, Vulkan, Metal, or AMDGPU.

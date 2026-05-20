@@ -1,0 +1,12 @@
+{
+  "name": "quadrants",
+  "url": "https://github.com/Genesis-Embodied-AI/quadrants",
+  "license": "Apache",
+  "tags": ["quadrants", "hashlink", "gpu", "dsl"],
+  "description": "Haxe/HashLink bindings for the Quadrants programming language.",
+  "version": "0.0.0",
+  "classPath": "haxe",
+  "releasenote": "Development package for the Quadrants HashLink bridge.",
+  "contributors": ["Quadrants developers"],
+  "dependencies": {}
+}

@@ -1,5 +1,7 @@
 # ./quadrants/runtime/llvm/runtime_module/CMakeLists.txt
 
+set(QD_RUNTIME_BUILD_DIR "${CMAKE_BINARY_DIR}/runtime" CACHE PATH "Build-tree directory for Quadrants runtime bitcode")
+
 function(COMPILE_LLVM_RUNTIME rtm_arch)
     message(STATUS "Compiling LLVM byte code file for arch ${rtm_arch}")
     # The runtime source is split across runtime.cpp + adstack_runtime.cpp + the shared header pair, but compiled as
@@ -16,25 +18,34 @@ function(COMPILE_LLVM_RUNTIME rtm_arch)
     # with "Symbols not found". This flag forces clang to emit inline LL/SC atomic sequences directly in the bitcode
     # instead. It is a no-op on x86 and irrelevant for CUDA/GPU paths. The alternative (registering those symbols with
     # the JIT linker) would be far more complex and fragile.
+    set(_runtime_output "${QD_RUNTIME_BUILD_DIR}/runtime_${rtm_arch}.bc")
     add_custom_target(
         "generate_llvm_runtime_${rtm_arch}"
-        COMMAND ${CLANG_EXECUTABLE} ${CLANG_OSX_FLAGS} -c runtime.cpp -o "runtime_${rtm_arch}.bc" -fno-exceptions -emit-llvm -std=c++17 -mno-outline-atomics -D "ARCH_${rtm_arch}" -I ${PROJECT_SOURCE_DIR};
-        # TODO, it's better to avoid polluting the source dir, keep in build
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${QD_RUNTIME_BUILD_DIR}"
+        COMMAND ${CLANG_EXECUTABLE} ${CLANG_OSX_FLAGS} -c runtime.cpp -o "${_runtime_output}" -fno-exceptions -emit-llvm -std=c++17 -mno-outline-atomics -D "ARCH_${rtm_arch}" -I ${PROJECT_SOURCE_DIR}
+        BYPRODUCTS "${_runtime_output}"
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     )
     add_dependencies(${CORE_LIBRARY_NAME} "generate_llvm_runtime_${rtm_arch}")
-    install(FILES "${CMAKE_SOURCE_DIR}/quadrants/runtime/llvm/runtime_module/runtime_${arch}.bc" DESTINATION ${CMAKE_INSTALL_PREFIX}/python/quadrants/_lib/runtime)
+    install(FILES "${_runtime_output}"
+            DESTINATION ${QD_RUNTIME_INSTALL_DIR}
+            COMPONENT runtime)
 
 endfunction()
 
 function(COMPILE_CUSTOM_CUDA_LIBRARY cuda_path)
+    set(_cuda_runtime_output "${QD_RUNTIME_BUILD_DIR}/cuda_runtime-cuda-nvptx64-nvidia-cuda-sm_60.bc")
     add_custom_target(
         "generate_cuda_library"
-        COMMAND ${CLANG_EXECUTABLE} -c cuda_runtime.cu --cuda-gpu-arch=sm_60 -emit-llvm -std=c++17 --no-cuda-version-check -nocudalib --cuda-path=${cuda_path}
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${QD_RUNTIME_BUILD_DIR}"
+        COMMAND ${CLANG_EXECUTABLE} -c cuda_runtime.cu -o "${_cuda_runtime_output}" --cuda-gpu-arch=sm_60 -emit-llvm -std=c++17 --no-cuda-version-check -nocudalib --cuda-path=${cuda_path}
+        BYPRODUCTS "${_cuda_runtime_output}"
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     )
     add_dependencies(${CORE_LIBRARY_NAME} "generate_cuda_library")
-    install(FILES "${CMAKE_SOURCE_DIR}/quadrants/runtime/llvm/runtime_module/cuda_runtime-cuda-nvptx64-nvidia-cuda-sm_60.bc" DESTINATION ${CMAKE_INSTALL_PREFIX}/python/quadrants/_lib/runtime)
+    install(FILES "${_cuda_runtime_output}"
+            DESTINATION ${QD_RUNTIME_INSTALL_DIR}
+            COMPONENT runtime)
 
 endfunction()
 

@@ -308,12 +308,11 @@ void VulkanDeviceCreator::create_instance(uint32_t vk_api_version, bool manual_c
   // runs on every re-init. If we let the request pass through unchanged on the reuse path, the cap is
   // set to `true` every subsequent cycle even when the layer is not actually loaded on the cached
   // instance (the only cycle where the layer-load flip happens is the very first, which is also the
-  // only cycle where a fresh `vkCreateInstance` runs). Users observed this as `test_overflow.py`
-  // passing on the first parametrization and failing on every subsequent one in the same pytest
-  // session: `DebugPrintf`-ext-imported shaders compile fine, but the validation layer that would
-  // route those messages to stdout was never loaded, so the overflow-detected strings never appear in
-  // `capfd`. Running the check here keeps the flag consistent across re-inits; re-running on every
-  // call is cheap (it enumerates instance layers, ~microseconds).
+  // only cycle where a fresh `vkCreateInstance` runs). Users observed this as overflow diagnostics
+  // passing on the first parametrization and failing on later ones in the same host process:
+  // `DebugPrintf`-ext-imported shaders compile fine, but the validation layer that would route those
+  // messages to stdout was never loaded. Running the check here keeps the flag consistent across re-inits;
+  // re-running on every call is cheap (it enumerates instance layers, ~microseconds).
   if (params_.enable_validation_layer && !check_validation_layer_support()) {
     RHI_LOG_ERROR(
         "Validation layers requested but not available, turning off... "

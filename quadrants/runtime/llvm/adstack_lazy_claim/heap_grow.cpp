@@ -296,7 +296,7 @@ void LlvmRuntimeExecutor::check_adstack_overflow() {
   }
   throw QuadrantsAssertionError(
       "Adstack overflow: a reverse-mode autodiff kernel pushed more elements "
-      "than the adstack capacity allows. Raised at the next Quadrants Python "
+      "than the adstack capacity allows. Raised at the next host "
       "entry rather than at the offending kernel launch.\n" +
       diagnostic);
 }

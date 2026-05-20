@@ -20,16 +20,6 @@
 
 namespace quadrants {
 
-std::string python_package_dir;
-
-std::string get_python_package_dir() {
-  return python_package_dir;
-}
-
-void set_python_package_dir(const std::string &dir) {
-  python_package_dir = dir;
-}
-
 std::string get_repo_dir() {
 #if defined(QD_PLATFORM_WINDOWS)
   return "C:/quadrants_cache/";

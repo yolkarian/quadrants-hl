@@ -4,7 +4,34 @@ abstract QContext(hl.Abstract<"qd_context">) {}
 abstract QKernel(hl.Abstract<"qd_kernel">) {}
 abstract QNdarray(hl.Abstract<"qd_ndarray">) {}
 
+@:build(quadrants.macro.NativeLibrary.build())
 class Native {
+  static var configured = false;
+  static final packagedRuntimeLibDir:String = quadrants.macro.NativeLibrary.runtimeLibDir();
+
+  public static function ensureConfigured():Void {
+    if (configured) {
+      return;
+    }
+    configured = true;
+
+    var runtimeLibDir = Sys.getEnv("QD_LIB_DIR");
+    if (runtimeLibDir == null || runtimeLibDir.length == 0) {
+      runtimeLibDir = Sys.getEnv("QUADRANTS_RUNTIME_DIR");
+    }
+    if (runtimeLibDir == null || runtimeLibDir.length == 0) {
+      runtimeLibDir = packagedRuntimeLibDir;
+    }
+    if (runtimeLibDir != null && runtimeLibDir.length > 0) {
+      @:privateAccess runtime_set_lib_dir(runtimeLibDir.toUtf8());
+    }
+  }
+
+  @:hlNative("quadrants", "runtime_set_lib_dir")
+  static function runtime_set_lib_dir(path:hl.Bytes):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
   @:hlNative("quadrants", "context_create")
   public static function context_create(arch:Int):QContext {
     throw "Quadrants HashLink native bridge is not loaded";
@@ -150,8 +177,18 @@ class Native {
     throw "Quadrants HashLink native bridge is not loaded";
   }
 
+  @:hlNative("quadrants", "ndarray_read_bytes")
+  public static function ndarray_read_bytes(ctx:QContext, arr:QNdarray, dtype:Int, flatStart:Int, count:Int, out:hl.Bytes, outByteOffset:Int):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
   @:hlNative("quadrants", "ndarray_read_f32")
   public static function ndarray_read_f32(ctx:QContext, arr:QNdarray, flatIndex:Int):Float {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "ndarray_read_f32_bytes")
+  public static function ndarray_read_f32_bytes(ctx:QContext, arr:QNdarray, flatStart:Int, count:Int, out:hl.Bytes, outByteOffset:Int):Void {
     throw "Quadrants HashLink native bridge is not loaded";
   }
 

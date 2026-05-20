@@ -17,8 +17,7 @@ bool is_cuda_api_available() {
     // When trying to run C-API tests (now removed), trying to use cuda would
     // segfault when no cuda devices available. I tried counting the number of
     // devices at this point of the code, which fixed that segfault, but broke
-    // cuda in wheels built in manylinux. Strangely, cuda worked on wheels built
-    // on Ubuntu 24.04, but not on manylinux.
+    // CUDA availability in relocatable Linux builds.
     return instance.detected();
   } catch (const std::exception &e) {
     std::cerr << "Error occurred while checking CUDA availability: " << e.what() << std::endl;

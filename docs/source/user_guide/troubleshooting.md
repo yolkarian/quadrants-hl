@@ -1,24 +1,14 @@
 # Troubleshooting
 
-## In case of crash/seg fault
+For bridge loading, runtime bitcode, and backend setup issues, see [Haxe/HashLink troubleshooting](hashlink.md#troubleshooting). For migration from the old Python binding, see [Haxe/HashLink public API](haxe_api.md).
 
-- run without cache - or clear cache - to see if this resolves the issue
-- if running without cache solves the seg fault, then clear the cache
+## Cache and generated files
 
-To run without cache:
-```python
-qd.init(offline_cache=False, ...)
-```
+Quadrants writes compiler cache data under `~/.cache/quadrants` by default. If a crash only happens after cached kernels are reused, remove the cache and rebuild the Haxe/HashLink program:
 
-See [qd.init options](init_options.md) for what `offline_cache=False` actually does on CUDA (it bypasses both the Quadrants PtxCache and the NVIDIA driver compute cache).
-
-To clear cache:
-- the cache is located by default on linux and mac at `~/.cache/quadrants`
-- simply remove this entire folder:
 ```bash
-rm -Rf ~/.cache/quadrants
+rm -rf ~/.cache/quadrants
+haxe -lib quadrants -main YourMain -hl build/app.hl
 ```
 
-If this doesn't solve the problem, then you'll likely need to log a github issue, providing
-as much information as possible, and crucially a minimum reproducible example, to reproduce
-the seg fault.
+If the problem remains, open an issue with the CMake configure command, Haxe command, `hl` command, backend selected, and a minimal reproducer.

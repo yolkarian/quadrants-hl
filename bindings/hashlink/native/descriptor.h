@@ -73,6 +73,7 @@ enum class ExprOpcode : std::uint8_t {
   unary_neg = 38,
   unary_bit_not = 39,
   const_f64 = 40,
+  atomic_add = 41,
 };
 
 enum class StmtOpcode : std::uint8_t {
@@ -113,6 +114,7 @@ struct ExpressionDescriptor {
   std::unique_ptr<ExpressionDescriptor> lhs;
   std::unique_ptr<ExpressionDescriptor> rhs;
   std::unique_ptr<ExpressionDescriptor> operand;
+  std::unique_ptr<ExpressionDescriptor> value;
 };
 
 struct StatementDescriptor {

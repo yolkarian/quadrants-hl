@@ -20,7 +20,6 @@
 #include "quadrants/program/adstack_size_expr_eval.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/AsmParser/Parser.h"
-#include "llvm/Config/llvm-config.h"
 #include "quadrants/codegen/ir_dump.h"
 #include "quadrants/util/environ_config.h"
 #include "quadrants/runtime/llvm/llvm_context_pass.h"
@@ -491,11 +490,8 @@ void TaskCodeGenLLVM::visit(UnaryOpStmt *stmt) {
       llvm_val[stmt] = builder->CreateBitCast(llvm_val[stmt->operand], tlctx->get_data_type(stmt->cast_type));
     }
   } else if (op == UnaryOpType::rsqrt) {
-#if LLVM_VERSION_MAJOR < 22
-    auto sqrt_fn = llvm::Intrinsic::getDeclaration(module.get(), llvm::Intrinsic::sqrt, input->getType());
-#else
-    auto sqrt_fn = llvm::Intrinsic::getOrInsertDeclaration(module.get(), llvm::Intrinsic::sqrt, input->getType());
-#endif
+    llvm::Function *sqrt_fn =
+        llvm::Intrinsic::getOrInsertDeclaration(module.get(), llvm::Intrinsic::sqrt, input->getType());
     auto intermediate = builder->CreateCall(sqrt_fn, input, "sqrt");
     llvm_val[stmt] = builder->CreateFDiv(tlctx->get_constant(stmt->ret_type, 1.0), intermediate);
   } else if (op == UnaryOpType::bit_not) {
@@ -1955,7 +1951,7 @@ std::string TaskCodeGenLLVM::init_offloaded_task_function(OffloadedStmt *stmt, s
       } else if (auto *struct_for = dynamic_cast<StructForStmt *>(node)) {
         // Defensive: struct_for offloads encode the loop in the OffloadedStmt's `task_type` rather than as a nested
         // `StructForStmt` in the body, so walking the offload body never lands on a `StructForStmt` from production
-        // Python kernels today. Recurse anyway to keep this pre-scan symmetric with `analyze_adstack_static_bounds`'s
+        // frontend kernels today. Recurse anyway to keep this pre-scan symmetric with `analyze_adstack_static_bounds`'s
         // `walk_ir` helper - if a future IR refactor introduces a `StructForStmt` between the offload root and an
         // `AdStackAllocaStmt`, the alloca's `stack_id` would otherwise stay unassigned and the codegen-emitted base
         // computation would index `ad_stack_offsets_` out of bounds.
@@ -2544,7 +2540,7 @@ void TaskCodeGenLLVM::emit_ad_stack_row_claim_llvm() {
   // so the clamp is inert. On overshoot (`claimed_row > capacity - 1`) the codegen also OR-1's the host-visible
   // adstack overflow flag (`runtime->adstack_overflow_flag_dev_ptr`, which the host allocated as pinned UVA-mapped
   // memory in `LlvmRuntimeExecutor::materialize_runtime`) so the host poll surfaces the divergence at the next
-  // Quadrants Python entry. The atomic crosses the host/device boundary cleanly because the slot is in
+  // Quadrants host entry. The atomic crosses the host/device boundary cleanly because the slot is in
   // pinned host memory; required hardware envelope is the same Pascal+ / GFX9+ that the existing pinned-host
   // H2D-async pattern already requires.
   llvm::Value *capacities_base = call("LLVMRuntime_get_adstack_bound_row_capacities", get_runtime());

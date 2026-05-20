@@ -12,7 +12,7 @@ DevicePtr get_device_ptr(quadrants::lang::Program *program, SNode *snode) {
   ti.field() or ti.Vector field with `shape` specified. In other words, we
   assume that the fields are created via ti.root.dense.place() That is, the
   parent of the snode is a dense, and the parent of that node is a root. Note
-  that, GGUI's python-side code creates a staging buffer to construct the VBO,
+  that, the GUI frontend creates a staging buffer to construct the VBO,
   which obeys this assumption. Thus, the only situation where this assumption
   may be violated is for set_image(), because the image isn't part of the VBO.
   Using this assumption, we will compute the offset of this field relative to

@@ -89,9 +89,6 @@ Program::Program(Arch desired_arch)
 #else
     QD_ERROR("This quadrants is not compiled with Vulkan")
 #endif
-  } else if (config.arch == Arch::python) {
-    program_impl_ = nullptr;  // Python backend doesn't have a ProgramImpl
-    return;
   } else {
     QD_NOT_IMPLEMENTED
   }
@@ -184,7 +181,7 @@ void Program::launch_kernel(const CompiledKernelData &compiled_kernel_data, Laun
     program_impl_->check_runtime_error(result_buffer);
   }
   // Free per-launch poll on the pinned-host adstack overflow flag. Catches DLPack-bypass mutations and
-  // pre-pass undersizing within one Quadrants Python entry of the offending launch, including in async
+  // pre-pass undersizing within one host entry of the offending launch, including in async
   // release loops that never call `qd.sync()`. SPIR-V backends' poll stays in `synchronize_and_assert()`
   // because their overflow buffer needs `wait_idle()` to be coherent.
   try {
@@ -217,7 +214,7 @@ static void remove_rw_accessor_cache(SNode *parent_snode, SNodeRwAccessorsBank *
 void Program::destroy_snode_tree(SNodeTree *snode_tree) {
   QD_ASSERT(arch_uses_llvm(compile_config().arch) || compile_config().arch == Arch::vulkan);
 
-  // When accessing a ti.field at Python scope, SNodeRwAccessorsBank creates a Quadrants Kernel to read/write the field
+  // When accessing a field at host scope, SNodeRwAccessorsBank creates a Quadrants Kernel to read/write the field
   // in a JIT manner, which caches the compiled JIT Kernel so as to avoid recompilation when accessing the same field.
 
   // This cache uses the place-SNode's address (SNode*) as the key, which becomes unsafe once the SNodeTree gets
@@ -377,13 +374,6 @@ void Program::finalize() {
     return;
   }
 
-  if (compile_config().arch == Arch::python) {
-    QD_TRACE("Python backend does not require finalization.");
-    finalized_ = true;
-    num_instances_ -= 1;
-    return;
-  }
-
   // Notify the backend that teardown has started before the two teardown syncs below. On LLVM this flips
   // `LlvmProgramImpl::finalizing_` so `check_adstack_overflow()` short-circuits: otherwise a pending overflow flag from
   // a kernel the user never synced explicitly would throw into the Program destructor path.
@@ -451,13 +441,11 @@ Ndarray *Program::create_ndarray(const DataType type,
 }
 
 void Program::delete_ndarray(Ndarray *ndarray) {
-  // [Note] Ndarray memory deallocation Ndarray's memory allocation is managed by Quadrants and Python can control this
-  // via Quadrants indirectly. For example, when an ndarray is GC-ed in Python, it signals Quadrants to free its memory
-  // allocation. But Quadrants will make sure **no pending kernels to be executed needs the ndarray** before it actually
-  // frees the memory. When `ti.reset()` is called, all ndarrays allocated in this program should be gone and no longer
-  // valid in Python. This isn't the best implementation, ndarrays should be managed by quadrants runtime instead of
-  // this giant program and it should be freed when: - Python GC signals quadrants that it's no longer useful - All
-  // kernels using it are executed.
+  // [Note] Ndarray memory deallocation. Ndarray memory allocation is managed by Quadrants, and host bindings can
+  // request deallocation indirectly. Quadrants must ensure no pending kernel still needs the ndarray before freeing
+  // its memory. This isn't the best implementation: ndarrays should eventually be managed by the runtime instead of
+  // this giant Program object, and should be freed when host bindings signal that they are no longer useful and all
+  // kernels using them have executed.
   if (ndarrays_.count(ndarray) && !program_impl_->used_in_kernel(ndarray->ndarray_alloc_.alloc_id)) {
     ndarrays_.erase(ndarray);
   }

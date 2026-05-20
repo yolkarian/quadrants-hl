@@ -165,6 +165,7 @@ ExprOpcode parse_expr_opcode(std::uint8_t value) {
   switch (static_cast<ExprOpcode>(value)) {
     case ExprOpcode::const_i32:
     case ExprOpcode::const_f64:
+    case ExprOpcode::atomic_add:
     case ExprOpcode::arg_load:
     case ExprOpcode::local_load:
     case ExprOpcode::load_index:
@@ -298,6 +299,11 @@ std::unique_ptr<ExpressionDescriptor> parse_expression(DescriptorReader &reader,
     case ExprOpcode::load_index:
       expr->target = parse_expression(reader, descriptor, depth + 1);
       expr->indices = parse_indices(reader, descriptor, depth + 1);
+      break;
+    case ExprOpcode::atomic_add:
+      expr->target = parse_expression(reader, descriptor, depth + 1);
+      expr->indices = parse_indices(reader, descriptor, depth + 1);
+      expr->value = parse_expression(reader, descriptor, depth + 1);
       break;
     case ExprOpcode::binary_add:
     case ExprOpcode::binary_sub:
@@ -501,10 +507,12 @@ class LoweringContext {
  public:
   LoweringContext(lang::Program &program,
                   lang::Kernel &kernel,
-                  const KernelDescriptor &,
+                  const KernelDescriptor &descriptor,
                   std::vector<lang::Expr> params,
                   std::vector<lang::Expr> locals)
       : compile_config_(&program.compile_config()),
+        local_descriptors_(&descriptor.locals),
+        local_allocated_(descriptor.locals.size(), false),
         params_(std::move(params)),
         locals_(std::move(locals)),
         builder_(kernel.context->builder()) {
@@ -520,6 +528,16 @@ class LoweringContext {
   lang::Expr type_checked(lang::Expr expr) {
     expr.type_check(compile_config_);
     return expr;
+  }
+
+  void ensure_local_allocated(std::uint32_t local_id) {
+    const auto &local = local_descriptors_->at(local_id);
+    if (!local.allocate || local_allocated_.at(local_id)) {
+      return;
+    }
+    auto id = std::static_pointer_cast<lang::IdExpression>(locals_.at(local_id).expr)->id;
+    builder_.insert(std::make_unique<lang::FrontendAllocaStmt>(id, lower_dtype(local.dtype)));
+    local_allocated_[local_id] = true;
   }
 
   lang::Expr lower_expression(const ExpressionDescriptor &expr) {
@@ -539,6 +557,17 @@ class LoweringContext {
           indices.push_back(lower_expression(*index));
         }
         return type_checked(builder_.expr_subscript(lower_expression(*expr.target), indices));
+      }
+      case ExprOpcode::atomic_add: {
+        lang::ExprGroup indices;
+        indices.exprs.reserve(expr.indices.size());
+        for (const auto &index : expr.indices) {
+          indices.push_back(lower_expression(*index));
+        }
+        lang::Expr dest = builder_.expr_subscript(lower_expression(*expr.target), indices);
+        dest.type_check(compile_config_);
+        return type_checked(lang::Expr::make<lang::AtomicOpExpression>(lang::AtomicOpType::add, dest,
+                                                                       lower_expression(*expr.value)));
       }
       case ExprOpcode::binary_add:
       case ExprOpcode::binary_sub:
@@ -593,8 +622,7 @@ class LoweringContext {
   void lower_statement(const StatementDescriptor &stmt) {
     switch (stmt.opcode) {
       case StmtOpcode::local_alloc:
-        // Locals are materialized up-front as IdExpression objects because range-for needs the same Expr in the loop
-        // header and every use in the loop body. A standalone LocalAlloc opcode is therefore a validated no-op.
+        ensure_local_allocated(stmt.local_id);
         return;
       case StmtOpcode::store_index: {
         lang::ExprGroup indices;
@@ -622,6 +650,9 @@ class LoweringContext {
         builder_.pop_scope();
         return;
       case StmtOpcode::assign: {
+        if (stmt.target->opcode == ExprOpcode::local_load) {
+          ensure_local_allocated(stmt.target->index);
+        }
         lang::Expr target = lower_expression(*stmt.target);
         target.type_check(compile_config_);
         builder_.expr_assign(target, lower_expression(*stmt.value));
@@ -658,6 +689,8 @@ class LoweringContext {
   }
 
   const lang::CompileConfig *compile_config_{nullptr};
+  const std::vector<LocalDescriptor> *local_descriptors_{nullptr};
+  std::vector<bool> local_allocated_;
   std::vector<lang::Expr> params_;
   std::vector<lang::Expr> locals_;
   lang::ASTBuilder &builder_;
@@ -826,10 +859,6 @@ KernelBuildResult build_kernel_from_descriptor(lang::Program &program, const Ker
         for (const auto &local : descriptor.locals) {
           lang::Expr expr = kernel->context->builder().make_id_expr(checked_string(descriptor, local.name_id, "local name"));
           expr.expr->ret_type = lower_dtype(local.dtype);
-          if (local.allocate) {
-            auto id = std::static_pointer_cast<lang::IdExpression>(expr.expr)->id;
-            kernel->context->builder().insert(std::make_unique<lang::FrontendAllocaStmt>(id, lower_dtype(local.dtype)));
-          }
           locals.push_back(expr);
         }
 

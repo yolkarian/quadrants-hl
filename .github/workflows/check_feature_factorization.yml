@@ -32,14 +32,14 @@ jobs:
           # are out of scope for this check — we only care about feature-specific code being grafted
           # onto pre-existing files.
           git diff --diff-filter=M "$MERGE_BASE...HEAD" \
-            -- '*.py' '*.cpp' '*.h' '*.hpp' '*.c' '*.cc' '*.cu' \
-            ':!tests/' ':!benchmarks/' ':!docs/' ':!scripts/' ':!misc/' \
+            -- '*.py' '*.hx' '*.cpp' '*.h' '*.hpp' '*.c' '*.cc' '*.cu' \
+            ':!tests/' ':!bindings/hashlink/tests/' ':!benchmarks/' ':!docs/' ':!scripts/' ':!misc/' \
             > /tmp/source_diff.patch
 
           # List of source files MODIFIED in this PR (the universe being examined).
           git diff --name-only --diff-filter=M "$MERGE_BASE...HEAD" \
-            -- '*.py' '*.cpp' '*.h' '*.hpp' '*.c' '*.cc' '*.cu' \
-            ':!tests/' ':!benchmarks/' ':!docs/' ':!scripts/' ':!misc/' \
+            -- '*.py' '*.hx' '*.cpp' '*.h' '*.hpp' '*.c' '*.cc' '*.cu' \
+            ':!tests/' ':!bindings/hashlink/tests/' ':!benchmarks/' ':!docs/' ':!scripts/' ':!misc/' \
             > /tmp/modified_source_files.txt
 
           if [ ! -s /tmp/source_diff.patch ]; then
@@ -73,8 +73,8 @@ jobs:
 
           Inputs:
           - /tmp/source_diff.patch — unified diff of NON-TEST source files MODIFIED (not added,
-            deleted, or renamed) in this PR (.py, .cpp, .h, .hpp, .c, .cc, .cu, excluding tests/,
-            benchmarks/, docs/, scripts/, misc/)
+            deleted, or renamed) in this PR (.py, .hx, .cpp, .h, .hpp, .c, .cc, .cu, excluding tests/,
+            bindings/hashlink/tests/, benchmarks/, docs/, scripts/, misc/)
           - /tmp/modified_source_files.txt — list of those modified source files
 
           You may inspect any file in the repo and run shell commands to gather signal. Useful ones:
@@ -84,11 +84,11 @@ jobs:
           - wc -l <path>                             # current size
 
           Repo layout:
-          - Python source: python/quadrants/
-          - C++ source: quadrants/ (subdirs: codegen, ir, runtime, transforms, rhi, python, etc.)
+          - Haxe/HashLink bindings: bindings/hashlink/haxe/ and bindings/hashlink/native/
+          - C++ source: quadrants/ (subdirs: codegen, ir, runtime, transforms, rhi, etc.)
           The repo factorizes per-backend / per-pass / per-feature (separate files per RHI backend
           under quadrants/rhi/, separate files per IR transform under quadrants/transforms/,
-          separate Python modules per concept under python/quadrants/lang/).
+          separate Haxe modules per concept under bindings/hashlink/haxe/quadrants/).
 
           Procedure (apply to each modified existing file):
           1. Is the host file *heavily tracked / core*? Treat it as such if any of these hold:

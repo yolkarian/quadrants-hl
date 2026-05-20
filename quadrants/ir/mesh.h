@@ -86,7 +86,7 @@ class Mesh {
   std::map<MeshRelationType, MeshLocalRelation> relations;
 };
 
-struct MeshPtr {  // Mesh wrapper in python
+struct MeshPtr {  // Mesh wrapper for host bindings
   std::shared_ptr<Mesh> ptr;
 };
 

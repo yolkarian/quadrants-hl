@@ -1063,7 +1063,7 @@ void GfxRuntime::synchronize() {
       }
       throw QuadrantsAssertionError(
           fmt::format("Adstack overflow: a reverse-mode autodiff kernel pushed more elements than the adstack "
-                      "capacity allows. Raised at the next Quadrants Python entry rather than at the offending "
+                      "capacity allows. Raised at the next host entry rather than at the offending "
                       "kernel launch. Offending adstack index within the task: {}.\n{}",
                       flag_val - 1, diagnostic));
     }
@@ -1118,7 +1118,7 @@ void GfxRuntime::submit_current_cmdlist_if_timeout() {
     }
   }
   // Safety valve against unbounded GPU-side tracking growth on tight kernel-launch loops without any
-  // intervening Python-side observable (host readback, `to_numpy`, field get, ...). Normally every
+  // intervening host-side observable (host readback, field get, ...). Normally every
   // Quadrants workload touches such an observable between launches and the implicit `synchronize()` those
   // paths trigger drains the queue. `VulkanStream::submit` pushes every submitted cmdbuffer into
   // `submitted_cmdbuffers_` with a fence; the vector is only cleared on `command_sync()` (i.e. `wait_idle`

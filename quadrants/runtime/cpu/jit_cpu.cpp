@@ -22,20 +22,14 @@
 #include "llvm/ExecutionEngine/RTDyldMemoryManager.h"
 #include "llvm/ExecutionEngine/RuntimeDyld.h"
 #include "llvm/ExecutionEngine/SectionMemoryManager.h"
-#if __has_include("llvm/ExecutionEngine/Orc/SelfExecutorProcessControl.h")
 #include "llvm/ExecutionEngine/Orc/SelfExecutorProcessControl.h"
-#else
-#include "llvm/ExecutionEngine/Orc/ExecutorProcessControl.h"
-#endif
 #include "llvm/ExecutionEngine/Orc/ThreadSafeModule.h"
 #include "llvm/IR/Module.h"
-#include "llvm/Config/llvm-config.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Support/DynamicLibrary.h"
-#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Target/TargetMachine.h"
@@ -123,11 +117,7 @@ class JITSessionCPU : public JITSession {
         object_layer_(es_),
 #else
         object_layer_(es_,
-#if LLVM_VERSION_MAJOR >= 21
-                      [&](const llvm::MemoryBuffer &) {
-#else
-                      [&]() {
-#endif
+                      [&](const MemoryBuffer &) {
                         auto smgr = std::make_unique<SectionMemoryManager>();
                         memory_manager_ = smgr.get();
                         return smgr;
@@ -144,7 +134,7 @@ class JITSessionCPU : public JITSession {
     // resolver may encounter symbols that were not pre-registered in the
     // materialization responsibility set and abort with
     // "Resolving symbol outside this responsibility set" (observed on
-    // manylinux aarch64).
+    // relocatable Linux aarch64 builds).
     object_layer_.setOverrideObjectFlagsWithResponsibilityFlags(true);
     object_layer_.setAutoClaimResponsibilityForObjectSymbols(true);
 #else

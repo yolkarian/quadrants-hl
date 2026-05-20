@@ -36,7 +36,7 @@ PER_INTERNAL_OP(subgroupShuffleUp)
 PER_INTERNAL_OP(subgroupSize)
 PER_INTERNAL_OP(subgroupInvocationId)
 // subgroupAdd / subgroupMul / subgroupMin / subgroupMax / subgroupAnd / subgroupOr / subgroupXor and subgroupInclusive*
-// / subgroupExclusive* removed: use portable Python `subgroup.reduce_add(value, log2_size)` / `subgroup.inclusive_add`
+// / subgroupExclusive* removed: use portable frontend subgroup reductions instead.
 // / `subgroup.exclusive_add` (and equivalents), implemented as `@qd.func` Hillis-Steele scans on top of
 // `subgroupShuffleDown` / `subgroupShuffleUp` / `subgroupShuffle`, which work on all backends.
 PER_INTERNAL_OP(spirv_clock_i64)
@@ -64,9 +64,8 @@ PER_INTERNAL_OP(cuda_match_any_sync_i32)
 PER_INTERNAL_OP(cuda_match_all_sync_i32)
 PER_INTERNAL_OP(cuda_active_mask)
 // Find-n-th-set-bit fast path for qd.math.fns, lowered to a single PTX `fns.b32` instruction via inline asm
-// (`__nv_fns` is *not* in the slim libdevice.10.bc we ship). The portable / non-CUDA implementation lives in
-// Python (`_fns_portable` in python/quadrants/math/mathimpl.py) and is a 32-iteration linear scan over bit
-// positions, fully unrolled by each backend's lowering pipeline.
+// (`__nv_fns` is *not* in the slim libdevice.10.bc we ship). Non-CUDA frontends should lower to a portable
+// 32-iteration scan over bit positions, which each backend can fully unroll.
 PER_INTERNAL_OP(cuda_fns_u32)
 PER_INTERNAL_OP(warp_barrier)
 

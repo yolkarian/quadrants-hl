@@ -6,39 +6,27 @@ assignees: ''
 
 ---
 
-<!--
-We've collected some common issue solutions in https://docs.taichi-lang.org/docs/install. Make sure you've check them out first. Hopefully they could address your problem.
--->
-
 **Describe the bug**
-<!--
-A clear and concise description of what the bug is, ideally within 20 words.
--->
+<!-- A clear and concise description of what the bug is. -->
 
 **To Reproduce**
-<!--
-Please post a **minimal sample code** to reproduce the bug.
-The developer team will put a higher priority on bugs that can be reproduced within 20 lines of code. If you want a prompt reply, please keep the sample code **short** and **representative**.
+<!-- Please post a minimal Haxe/HashLink sample or CMake command sequence. -->
 
-```py
-# sample code here
+```haxe
+// sample code here
 ```
--->
 
 **Log/Screenshots**
-<!--
-Please post the **full log** of the program (instead of just a few lines around the error message, unless the log is > 1000 lines). This will help us diagnose what's happening. For example:
-```
-$ python my_sample_code.py
-[Quadrants] mode=release
-[Quadrants] version 0.6.29, llvm 10.0.0, commit b63f6663, linux, python 3.8.3
+<!-- Please post the full CMake, haxe, and hl logs. -->
+
+```text
+$ haxe -lib quadrants -main Main -hl build/main.hl
+$ QD_LIB_DIR=/path/to/share/quadrants/runtime hl build/main.hl
 ...
 ```
--->
+
+**Environment**
+<!-- Include OS, compiler, LLVM version, Haxe version, HashLink version, backend, and GPU/driver if applicable. -->
 
 **Additional comments**
-<!--
-If possible, please also consider attaching the output of command `ti diagnose`. This produces the detailed environment information and hopefully helps us diagnose faster.
-
-If you have local commits (e.g. compile fixes before you reproduce the bug), please make sure you first make a PR to fix the build errors and then report the bug.
--->
+<!-- If you have local build fixes, please open those as a PR before reporting runtime issues. -->

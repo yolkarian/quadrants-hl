@@ -6,7 +6,9 @@
 #include "quadrants/common/core.h"
 #include "quadrants/common/task.h"
 #if !defined(_WIN64)
-#include <cxxabi.h>
+#include <cstddef>
+#include <cstdlib>
+extern "C" char *__cxa_demangle(const char *mangled_name, char *output_buffer, std::size_t *length, int *status);
 #endif
 
 #if defined(QD_PLATFORM_WINDOWS)
@@ -21,7 +23,7 @@ std::string cpp_demangle(const std::string &mangled_name) {
 #if defined(QD_PLATFORM_UNIX)
   char *demangled_name;
   int status = -1;
-  demangled_name = abi::__cxa_demangle(mangled_name.c_str(), nullptr, nullptr, &status);
+  demangled_name = __cxa_demangle(mangled_name.c_str(), nullptr, nullptr, &status);
   std::string ret(demangled_name);
   free(demangled_name);
   return ret;

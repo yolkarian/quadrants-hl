@@ -202,7 +202,7 @@ class TraitMismatch : public TypeSystemError {
 };
 
 // Impossible: the number of arguments does not match the length of the
-// parameter list. This often implies some error in the python glue code.
+// parameter list. This often implies an error in host binding glue code.
 class ArgLengthMismatch : public TypeSystemError {
   const int param_, arg_;
 

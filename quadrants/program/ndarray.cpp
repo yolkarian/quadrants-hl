@@ -137,7 +137,7 @@ std::size_t Ndarray::get_nelement() const {
 }
 
 TypedConstant Ndarray::read(const std::vector<int> &I) const {
-  // Surface any pending adstack overflow at this Quadrants Python entry. The internal `synchronize()`
+  // Surface any pending adstack overflow at this host entry. The internal `synchronize()`
   // below drains the queue but does NOT raise; the explicit poll catches DLPack-bypass overflows from a
   // previous launch within one entry of the offending kernel even when the user never calls `qd.sync()`.
   prog_->check_adstack_overflow_and_assert();

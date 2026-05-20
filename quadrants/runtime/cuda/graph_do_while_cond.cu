@@ -1,8 +1,7 @@
 // Source for the graph_do_while condition kernel.
 //
-// After editing, regenerate the pre-built fatbin:
-//
-//   python scripts/build_condition_kernel_fatbin.py
+// After editing, regenerate quadrants/runtime/cuda/graph_do_while_cond_fatbin.h with:
+//   haxe scripts/build_condition_kernel_fatbin.hxml && hl build_condition_kernel_fatbin.hl
 
 #include <cstdint>
 #include <cuda_runtime.h>

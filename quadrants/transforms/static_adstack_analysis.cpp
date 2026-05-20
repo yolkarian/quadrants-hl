@@ -742,7 +742,7 @@ StaticAdStackAnalysisResult analyze_adstack_static_bounds(OffloadedStmt *task_ir
   // rows past K alias onto row K-1 and reverse-mode gradients silently diverge. Reject and fall through to the
   // dispatched-threads worst case rather than silently mis-sizing.
   //
-  // Reachability: on every Python kernel pattern observed today, this branch is unreachable - the autodiff transform
+  // Reachability: on every frontend kernel pattern observed today, this branch is unreachable - the autodiff transform
   // emits the forward-pass float pushes inside the forward IfStmt's `true_statements` block and the reverse-pass float
   // load_top / load_top_adj / pop sites inside a SEPARATE reverse IfStmt's `true_statements` block, so the LCA reduce
   // collapses up to the offload body (the common ancestor of two distinct `if_true` blocks) for any kernel where the

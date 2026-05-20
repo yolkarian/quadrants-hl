@@ -53,7 +53,7 @@ class QD_DLL_EXPORT CallableBase {
       // ndarray/matrix
       //       We should always keep it either PrimitiveType or TensorType. In
       //       other words, `get_type_for_kernel_args` which we currently do in
-      //       Python should be delayed until finalize_params.
+      //       host bindings should be delayed until finalize_params.
       if (dt->is<PrimitiveType>() && element_shape.size() > 0) {
         this->dt_ = quadrants::lang::TypeFactory::get_instance().create_tensor_type(element_shape, dt);
       } else {

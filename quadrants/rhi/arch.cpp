@@ -5,9 +5,9 @@ namespace quadrants {
 
 std::string arch_name(Arch arch) {
   switch (arch) {
-#define PER_ARCH(x) \
-  case Arch::x:     \
-    return #x;      \
+#define PER_ARCH(x, value) \
+  case Arch::x:            \
+    return #x;             \
     break;
 #include "quadrants/inc/archs.inc.h"
 
@@ -18,7 +18,7 @@ std::string arch_name(Arch arch) {
 }
 
 Arch arch_from_name(const std::string &arch_name) {
-#define PER_ARCH(x)           \
+#define PER_ARCH(x, value)    \
   else if (arch_name == #x) { \
     return Arch::x;           \
   }
@@ -39,7 +39,7 @@ Arch arch_from_name(const std::string &arch_name) {
 
 // Assuming a processor is either a CPU or a GPU. DSP/TPUs not considered.
 bool arch_is_cpu(Arch arch) {
-  if (arch == Arch::x64 || arch == Arch::arm64 || arch == Arch::js || arch == Arch::python) {
+  if (arch == Arch::x64 || arch == Arch::arm64 || arch == Arch::js) {
     return true;
   } else {
     return false;

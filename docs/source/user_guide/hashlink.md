@@ -1,37 +1,169 @@
 # Haxe/HashLink integration
 
-Quadrants ships an optional HashLink native bridge, `quadrants.hdll`, for Haxe DSL experiments. Haxe owns the syntax and macro-time descriptor generation; the native bridge owns Quadrants context creation, kernel compilation, ndarray memory, launch, and synchronization.
+Quadrants is distributed for Haxe through a haxelib-compatible source package and the native HashLink bridge `quadrants.hdll`. Haxe macros build kernel descriptors at compile time; the native bridge creates Quadrants contexts, allocates ndarrays, compiles kernels, launches kernels, and synchronizes.
 
-Build the bridge explicitly. For a build-tree CUDA run on x86_64 Linux, also stage the LLVM runtime bitcode that the standalone HashLink process needs at JIT time:
+## Prerequisites
+
+- `haxe` and `hl` on `PATH`.
+- A HashLink checkout or install. Set `QD_HASHLINK_ROOT` to a prefix containing `src/hl.h` or `include/hl.h`, plus `libhl`/`hl.dll`.
+- LLVM/Clang 22 or newer and `LLVMConfig.cmake` when CPU, CUDA, or AMDGPU backends are enabled.
+- Backend drivers/runtime libraries available to `hl` at run time.
+
+## Backend support
+
+| Haxe arch | Native backend | Build-time requirement | Runtime requirement |
+| --- | --- | --- | --- |
+| `Arch.Cpu` | Host LLVM backend (`x64`/`arm64`) | `QD_WITH_LLVM=ON` | host runtime bitcode, e.g. `runtime_x64.bc` |
+| `Arch.Cuda` | CUDA | `QD_WITH_LLVM=ON`, `QD_WITH_CUDA=ON` | CUDA driver libraries, `runtime_cuda.bc`, `slim_libdevice.10.bc` |
+| `Arch.Vulkan` | Vulkan/SPIR-V | `QD_WITH_VULKAN=ON` | Vulkan loader/driver libraries visible to `hl` |
+| `Arch.Metal` | Metal | macOS, `QD_WITH_METAL=ON` | Metal runtime on macOS |
+| `Arch.Amdgpu` | AMDGPU/ROCm | Linux x64, `QD_WITH_LLVM=ON`, `QD_WITH_AMDGPU=ON` | ROCm/HIP libraries and ROCm device bitcode |
+
+## Build and install
 
 ```bash
-cmake -S . -B build/hashlink-bridge -DQD_WITH_HASHLINK=ON -DQD_HASHLINK_ROOT=../hashlink -DQD_WITH_CUDA=ON -DCUDAToolkit_ROOT=/usr/local/cuda -DQD_WITH_VULKAN=OFF -DQD_WITH_METAL=OFF
-cmake --build build/hashlink-bridge --target quadrants.hdll generate_llvm_runtime_x64 generate_llvm_runtime_cuda
-mkdir -p build/hashlink-bridge/runtime
-cp quadrants/runtime/llvm/runtime_module/runtime_{x64,cuda}.bc external/cuda_libdevice/slim_libdevice.10.bc build/hashlink-bridge/runtime/
+QD_BUILD_DIR="$PWD/build/hashlink"
+QD_INSTALL_DIR="$PWD/build/hashlink-install"
+QD_HASHLINK_ROOT="${QD_HASHLINK_ROOT:-/path/to/hashlink}"
+
+cmake -S . -B "$QD_BUILD_DIR" \
+  -DQD_WITH_HASHLINK=ON \
+  -DQD_HASHLINK_ROOT="$QD_HASHLINK_ROOT" \
+  -DQD_WITH_LLVM=ON \
+  -DQD_WITH_CUDA=OFF \
+  -DQD_WITH_VULKAN=OFF \
+  -DQD_WITH_METAL=OFF \
+  -DQD_WITH_AMDGPU=OFF
+cmake --build "$QD_BUILD_DIR" --target quadrants.hdll
+rm -rf "$QD_INSTALL_DIR"
+cmake --install "$QD_BUILD_DIR" --component hashlink --prefix "$QD_INSTALL_DIR"
 ```
 
-Compile Haxe code with the bindings on the class path. Put `quadrants.hdll` on the dynamic-library path, and point `QD_LIB_DIR` at the staged runtime bitcode directory:
+For a CPU + CUDA HashLink package, enable CUDA in the same build:
 
 ```bash
-haxe -cp bindings/hashlink/haxe -cp bindings/hashlink/tests -main HashLinkBridgeTest -hl hashlink_bridge_test.hl
-LD_LIBRARY_PATH="$PWD/build/hashlink-bridge:/usr/local/cuda/lib64:$LD_LIBRARY_PATH" QD_LIB_DIR="$PWD/build/hashlink-bridge/runtime" hl hashlink_bridge_test.hl
+cmake -S . -B "$QD_BUILD_DIR" \
+  -DQD_WITH_HASHLINK=ON \
+  -DQD_HASHLINK_ROOT="$QD_HASHLINK_ROOT" \
+  -DQD_WITH_LLVM=ON \
+  -DQD_WITH_CUDA=ON \
+  -DQD_WITH_VULKAN=OFF \
+  -DQD_WITH_METAL=OFF \
+  -DQD_WITH_AMDGPU=OFF
+cmake --build "$QD_BUILD_DIR" --target quadrants.hdll
 ```
 
-Minimal API:
+The `quadrants.hdll` target depends on the required host/runtime bitcode targets for the enabled backends. A CUDA package must include `runtime_cuda.bc` and `slim_libdevice.10.bc` next to the CPU runtime bitcode.
+
+## Installed layout
+
+```text
+share/quadrants/hashlink/haxelib.json
+share/quadrants/hashlink/quadrants.hdll
+share/quadrants/hashlink/README.md
+share/quadrants/hashlink/haxe/quadrants/*.hx
+share/quadrants/hashlink/haxe/quadrants/macro/*.hx
+share/quadrants/hashlink/runtime/runtime_x64.bc
+share/quadrants/hashlink/runtime/runtime_cuda.bc       # CUDA builds
+share/quadrants/hashlink/runtime/slim_libdevice.10.bc  # CUDA builds
+```
+
+Register the installed haxelib package root for development:
+
+```bash
+haxelib dev quadrants "$QD_INSTALL_DIR/share/quadrants/hashlink"
+```
+
+Or package the build tree and install it into the global haxelib repository:
+
+```bash
+scripts/package_hashlink_haxelib.sh \
+  --build-dir "$QD_BUILD_DIR" \
+  --runtime-dir "$QD_BUILD_DIR/runtime" \
+  --out build/quadrants-haxelib.zip
+haxelib --global install build/quadrants-haxelib.zip --always
+```
+
+The package script stages `quadrants.hdll`, Haxe sources, and top-level files from `runtime/`. If `runtime_cuda.bc` is present but `slim_libdevice.10.bc` is missing, it copies `external/cuda_libdevice/slim_libdevice.10.bc` into the package.
+
+The Haxe macros discover `quadrants.hdll` and the package-local `runtime` directory from that haxelib root. If a build tree or moved install tree is used, set `QUADRANTS_HDLL` and `QUADRANTS_RUNTIME_DIR` while compiling the `.hl` file. The same values can be supplied as Haxe defines: `-D quadrants_hdll_path=/path/to/quadrants.hdll` and `-D quadrants_runtime_dir=/path/to/runtime`.
+
+## Running tests
+
+CTest entries are registered when `QD_WITH_HASHLINK=ON` and `QD_BUILD_HASHLINK_TESTS=ON` (with `haxe` and `hl` on `PATH`). Add `-DQD_BUILD_HASHLINK_TESTS=ON` to the configure command above, then run:
+
+```bash
+cmake --build "$QD_BUILD_DIR" --target quadrants.hdll
+ctest --test-dir "$QD_BUILD_DIR" --output-on-failure
+```
+
+The CTest suite compiles `tests/hashlink/hashlink_tests.hxml`, runs the CPU smoke test from `tests/hashlink/hashlink_smoke.hxml`, and verifies the Haxe macro compile-fail cases in `tests/hashlink/compile_fail/`.
+
+## Build/test helper entry points
+
+| Purpose | Haxe/HL entry point |
+| --- | --- |
+| Build/install the Haxe package and native bridge | CMake with `-DQD_WITH_HASHLINK=ON`, target `quadrants.hdll`, and `cmake --install --component hashlink`. |
+| Package and install into global haxelib | `scripts/package_hashlink_haxelib.sh --build-dir <build> --runtime-dir <build>/runtime --out build/quadrants-haxelib.zip`, then `haxelib --global install ...`. |
+| Compile Haxe binding tests | `tests/hashlink/hashlink_tests.hxml` through `cmake/RunHashLinkTest.cmake`. |
+| Run a CPU HL/JIT smoke test | `tests/hashlink/hashlink_smoke.hxml` through `ctest` or `hl <output>.hl`. |
+| Run CUDA HL/JIT smoke coverage | Set `QD_HASHLINK_TEST_ARCHES=cuda` and make CUDA libraries visible to `hl`. |
+| Check macro diagnostics | `cmake/RunHaxeCompileFailTests.cmake` over `tests/hashlink/compile_fail/*.hx`. |
+| Run the CUDA bridge sample manually | `bindings/hashlink/tests/hashlink_bridge_test.hxml` when `QD_WITH_CUDA=ON` and CUDA libraries are visible to `hl`. |
+| Build docs for the Haxe public API | `make -C docs html`. |
+
+Manual smoke test from an installed haxelib package:
+
+```bash
+haxe -lib quadrants -cp tests/hashlink -main Smoke -hl build/hashlink-smoke.hl
+hl build/hashlink-smoke.hl
+```
+
+CUDA smoke tests are opt-in because they require CUDA runtime libraries and hardware:
+
+```bash
+QD_HASHLINK_TEST_ARCHES=cuda \
+haxe -lib quadrants -cp tests/hashlink -main Smoke -hl build/hashlink-smoke-cuda.hl
+QD_HASHLINK_TEST_ARCHES=cuda \
+LD_LIBRARY_PATH="/usr/local/cuda/targets/x86_64-linux/lib:${LD_LIBRARY_PATH:-}" \
+hl build/hashlink-smoke-cuda.hl
+```
+
+Expected output:
+
+```text
+hashlink smoke ok
+```
+
+Manual build-tree run:
+
+```bash
+QUADRANTS_HDLL="$QD_BUILD_DIR/quadrants.hdll" \
+QUADRANTS_RUNTIME_DIR="$QD_BUILD_DIR/runtime" \
+haxe tests/hashlink/hashlink_smoke.hxml -hl build/hashlink-smoke-buildtree.hl
+QD_LIB_DIR="$QD_BUILD_DIR/runtime" \
+LD_LIBRARY_PATH="$QD_BUILD_DIR:${LD_LIBRARY_PATH:-}" \
+hl build/hashlink-smoke-buildtree.hl
+```
+
+For the user-facing API surface and migration notes from the former Python binding, see [Haxe/HashLink public API](haxe_api.md). For accepted kernel syntax, see [Haxe kernel language](kernel_language.md).
+
+## Minimal API
 
 ```haxe
 import quadrants.Context;
 import quadrants.Kernel;
 import quadrants.Types.Arch;
 
-var ctx = new Context(Arch.Cuda);
+var ctx = new Context(Arch.Cpu);
 var a = ctx.ndarrayI32([16]);
 var b = ctx.ndarrayI32([16]);
 var out = ctx.ndarrayI32([16]);
-// Or use the generic form for another primitive dtype:
-// var f:quadrants.Tensor<quadrants.Types.F32> = ctx.ndarrayF32([16]);
-// Multi-dimensional host indexing helpers are available as readI32At/writeI32At, readF32At/writeF32At, etc.
+
+for (i in 0...16) {
+  a.writeI32(i, i * 2);
+  b.writeI32(i, 100 - i);
+}
 
 final k = Kernel.build(ctx, macro (a, b, out, n) -> {
   for (i in 0...n) {
@@ -41,10 +173,37 @@ final k = Kernel.build(ctx, macro (a, b, out, n) -> {
 
 k.launch(a, b, out, 16);
 ctx.sync();
+
 k.close();
 ctx.close();
 ```
 
-The bridge supports contexts for the backend enabled in the native build and primitive ndarrays (`I8`, `I16`, `I32`, `I64`, `U8`, `U16`, `U32`, `U64`, `F32`, `F64`). The descriptor decoder and launcher validate primitive scalar/ndarray dtypes; typed kernel arguments such as `Tensor<quadrants.Types.F32>` and scalar `Int`/`Float`/`haxe.Int64` are reflected into the descriptor. The macro supports one-dimensional and nested ndarray indexing, range-for loops, `while`, `break`, `continue`, `if`, expression-level `if`/select, local variable assignment, ndarray element stores, atomic `+=`/`-=`, arithmetic (`+`, `-`, `*`, `/`, `%`), comparison, boolean, integer bitwise expressions, unary `!`, unary `-`, bitwise `~`, basic math calls (`abs`, `sin`, `cos`, `tan`, `exp`, `log`, `sqrt`, `floor`, `ceil`, `min`, `max`), and explicit casts to supported primitive scalar types. Lightweight host-side `Vector` and `Matrix` helpers are also available for elementwise Haxe code. Unsupported Haxe constructs are rejected by the macro instead of being lowered silently.
+Primitive ndarray helpers are available for `I8`, `I16`, `I32`, `I64`, `U8`, `U16`, `U32`, `U64`, `F32`, and `F64` through methods such as `ctx.ndarrayI32([n])` and `ctx.ndarrayF32([n])`.
 
-Call `close()` on kernels and contexts when finished. Native finalizers are a safety net, not the primary lifetime mechanism.
+## Kernel macro coverage
+
+The current Haxe macro supports:
+
+- Primitive scalar and `Tensor<T>` parameters.
+- Ndarray indexing, including nested indexing up to rank 8.
+- `for (i in start...end)`, `while`, `break`, and `continue`.
+- `if` statements and expression-level `if`/select.
+- Local variable declarations and assignments.
+- Ndarray element stores, atomic `+=`/`-=` on ndarray elements, and `atomicAdd(a[i], value)` fetch-add expressions.
+- Arithmetic, comparison, boolean, integer bitwise, unary `!`, unary `-`, and bitwise `~` expressions.
+- `abs`, `sin`, `cos`, `tan`, `exp`, `log`, `sqrt`, `floor`, `ceil`, `min`, and `max`.
+- Explicit casts to supported primitive scalar types.
+
+Unsupported constructs are rejected by the Haxe macro with `Unsupported Quadrants HashLink ...` diagnostics.
+
+## Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| `Quadrants HashLink native bridge is not loaded` | Re-run `haxe` with `QUADRANTS_HDLL` set to the built `quadrants.hdll`, or use the installed haxelib layout and make the bridge directory visible to the dynamic loader. |
+| HashLink cannot load `libhl`, CUDA, ROCm, Vulkan, or another native dependency | Add the HashLink library directory and backend SDK library directories to `LD_LIBRARY_PATH` on Linux, `DYLD_LIBRARY_PATH` on macOS, or `PATH` on Windows. |
+| `Bitcode file (.../runtime_*.bc) not found` | Set `QD_LIB_DIR` at run time or `QUADRANTS_RUNTIME_DIR` while compiling to the directory containing the required `.bc` files. CUDA also needs `slim_libdevice.10.bc`. |
+| Context creation fails for a non-CPU backend | Verify the backend was enabled in the native build and that the host driver/runtime is installed. |
+| A moved install tree no longer works | Re-run `haxe`; `QUADRANTS_HDLL` and the discovered runtime path are compile-time macro inputs. |
+| Kernel launch reports argument count, dtype, rank, or context mismatch | Launch with the same parameter count and tensor ranks/dtypes used by `Kernel.build`; do not mix tensors from different `Context` objects. |
+| Shutdown crashes or use-after-close errors | Close kernels before closing their context. Native finalizers are only a safety net. |

@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <chrono>
 #include <random>
 
@@ -9,7 +8,6 @@
 #include "llvm/Transforms/Scalar/LoopStrengthReduce.h"
 #include "llvm/Transforms/Scalar/EarlyCSE.h"
 #include "llvm/Transforms/Scalar/IndVarSimplify.h"
-#include "llvm/Config/llvm-config.h"
 #include "llvm/Transforms/Utils.h"
 
 namespace quadrants::lang {
@@ -23,19 +21,6 @@ bool module_has_runtime_initialize(const llvm::Module::FunctionListType &functio
     }
   }
   return false;
-}
-
-int max_llvm_nvptx_mcpu() {
-#if LLVM_VERSION_MAJOR >= 22
-  return 121;
-#else
-  return 90;
-#endif
-}
-
-std::string llvm_nvptx_mcpu_for_device() {
-  const int device_capability = CUDAContext::get_instance().get_compute_capability();
-  return fmt::format("sm_{}", std::min(device_capability, max_llvm_nvptx_mcpu()));
 }
 
 std::string moduleToDumpName(llvm::Module *const M) {
@@ -276,9 +261,9 @@ std::string JITSessionCUDA::compile_module_to_ptx(std::unique_ptr<llvm::Module> 
   options.NoZerosInBSS = 0;
   options.GuaranteedTailCallOpt = 0;
 
-  const std::string llvm_mcpu = llvm_nvptx_mcpu_for_device();
-  std::unique_ptr<TargetMachine> target_machine(target->createTargetMachine(
-      triple.str(), llvm_mcpu, "", options, llvm::Reloc::PIC_, llvm::CodeModel::Small, CodeGenOptLevel::Aggressive));
+  std::unique_ptr<TargetMachine> target_machine(
+      target->createTargetMachine(triple, CUDAContext::get_instance().get_mcpu(), "", options, llvm::Reloc::PIC_,
+                                  llvm::CodeModel::Small, CodeGenOptLevel::Aggressive));
 
   QD_ERROR_UNLESS(target_machine.get(), "Could not allocate target machine!");
 

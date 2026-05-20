@@ -48,7 +48,7 @@ class IRVerifier : public BasicStmtVisitor {
                      "IR broken: stmt {} {} cannot have operand {} {}."
                      " If you are using autodiff, please check out"
                      " https://genesis-embodied-ai.github.io/quadrants/"
-                     "user_guide/unsupported_python.html"
+                     "user_guide/hashlink.html#kernel-macro-coverage"
                      " If it doesn't help, please open an issue at"
                      " https://github.com/Genesis-Embodied-AI/quadrants/issues"
                      " to help us improve."

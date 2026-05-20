@@ -2,10 +2,10 @@
 //
 // Background: prior to this, every `qd.init()` -> `materialize_runtime` preallocated `sizeof(RandState) *
 // saturating_grid_dim * max_block_dim` bytes of device memory (~480 MiB at default config) as part of the
-// runtime-objects preallocation, and freed it on `qd.reset()`. Under multi-process pytest-xdist contention this
+// runtime-objects preallocation, and freed it on `qd.reset()`. Under multi-process test-worker contention this
 // realloc churn was a major contributor to `HSA_STATUS_ERROR_OUT_OF_RESOURCES` on AMDGPU. Bisection on the C++ omnibus
 // reproducer (see `experiments/launch_oor_repro/`) showed that removing the per-cycle ~400 MiB realloc was sufficient
-// to push the failure threshold past the workload that real `pytest -n 8` exercises. RandState contents depend only
+// to push the failure threshold past the stress workload. RandState contents depend only
 // on `(num_states, starting_seed)`, both of which are typically stable across `qd.init`/`qd.reset` cycles in a worker,
 // so reusing the buffer changes no observable behavior.
 //

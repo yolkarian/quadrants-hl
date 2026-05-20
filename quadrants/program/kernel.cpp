@@ -93,7 +93,7 @@ T Kernel::fetch_ret(DataType dt, int i) {
   } else if (dt->is_primitive(PrimitiveTypeID::u64)) {
     return (T)program->fetch_result<uint64>(i);
   } else if (dt->is_primitive(PrimitiveTypeID::f16)) {
-    // use f32 to interact with python
+    // use f32 to interact with host bindings
     return (T)program->fetch_result<float32>(i);
   } else {
     QD_NOT_IMPLEMENTED

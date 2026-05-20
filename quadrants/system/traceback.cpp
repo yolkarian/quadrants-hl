@@ -10,6 +10,8 @@
 #include <string>
 #include <sstream>
 #include <cstdio>
+#include <cstdlib>
+#include <cstddef>
 #include <algorithm>
 #include <memory>
 #include <mutex>
@@ -17,7 +19,9 @@
 
 #if defined(__APPLE__) || (defined(__unix__) && !defined(__linux__))
 #include <execinfo.h>
-#include <cxxabi.h>
+#endif
+#if defined(__APPLE__) || defined(__unix__)
+extern "C" char *__cxa_demangle(const char *mangled_name, char *output_buffer, std::size_t *length, int *status);
 #endif
 #ifdef _WIN64
 #include <intrin.h>
@@ -188,7 +192,6 @@ inline std::vector<StackFrame> stack_trace() {
 #include <signal.h>
 #include <ucontext.h>
 #include <unistd.h>
-#include <cxxabi.h>
 #endif
 
 namespace quadrants {
@@ -220,7 +223,7 @@ void print_traceback() {
     int valid_cpp_name = 0;
     //  if this is a C++ library, symbol will be demangled
     //  on success function returns 0
-    char *function_name = abi::__cxa_demangle(function_symbol, NULL, 0, &valid_cpp_name);
+    char *function_name = __cxa_demangle(function_symbol, NULL, 0, &valid_cpp_name);
 
     char stack_frame[4096] = {};
     sprintf(stack_frame, "* %28s | %7d | %s", module_name, offset, function_name);
@@ -326,7 +329,7 @@ void print_traceback() {
 
       int status = -1;
 
-      demangled_name_ = abi::__cxa_demangle(name.c_str(), nullptr, nullptr, &status);
+      demangled_name_ = __cxa_demangle(name.c_str(), nullptr, nullptr, &status);
 
       if (demangled_name_) {
         name = std::string(demangled_name_);

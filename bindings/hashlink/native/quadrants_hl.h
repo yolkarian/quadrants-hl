@@ -11,6 +11,7 @@ struct qd_context;
 struct qd_kernel;
 struct qd_ndarray;
 
+HL_PRIM void HL_NAME(runtime_set_lib_dir)(vbyte *path);
 HL_PRIM qd_context *HL_NAME(context_create)(int arch);
 HL_PRIM void HL_NAME(context_sync)(qd_context *ctx);
 HL_PRIM void HL_NAME(context_close)(qd_context *ctx);
@@ -41,7 +42,20 @@ HL_PRIM void HL_NAME(ndarray_fill_u64)(qd_context *ctx, qd_ndarray *arr, int64 v
 HL_PRIM int64 HL_NAME(ndarray_read_u64)(qd_context *ctx, qd_ndarray *arr, int flat_index);
 HL_PRIM void HL_NAME(ndarray_write_u64)(qd_context *ctx, qd_ndarray *arr, int flat_index, int64 value);
 HL_PRIM void HL_NAME(ndarray_fill_f32)(qd_context *ctx, qd_ndarray *arr, double value);
+HL_PRIM void HL_NAME(ndarray_read_bytes)(qd_context *ctx,
+                                         qd_ndarray *arr,
+                                         int dtype,
+                                         int flat_start,
+                                         int count,
+                                         vbyte *out,
+                                         int out_byte_offset);
 HL_PRIM double HL_NAME(ndarray_read_f32)(qd_context *ctx, qd_ndarray *arr, int flat_index);
+HL_PRIM void HL_NAME(ndarray_read_f32_bytes)(qd_context *ctx,
+                                             qd_ndarray *arr,
+                                             int flat_start,
+                                             int count,
+                                             vbyte *out,
+                                             int out_byte_offset);
 HL_PRIM void HL_NAME(ndarray_write_f32)(qd_context *ctx, qd_ndarray *arr, int flat_index, double value);
 HL_PRIM void HL_NAME(ndarray_fill_f64)(qd_context *ctx, qd_ndarray *arr, double value);
 HL_PRIM double HL_NAME(ndarray_read_f64)(qd_context *ctx, qd_ndarray *arr, int flat_index);

@@ -1,210 +1,117 @@
-name: Linux
+name: HashLink Linux
+
 on:
   pull_request:
-    types:
-      - opened
-      - reopened
-      - synchronize
+    types: [opened, reopened, synchronize]
   workflow_dispatch:
+
 permissions:
   contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
+
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        # Developing directly on ubuntu arm not supported currently.
-        # Need to dev inside a manylinux container, when developing using linux arm.
-        OS: ['ubuntu-22.04']
-    name: Linux ${{ matrix.OS }} Build
-    runs-on: ${{ matrix.OS }}
+  hashlink:
+    name: Build and test quadrants.hdll
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Python check
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      - name: Linux prerequisites
-        run: |
-          bash .github/workflows/scripts_new/linux/1_prerequisites.sh
-      - name: Linux build
-        run: |
-          bash .github/workflows/scripts_new/linux/2_build.sh
-      - name: Linux install
-        run: |
-          bash .github/workflows/scripts_new/linux/3_install.sh
-      - name: Linux test
-        run: |
-          bash .github/workflows/scripts_new/linux/4_test.sh
-      - name: Upload wheel for CUDA job
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-wheel
-          path: dist/*.whl
-      - name: Upload CPU coverage data
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-cpu
-          path: |
-            coverage.xml
-            pytest-coverage.txt
+          submodules: recursive
 
-  test-cuda:
-    name: Linux CUDA Test
-    needs: build
-    runs-on: gpu-t4-4-core
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Python check
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      - name: Install CUDA libraries
+      - name: Install system dependencies
         run: |
-          sudo apt-get install -y libcusolver-dev-12-8 libcusolver-12-8 libcusparse-dev-12-8 libcusparse-12-8 libnvjitlink-12-8 libcublas-12-8
-          echo "/usr/local/cuda/targets/x86_64-linux/lib" | sudo tee /etc/ld.so.conf.d/cuda-targets.conf
-          sudo ldconfig
-      - name: Download wheel
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-wheel
-      - name: Install quadrants
-        run: |
-          set -x
-          mkdir -p dist
-          mv *.whl dist/
-          pip install dist/*.whl
-      - name: Install test requirements
-        run: |
-          pip install --group test
-          pip install -r requirements_test_xdist.txt
-      - name: Run CUDA tests with coverage
-        run: |
-          bash .github/workflows/scripts_new/linux/4_test_cuda.sh
-      - name: Upload CUDA coverage data
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-cuda
-          path: coverage.xml
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            curl \
+            git \
+            haxe \
+            libmbedtls-dev \
+            libopenal-dev \
+            libpcre3-dev \
+            libpng-dev \
+            libsdl2-dev \
+            libsqlite3-dev \
+            libturbojpeg0-dev \
+            libuv1-dev \
+            ninja-build \
+            unzip \
+            zlib1g-dev
+          mkdir -p "$HOME/haxelib"
+          haxelib setup "$HOME/haxelib"
 
-  coverage-comment:
-    if: github.event_name == 'pull_request' && always()
-    needs: [build, test-cuda]
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-      checks: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Python check
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      - name: Download CPU coverage
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: coverage-cpu
-          path: coverage-cpu
-      - name: Download CUDA coverage
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: coverage-cuda
-          path: coverage-cuda
-      - name: Generate coverage reports
-        continue-on-error: true
+      - name: Install LLVM 22 toolchain
         run: |
-          COV_XMLS=""
-          if [ -f coverage-cpu/coverage.xml ]; then
-            COV_XMLS="coverage-cpu/coverage.xml"
+          set -eux
+          LLVM_VERSION=22.1.0
+          LLVM_BUILD=202603120808
+          LLVM_ROOT="$RUNNER_TOOL_CACHE/quadrants-llvm-${LLVM_VERSION}-${LLVM_BUILD}"
+          if [ ! -x "$LLVM_ROOT/bin/clang" ]; then
+            ARCHIVE="$RUNNER_TEMP/llvm.zip"
+            EXTRACT="$RUNNER_TEMP/llvm"
+            rm -rf "$EXTRACT" "$LLVM_ROOT"
+            mkdir -p "$EXTRACT" "$LLVM_ROOT"
+            curl -L \
+              "https://github.com/Genesis-Embodied-AI/quadrants-sdk-builds/releases/download/llvm-${LLVM_VERSION}-${LLVM_BUILD}/taichi-llvm-${LLVM_VERSION}-linux-x86_64.zip" \
+              -o "$ARCHIVE"
+            unzip -q "$ARCHIVE" -d "$EXTRACT"
+            shopt -s dotglob
+            mv "$EXTRACT"/*/* "$LLVM_ROOT"/
           fi
-          if [ -f coverage-cuda/coverage.xml ]; then
-            COV_XMLS="$COV_XMLS coverage-cuda/coverage.xml"
-          fi
-          if [ -z "$COV_XMLS" ]; then
-            echo "No coverage XML files found, skipping report"
-            exit 0
-          fi
+          echo "LLVM_ROOT=$LLVM_ROOT" >> "$GITHUB_ENV"
+          echo "$LLVM_ROOT/bin" >> "$GITHUB_PATH"
 
-          HEAD_SHA=$(echo "${{ github.event.pull_request.head.sha }}" | cut -c1-9)
+      - name: Build HashLink from source
+        run: |
+          set -eux
+          HASHLINK_ROOT="$RUNNER_TEMP/hashlink"
+          git clone --depth 1 https://github.com/HaxeFoundation/hashlink.git "$HASHLINK_ROOT"
+          make -C "$HASHLINK_ROOT" -j2
+          echo "QD_HASHLINK_ROOT=$HASHLINK_ROOT" >> "$GITHUB_ENV"
+          echo "$HASHLINK_ROOT" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=$HASHLINK_ROOT:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
 
-          python tests/coverage_report.py --report-only \
-            --compare-branch=origin/${{ github.base_ref }} \
-            --coverage-xml $COV_XMLS \
-            --commit-hash "$HEAD_SHA" \
-            --format markdown > coverage-check.md || true
+      - name: Configure Quadrants HashLink build
+        run: |
+          cmake -S . -B build/hashlink-ci -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER="$LLVM_ROOT/bin/clang" \
+            -DCMAKE_CXX_COMPILER="$LLVM_ROOT/bin/clang++" \
+            -DLLVM_DIR="$LLVM_ROOT/lib/cmake/llvm" \
+            -DCLANG_EXECUTABLE="$LLVM_ROOT/bin/clang" \
+            -DQD_WITH_HASHLINK=ON \
+            -DQD_HASHLINK_ROOT="$QD_HASHLINK_ROOT" \
+            -DQD_BUILD_HASHLINK_TESTS=ON \
+            -DQD_BUILD_TESTS=ON \
+            -DQD_WITH_LLVM=ON \
+            -DQD_WITH_CUDA=OFF \
+            -DQD_WITH_VULKAN=OFF \
+            -DQD_WITH_METAL=OFF \
+            -DQD_WITH_AMDGPU=OFF
 
-          python tests/coverage_report.py --report-only \
-            --compare-branch=origin/${{ github.base_ref }} \
-            --coverage-xml $COV_XMLS \
-            --commit-hash "$HEAD_SHA" \
-            --format markdown-summary > coverage-comment.md || true
-      - name: Upload full coverage report
-        if: always() && hashFiles('coverage-check.md') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage-check.md
-      - name: Publish coverage check
-        if: always() && hashFiles('coverage-check.md') != ''
-        id: publish_check
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const fs = require('fs');
-            let body = fs.readFileSync('coverage-check.md', 'utf8');
-            const MAX_TEXT = 65000;
-            let truncated = false;
-            if (body.length > MAX_TEXT) {
-              body = body.substring(0, MAX_TEXT) + '\n\n---\n*Report truncated. Download the full report from the workflow artifacts.*';
-              truncated = true;
-            }
-            const summary = truncated
-              ? 'Per-line coverage annotations (truncated — see artifacts for full report).'
-              : 'See details below for per-line coverage annotations.';
-            const check = await github.rest.checks.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              head_sha: context.payload.pull_request.head.sha,
-              name: 'Coverage Report',
-              status: 'completed',
-              conclusion: 'success',
-              output: {
-                title: 'Diff Coverage Report',
-                summary: summary,
-                text: body
-              }
-            });
-            core.setOutput('check-url', check.data.html_url);
-      - name: Post coverage comment
-        if: always() && hashFiles('coverage-comment.md') != ''
-        uses: actions/github-script@v8
-        env:
-          REPORT_URL: ${{ steps.publish_check.outputs.check-url }}
-        with:
-          script: |
-            const fs = require('fs');
-            let body = fs.readFileSync('coverage-comment.md', 'utf8').trim();
-            const url = process.env.REPORT_URL;
-            if (url) {
-              body = `[${body}](${url})`;
-            }
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              body: body
-            });
+      - name: Build quadrants.hdll, runtime bitcode, and C++ tests
+        run: |
+          cmake --build build/hashlink-ci --target quadrants.hdll quadrants_cpp_tests
+
+      - name: Install HashLink component
+        run: |
+          rm -rf build/hashlink-install
+          cmake --install build/hashlink-ci --component hashlink --prefix build/hashlink-install
+          find build/hashlink-install/share/quadrants -maxdepth 3 -type f | sort
+
+      - name: Haxe/haxelib smoke test
+        run: |
+          haxelib dev quadrants "$PWD/build/hashlink-install/share/quadrants/hashlink"
+          haxe -lib quadrants -cp tests/hashlink -main Smoke -hl build/hashlink-installed-smoke.hl
+          QD_LIB_DIR="$PWD/build/hashlink-install/share/quadrants/hashlink/runtime" \
+          LD_LIBRARY_PATH="$PWD/build/hashlink-install/share/quadrants/hashlink:$QD_HASHLINK_ROOT:${LD_LIBRARY_PATH:-}" \
+          hl build/hashlink-installed-smoke.hl
+
+      - name: CTest HashLink and C++ suites
+        run: |
+          ctest --test-dir build/hashlink-ci --output-on-failure

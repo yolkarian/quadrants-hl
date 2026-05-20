@@ -54,7 +54,7 @@ TEST_F(BinaryOpSimplifyTest, MultiplyPOT) {
 
 TEST_F(BinaryOpSimplifyTest, ModPOT) {
   IRBuilder builder;
-  // x % 8 in the Python frontend is transformed into:
+  // x % 8 in the frontend is transformed into:
   // x - x / 8 * 8
   auto *x = builder.create_arg_load({0}, get_data_type<uint32>(), false);
   auto *division = builder.create_div(x, builder.get_uint32(8));

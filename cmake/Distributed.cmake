@@ -17,7 +17,5 @@ add_compile_options(--target=${TRIPLET})
 # if(LSB_SET(x)) => if((x & 1))
 add_compile_options(-Wno-parentheses-equality)
 
-# False alarm caused by macro expansion
-# quadrants/python/export_lang.cpp:1241
-# MAKE_SPARSE_MATRIX(32, ColMajor, f)
+# False alarm caused by macro expansion in sparse-matrix helpers.
 add_compile_options(-Wno-self-assign-overloaded)

@@ -28,17 +28,17 @@ jobs:
         run: |
           MERGE_BASE=$(git merge-base "origin/$BASE_REF" HEAD)
 
-          # Diff of source-only files (excluding tests/, benchmarks/, docs/, scripts/, misc/)
+          # Diff of source-only files (excluding tests/, bindings/hashlink/tests/, benchmarks/, docs/, scripts/, misc/)
           git diff "$MERGE_BASE...HEAD" \
-            -- '*.py' '*.cpp' '*.h' '*.hpp' '*.c' '*.cc' '*.cu' \
-            ':!tests/' ':!benchmarks/' ':!docs/' ':!scripts/' ':!misc/' \
+            -- '*.py' '*.hx' '*.cpp' '*.h' '*.hpp' '*.c' '*.cc' '*.cu' \
+            ':!tests/' ':!bindings/hashlink/tests/' ':!benchmarks/' ':!docs/' ':!scripts/' ':!misc/' \
             > /tmp/source_diff.patch
 
           # List of ALL changed files in the PR (including tests)
           git diff --name-only "$MERGE_BASE...HEAD" > /tmp/all_changed_files.txt
 
           # List of changed test files only
-          git diff --name-only "$MERGE_BASE...HEAD" -- 'tests/' > /tmp/changed_test_files.txt
+          git diff --name-only "$MERGE_BASE...HEAD" -- 'tests/' 'bindings/hashlink/tests/' > /tmp/changed_test_files.txt
 
           if [ ! -s /tmp/source_diff.patch ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -65,7 +65,7 @@ jobs:
           You are checking whether code changes in a PR have adequate test coverage.
 
           Inputs:
-          - /tmp/source_diff.patch — unified diff of NON-TEST source files changed in this PR (.py, .cpp, .h, etc., excluding tests/)
+          - /tmp/source_diff.patch — unified diff of NON-TEST source files changed in this PR (.py, .hx, .cpp, .h, etc., excluding tests/ and bindings/hashlink/tests/)
           - /tmp/all_changed_files.txt — list of ALL files changed in this PR
           - /tmp/changed_test_files.txt — list of test files changed/added in this PR
 
@@ -73,27 +73,20 @@ jobs:
           1. Read the source diff to understand what functional code was added or modified.
           2. Read the changed test files list to see what tests were added or modified in this PR.
           3. For each meaningful source change (new function, new class, new method, changed behavior, new module), determine whether there is a corresponding test — either:
-             a. An existing test file in the repo (under tests/) that already covers that code, OR
+             a. An existing test file in the repo (under tests/ or bindings/hashlink/tests/) that already covers that code, OR
              b. A new/modified test file in this PR that covers that code.
           4. Use the repo structure to find existing tests. The repo layout is:
-             - Python source: python/quadrants/
-             - Python tests: tests/python/
+             - Haxe bindings: bindings/hashlink/haxe/
+             - HashLink native bridge: bindings/hashlink/native/
+             - Haxe tests: tests/hashlink/ and bindings/hashlink/tests/
              - C++ source: quadrants/ (subdirs: codegen, ir, runtime, transforms, etc.)
              - C++ tests: tests/cpp/ (mirrors the source subdirs)
-             Test files are typically named test_<feature>.py or test_<feature>.cpp.
+             Test files are typically named Test<Feature>.hx or <feature>_test.cpp.
 
-          Repo testing policy — Python is the default:
-          - Prefer Python tests under tests/python/. Most C++ behavior is reachable via the Python
-            API and is best tested end-to-end from Python.
-          - Do NOT flag missing C++ tests when adequate Python coverage (existing or added in this
-            PR) already exercises the changed behavior end-to-end.
-          - Only flag a missing C++ test under tests/cpp/ when the behavior is impossible or
-            impractical to exercise from Python. Narrow exceptions:
-            (a) Hardware-capability gating or other negative paths that require mocked device
-                state (e.g. a function that returns empty when a SPIR-V capability is missing) —
-                Python tests on real devices either skip or never enter the branch.
-            (b) Parity with an existing C++ test for an analogous function (e.g. if foo_a has a
-                C++ unit test and the PR adds foo_b of the same shape, mirror the test).
+          Repo testing policy — HashLink/Haxe is the default:
+          - Prefer Haxe tests under tests/hashlink/ for public binding behavior.
+          - Use macro compile-fail tests under tests/hashlink/compile_fail/ for frontend diagnostics.
+          - Add C++ tests under tests/cpp/ for internal behavior that cannot be exercised through Haxe.
 
           What to flag:
           - New public functions/methods/classes with no test coverage at all
@@ -108,7 +101,7 @@ jobs:
           - Config files, build files, CI files
           - Changes to test infrastructure itself (conftest.py, test utilities)
           - Bug fixes where the fix is obviously correct and narrow
-          - Missing C++ tests for code already adequately covered by Python end-to-end tests
+          - Missing C++ tests for code already adequately covered by Haxe/HashLink end-to-end tests
 
           Be pragmatic. Not every line needs a test. Focus on substantial untested additions.
           Do NOT modify any files.

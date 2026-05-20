@@ -29,10 +29,7 @@ std::string signal_name(int sig) {
 }
 
 void signal_handler(int signo) {
-  // It seems that there's no way to pass exception to Python in signal
-  // handlers?
-  // @archibate found that in fact there are such solution:
-  // https://docs.python.org/3/library/faulthandler.html#module-faulthandler
+  // Signal handlers cannot safely throw through the host language boundary.
   auto sig_name = signal_name(signo);
   Logger::get_instance().error(fmt::format("Received signal {} ({})", signo, sig_name), false);
   exit(-1);

@@ -208,7 +208,7 @@ class QD_DLL_EXPORT GfxRuntime {
   // untouched after submit (any buffer here may still be referenced by an in-flight command); only
   // `synchronize()` clears it, after `wait_idle()` drains the stream. Across repeated `flush()` calls without
   // an intervening sync this can accumulate in principle - one batch per flush - but every workload in
-  // Quadrants touches a Python-side observable (result fetch, `to_numpy()`, field readback, etc.) between
+  // Quadrants touches a host-side observable (result fetch, field readback, etc.) between
   // kernel launches and those paths trigger an implicit `synchronize()` that drains the queue.
   //
   // A bounded-FIFO / semaphore-keyed retirement scheme was considered (see the `is_signaled()` discussion in
@@ -338,7 +338,7 @@ class QD_DLL_EXPORT GfxRuntime {
 
   // Counts kernel launches since the last `synchronize()`. `submit_current_cmdlist_if_timeout` forces a drain once this
   // crosses a threshold, bounding the growth of `VulkanStream::submitted_cmdbuffers_` (and the fences, semaphores and
-  // descriptor sets those entries keep alive) on tight kernel-launch loops that never touch a Python-side observable
+  // descriptor sets those entries keep alive) on tight kernel-launch loops that never touch a host-side observable
   // -workloads like MPM88 where every substep is a pure GPU update and the host only reads state once at the end. See
   // the assignment site for the MoltenVK SIGSEGV this guards against.
   size_t pending_launches_since_sync_{0};

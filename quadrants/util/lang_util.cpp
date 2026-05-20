@@ -33,13 +33,9 @@ std::string runtime_lib_dir() {
   } else {
     auto ti_lib_dir = getenv("QD_LIB_DIR");
     QD_ERROR_IF(!ti_lib_dir,
-                "If you are running the quadrants_cpp_tests please set $QD_LIB_DIR "
-                "to $QUADRANTS_INSTALL_DIR/_lib/runtime. $QUADRANTS_INSTALL_DIR can be "
-                "retrieved from quadrants.__path__[0] in python. You can also use this "
-                "script to populate $QD_LIB_DIR:\n\n"
-                "export QD_LIB_DIR=$(python -c \"import os; import quadrants as ti; "
-                "p = os.path.join(ti.__path__[0], '_lib', 'runtime'); print(p)\" | "
-                "tail -n 1)");
+                "Quadrants runtime bitcode directory is not configured. Set $QD_LIB_DIR "
+                "to the installed runtime directory, usually $QUADRANTS_INSTALL_PREFIX/share/quadrants/runtime. "
+                "Haxe/HashLink builds can also set QUADRANTS_RUNTIME_DIR before compiling the .hl file.");
     folder = std::string(ti_lib_dir);
   }
   return folder;

@@ -84,7 +84,7 @@ class AMDGPUContext {
   // contract that `qd.reset()` releases everything Quadrants allocated. Without this, up to the configured release
   // threshold (128 MiB at construction) of freed pages stays cached in the pool and shows up as "used" to other
   // processes on the same VF, materially raising the chance of multi-process `HSA_STATUS_ERROR_OUT_OF_RESOURCES`
-  // failures across pytest-xdist workers. No-op if the device does not advertise mempool support.
+  // failures across test workers. No-op if the device does not advertise mempool support.
   void trim_default_mem_pool();
 
   ~AMDGPUContext();

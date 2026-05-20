@@ -332,7 +332,7 @@ void Operations::init_internals() {
   PLAIN_OP(warp_barrier, i32_void, false, u32);
   // (mask: u32, base: u32, offset: i32) -> u32. CUDA fast path for qd.math.fns: lowered to a single PTX `fns.b32`
   // instruction via inline asm in codegen_cuda.cpp (`__nv_fns` is *not* in the slim libdevice.10.bc we ship). Only
-  // valid on the CUDA backend; the portable Python @qd.func fallback in qd.math.fns dispatches to this on CUDA only.
+  // valid on the CUDA backend; portable frontend fallbacks should dispatch to this on CUDA only.
   PLAIN_OP(cuda_fns_u32, u32, false, u32, u32, i32);
 
 #undef CUDA_MATCH_SYNC
@@ -364,9 +364,8 @@ void Operations::init_internals() {
   PLAIN_OP(subgroupSize, i32, false);
   PLAIN_OP(subgroupInvocationId, i32, false);
   // subgroupAdd / subgroupMul / subgroupMin / subgroupMax / subgroupAnd / subgroupOr / subgroupXor
-  // are intentionally absent: the portable `subgroup.reduce_add(value, log2_size)` (and equivalents)
-  // are implemented in Python on top of `subgroupShuffleDown` / `subgroupShuffle` and are the
-  // supported APIs on all backends.
+  // are intentionally absent: portable frontend reductions should be implemented on top of
+  // `subgroupShuffleDown` / `subgroupShuffle`, which are the supported APIs on all backends.
 #undef POLY_OP
 #undef PLAIN_OP
 }

@@ -791,7 +791,7 @@ static void field_validation(FieldExpression *field_expr, int index_dim) {
 
 void IndexExpression::type_check(const CompileConfig *) {
   // TODO: Change to type-based solution
-  // Currently, dimension compatibility check happens in Python
+  // Currently, dimension compatibility check happens in the frontend
   QD_ASSERT(indices_group.size() == std::accumulate(begin(ret_shape), end(ret_shape), 1, std::multiplies<>()));
   int index_dim = indices_group.empty() ? 0 : indices_group[0].size();
   bool has_slice = !ret_shape.empty();

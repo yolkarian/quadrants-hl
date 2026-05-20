@@ -448,7 +448,7 @@ class AdStackCache {
   // Latest captured launch context snapshot for the diagnose path's ndarray-bound leaf resolution. See
   // `DiagnoseLaunchSnapshot`'s comment above for why we capture in `Program::launch_kernel` before the launcher
   // forwards.
-  // Single-threaded by construction: `capture_diagnose_snapshot` runs from `Program::launch_kernel` (Python
+  // Single-threaded by construction: `capture_diagnose_snapshot` runs from `Program::launch_kernel` (host
   // launcher thread) and `get_diagnose_snapshot` runs from `diagnose_adstack_overflow` on the same thread; no
   // mutex needed. The codegen-time identity registry above keeps its mutex because it is hit from compilation
   // worker threads.

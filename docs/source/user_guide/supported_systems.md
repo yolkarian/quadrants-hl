@@ -1,45 +1,41 @@
-# Supported systems
+# Supported systems for Haxe/HashLink
 
-## CI Tested systems
+The Haxe binding requires both the Haxe/HashLink toolchain and the native Quadrants backend libraries. The public execution path is HashLink bytecode plus the HashLink JIT (`haxe -hl app.hl`, then `hl app.hl`).
 
-We test the following systems in our CI servers:
-- Python 3.10-Python 3.13
-- Mac OS X 14 and 15
-- Ubuntu 22.04 and Ubuntu 24.04
-- Windows Server 2025
+## Host requirements
 
-## Supported systems:
+- CMake and a C++17 compiler for building `quadrants.hdll`.
+- `haxe` and `hl` on `PATH` for compiling and running user programs.
+- A HashLink checkout or install that provides `hl.h` and `libhl`/`hl.dll`.
+- LLVM/Clang 22 or newer and `LLVMConfig.cmake` when `Arch.Cpu`, `Arch.Cuda`, or `Arch.Amdgpu` are enabled.
 
-### Operating systems
-- Mac Silicon 14 or 15
-- Ubuntu 22.04 and 24.04 (x64 and ARM64)
-- Windows 10 or later (x86 only)
+## Tested CI configuration
 
-### GPUs
+The staged CI path builds and tests the HashLink bridge on Ubuntu 22.04 x86_64 with Haxe, HashLink built from source, LLVM/Clang 22, and the CPU JIT backend.
 
-- CUDA GPUs, Pascal or later (>=sm_60)
-- Metal GPUs
-- AMD GPUs
-- Vulkan-compatible GPUs (e.g. Intel Arc)
+## Backend matrix
 
-### Backend / OS matrix
-
-Which backends are available on each supported platform. `qd.cpu` and `qd.vulkan` run on every OS; the other GPU backends are platform-specific because they wrap vendor drivers (CUDA on NVIDIA, ROCm on AMD, Metal on Apple).
-
-| OS \ backend | `qd.cpu` | `qd.cuda` | `qd.amdgpu` | `qd.metal` | `qd.vulkan` |
+| Host platform | `Arch.Cpu` | `Arch.Cuda` | `Arch.Vulkan` | `Arch.Metal` | `Arch.Amdgpu` |
 | --- | --- | --- | --- | --- | --- |
-| macOS (Apple Silicon) | yes | n/a | n/a | yes | yes |
-| Linux x64 | yes | yes | yes | n/a | yes |
-| Linux ARM64 | yes | no | no | n/a | yes |
-| Windows x86 | yes | yes | no | n/a | yes |
-| Windows ARM64 | yes | no | no | n/a | yes |
+| Linux x86_64 | yes | with NVIDIA driver/CUDA | with Vulkan loader/driver | no | with ROCm/HIP |
+| Linux ARM64 | yes | not currently supported by Quadrants | with Vulkan loader/driver | no | not currently supported |
+| macOS Apple Silicon | yes | no | with Vulkan/MoltenVK build | yes | no |
+| Windows x86_64 | not covered by current HashLink CI | with NVIDIA driver/CUDA when enabled | with Vulkan loader/driver when enabled | no | no |
 
 Notes:
-- `qd.cuda` requires an NVIDIA driver + CUDA runtime on the host; quadrants links against the CUDA runtime discovered at import time. NVIDIA ships CUDA for Linux ARM64 and Windows ARM64, but quadrants does not support them yet.
-- `qd.amdgpu` currently wires up the Linux x64 ROCm path only. AMD's HIP SDK also ships on Windows and on some Linux ARM64 targets, but quadrants does not support them yet. AMDGPU codegen always runs in wave64 mode, so `qd.simt.subgroup` primitives operate over 64 lanes regardless of whether the GPU is CDNA (Instinct, wave64-default) or RDNA (Radeon, wave32-default — quadrants overrides it to wave64).
-- `qd.metal` is only available on Apple hardware and is the recommended GPU backend there.
-- `qd.vulkan` on macOS ships a bundled MoltenVK dylib inside the wheel, so no separate MoltenVK install is required.
 
-### Python backend
+- `Arch.Cpu` maps to the host LLVM backend and needs `runtime_x64.bc` or `runtime_arm64.bc` available through `QD_LIB_DIR` or the installed layout.
+- `Arch.Cuda` also needs `runtime_cuda.bc`, `slim_libdevice.10.bc`, CUDA driver libraries, and a native build configured with `QD_WITH_CUDA=ON`.
+- `Arch.Amdgpu` needs the AMDGPU runtime bitcode and ROCm device libraries installed by the HashLink component.
+- `Arch.Vulkan` and `Arch.Metal` do not use LLVM runtime bitcode, but they do need the corresponding native backend compiled into `quadrants.hdll`.
+- Optional device smoke tests are selected with `QD_HASHLINK_TEST_ARCHES=cpu,cuda,vulkan,metal,amdgpu` or `QD_HASHLINK_TEST_ARCHES=all`.
 
-A pure-Python backend (`qd.python`) is available on any system where PyTorch is installed. See [Python backend](./python_backend.md).
+## HashLink library loading
+
+At run time, `hl` must be able to load `quadrants.hdll`, `libhl`, and any backend driver libraries. Use the platform dynamic-library path when necessary:
+
+- Linux: `LD_LIBRARY_PATH`
+- macOS: `DYLD_LIBRARY_PATH`
+- Windows: `PATH`
+
+The installed haxelib layout lets the Haxe macro find `quadrants.hdll` and the runtime bitcode automatically. Build-tree runs should set `QUADRANTS_HDLL` and `QUADRANTS_RUNTIME_DIR` while invoking `haxe`.

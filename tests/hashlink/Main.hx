@@ -1,5 +1,7 @@
 class Main {
   static function main():Void {
+    TestArchApi.run();
+    TestBindingApi.run();
     TestBasics.run();
     TestFor.run();
     TestIf.run();
@@ -7,6 +9,7 @@ class Main {
     TestLoops.run();
     TestCompare.run();
     TestTypes.run();
+    TestLocalReassignment.run();
     TestCast.run();
     TestUnaryOps.run();
     TestMathModule.run();

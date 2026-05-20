@@ -794,10 +794,10 @@ extern "C" {  // local stack operations
 // The stack index `n` is clamped on read so that overflow (push past capacity) does not let subsequent pops and
 // top-accesses underflow it and index far out of bounds. The corresponding stack_push writes through
 // `runtime->adstack_overflow_flag_dev_ptr` (the device-mapped address of a pinned host slot) and skips the
-// increment instead of trapping, so the host-side launcher surfaces the failure as a Python exception rather
+// increment instead of trapping, so the host-side launcher surfaces the failure as a host exception rather
 // than killing the process via __builtin_trap. When n == 0 (pop-after-overflow underflow path) we return a
 // pointer to slot 0 - an uninitialized-but-in-bounds slot. The caller will read garbage from it, but the host
-// polls the pinned slot at every Quadrants Python entry and raises before any such value reaches user code.
+// polls the pinned slot at every host entry and raises before any such value reaches user code.
 Ptr stack_top_primal(Ptr stack, std::size_t element_size) {
   auto n = *(u64 *)stack;
   std::size_t idx = n > 0 ? n - 1 : 0;
@@ -827,7 +827,7 @@ void stack_push(LLVMRuntime *runtime,
   u64 &n = *(u64 *)stack;
   if (n + 1 > max_num_elements) {
     // Overflow: the loop has more iterations than the adstack capacity. Skip the push and flip the dedicated
-    // overflow flag in pinned host memory. The host polls the pinned slot at every Quadrants Python entry
+    // overflow flag in pinned host memory. The host polls the pinned slot at every host entry
     // and raises a `QuadrantsAssertionError` with a diagnosis routed through a synchronous sizer that
     // distinguishes a Quadrants bug (pre-pass undercount of the bound) from a user-side mutation that bypassed
     // tracking (DLPack zero-copy is the typical case; the sizer's freshly-computed required size will exceed

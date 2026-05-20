@@ -499,10 +499,10 @@ class TaskCodeGenCUDA : public TaskCodeGenLLVM {
       auto func_exit = llvm::BasicBlock::Create(*llvm_context, "func_exit", func);
       auto i32_ty = llvm::Type::getInt32Ty(*llvm_context);
       auto loop_index = create_entry_block_alloca(i32_ty);
-      llvm::Value *thread_idx = builder->CreateIntrinsic(Intrinsic::nvvm_read_ptx_sreg_tid_x,
-                                                          ArrayRef<llvm::Type *>{}, ArrayRef<llvm::Value *>{});
-      llvm::Value *block_dim = builder->CreateIntrinsic(Intrinsic::nvvm_read_ptx_sreg_ntid_x,
-                                                         ArrayRef<llvm::Type *>{}, ArrayRef<llvm::Value *>{});
+      llvm::Value *thread_idx =
+          builder->CreateIntrinsic(Intrinsic::nvvm_read_ptx_sreg_tid_x, ArrayRef<llvm::Value *>{});
+      llvm::Value *block_dim =
+          builder->CreateIntrinsic(Intrinsic::nvvm_read_ptx_sreg_ntid_x, ArrayRef<llvm::Value *>{});
       builder->CreateStore(thread_idx, loop_index);
       builder->CreateBr(loop_test_bb);
 
@@ -840,10 +840,8 @@ class TaskCodeGenCUDA : public TaskCodeGenLLVM {
   }
 
   std::tuple<llvm::Value *, llvm::Value *> get_spmd_info() override {
-    auto thread_idx = builder->CreateIntrinsic(Intrinsic::nvvm_read_ptx_sreg_tid_x, ArrayRef<llvm::Type *>{},
-                                               ArrayRef<llvm::Value *>{});
-    auto block_dim = builder->CreateIntrinsic(Intrinsic::nvvm_read_ptx_sreg_ntid_x, ArrayRef<llvm::Type *>{},
-                                              ArrayRef<llvm::Value *>{});
+    auto thread_idx = builder->CreateIntrinsic(Intrinsic::nvvm_read_ptx_sreg_tid_x, ArrayRef<llvm::Value *>{});
+    auto block_dim = builder->CreateIntrinsic(Intrinsic::nvvm_read_ptx_sreg_ntid_x, ArrayRef<llvm::Value *>{});
     return std::make_tuple(thread_idx, block_dim);
   }
 };

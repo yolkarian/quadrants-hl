@@ -1,10 +1,10 @@
 option(USE_STDCPP "Use -stdlib=libc++" OFF)
-option(QD_WITH_LLVM "Build with LLVM backends" ON)              # wheel-tag: llvm
-option(QD_WITH_METAL "Build with the Metal backend" ON)         # wheel-tag: mtl
-option(QD_WITH_CUDA "Build with the CUDA backend" ON)           # wheel-tag: cu
-option(QD_WITH_CUDA_TOOLKIT "Build with the CUDA toolkit" OFF)  # wheel-tag: cutk
-option(QD_WITH_AMDGPU "Build with the AMDGPU backend" OFF)      # wheel-tag: amd
-option(QD_WITH_VULKAN "Build with the Vulkan backend" OFF)      # wheel-tag: vk
+option(QD_WITH_LLVM "Build with LLVM backends" ON)
+option(QD_WITH_METAL "Build with the Metal backend" ON)
+option(QD_WITH_CUDA "Build with the CUDA backend" ON)
+option(QD_WITH_CUDA_TOOLKIT "Build with the CUDA toolkit" OFF)
+option(QD_WITH_AMDGPU "Build with the AMDGPU backend" OFF)
+option(QD_WITH_VULKAN "Build with the Vulkan backend" OFF)
 
 # Force symbols to be 'hidden' by default so nothing is exported from the Quadrants
 # library including the third-party dependencies.
@@ -16,7 +16,9 @@ set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 # Suppress warnings from submodules introduced by the above symbol visibility change
 set(CMAKE_POLICY_DEFAULT_CMP0063 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
-set(INSTALL_LIB_DIR ${CMAKE_INSTALL_PREFIX}/python/quadrants/_lib)
+set(QD_RUNTIME_BUILD_DIR "${CMAKE_BINARY_DIR}/runtime" CACHE PATH "Build-tree directory for Quadrants runtime bitcode")
+set(QD_RUNTIME_INSTALL_DIR "share/quadrants/runtime" CACHE PATH "Quadrants runtime bitcode install directory")
+set(QD_ROCM_RUNTIME_INSTALL_DIR "share/quadrants/runtime_rocm70" CACHE PATH "Quadrants ROCm runtime bitcode install directory")
 
 if (QD_WITH_AMDGPU AND QD_WITH_CUDA)
     message(WARNING "Compiling CUDA and AMDGPU backends simultaneously")
@@ -122,10 +124,11 @@ if(QD_WITH_LLVM)
     endif()
 
     # http://llvm.org/docs/CMake.html#embedding-llvm-in-your-project
+    set(QD_MIN_LLVM_VERSION "22.0")
     find_package(LLVM REQUIRED CONFIG)
     message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
-    if(${LLVM_PACKAGE_VERSION} VERSION_LESS "10.0")
-        message(FATAL_ERROR "LLVM version < 10 is not supported")
+    if("${LLVM_PACKAGE_VERSION}" VERSION_LESS "${QD_MIN_LLVM_VERSION}")
+        message(FATAL_ERROR "LLVM version < ${QD_MIN_LLVM_VERSION} is not supported")
     endif()
     message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
     target_include_directories(${CORE_LIBRARY_NAME} PUBLIC ${LLVM_INCLUDE_DIRS})
@@ -230,15 +233,14 @@ if (QD_WITH_CUDA AND QD_WITH_CUDA_TOOLKIT)
     target_link_libraries(${CORE_LIBRARY_NAME} PUBLIC CUDA::cupti)
 endif()
 
-# SPIR-V codegen is always there, regardless of Vulkan
-set(SPIRV_SKIP_EXECUTABLES true)
-set(SPIRV-Headers_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/SPIRV-Headers)
-set(ENABLE_SPIRV_TOOLS_INSTALL OFF)
-add_subdirectory(external/SPIRV-Tools)
-add_subdirectory(quadrants/codegen/spirv)
-add_subdirectory(quadrants/runtime/gfx)
-
 if (QD_WITH_VULKAN OR QD_WITH_METAL)
+  set(SPIRV_SKIP_EXECUTABLES true)
+  set(SPIRV-Headers_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/SPIRV-Headers)
+  set(ENABLE_SPIRV_TOOLS_INSTALL OFF)
+  add_subdirectory(external/SPIRV-Tools)
+  add_subdirectory(quadrants/codegen/spirv)
+  add_subdirectory(quadrants/runtime/gfx)
+
   target_link_libraries(${CORE_LIBRARY_NAME} PRIVATE spirv_codegen)
   target_link_libraries(${CORE_LIBRARY_NAME} PRIVATE gfx_runtime)
 endif()
@@ -270,7 +272,6 @@ if (LINUX)
         if (QD_WITH_VULKAN)
             target_link_options(${CORE_LIBRARY_NAME} PRIVATE -Wl,--wrap=log2f)
         else()
-            # Enforce compatibility with manylinux2014
             target_link_options(${CORE_LIBRARY_NAME} PRIVATE -Wl,--wrap=log2f -Wl,--wrap=exp2 -Wl,--wrap=log2 -Wl,--wrap=logf -Wl,--wrap=powf -Wl,--wrap=exp -Wl,--wrap=log -Wl,--wrap=pow)
         endif()
     endif()
@@ -287,73 +288,18 @@ foreach (source IN LISTS QUADRANTS_CORE_SOURCE)
     source_group("${source_path_msvc}" FILES "${source}")
 endforeach ()
 
-if(QD_WITH_PYTHON)
-    message("PYTHON_LIBRARIES: " ${PYTHON_LIBRARIES})
-    set(CORE_WITH_PYBIND_LIBRARY_NAME quadrants_python)
-    # NO_EXTRAS is required here to avoid llvm symbol error during build
-    file(GLOB QUADRANTS_PYBIND_SOURCE
-        "quadrants/python/*.cpp"
-        "quadrants/python/*.h"
-    )
-    pybind11_add_module(${CORE_WITH_PYBIND_LIBRARY_NAME} NO_EXTRAS ${QUADRANTS_PYBIND_SOURCE})
-
-    # Remove symbols from static libs: https://stackoverflow.com/a/14863432/12003165
-    if (LINUX)
-        target_link_options(${CORE_WITH_PYBIND_LIBRARY_NAME} PUBLIC -Wl,--exclude-libs=ALL)
-        target_link_options(${CORE_WITH_PYBIND_LIBRARY_NAME} PUBLIC -static-libgcc -static-libstdc++)
-        target_link_libraries(${CORE_WITH_PYBIND_LIBRARY_NAME} PUBLIC stdc++fs)
-    endif()
-
-    if (QD_WITH_BACKTRACE)
-        # Defined by external/backward-cpp:
-        # This will add libraries, definitions and include directories needed by backward
-        # by setting each property on the target.
-        target_link_libraries(${CORE_WITH_PYBIND_LIBRARY_NAME} PRIVATE ${BACKWARD_ENABLE})
-    endif()
-
-    target_link_libraries(${CORE_WITH_PYBIND_LIBRARY_NAME} PRIVATE ${CORE_LIBRARY_NAME})
-
-    target_include_directories(${CORE_WITH_PYBIND_LIBRARY_NAME}
-      PRIVATE
-        ${PROJECT_SOURCE_DIR}
-        ${PROJECT_SOURCE_DIR}/external/spdlog/include
-        ${PROJECT_SOURCE_DIR}/external/eigen
-        ${PROJECT_SOURCE_DIR}/external/volk
-        ${PROJECT_SOURCE_DIR}/external/dlpack/include
-        ${PROJECT_SOURCE_DIR}/external/SPIRV-Tools/include
-        ${PROJECT_SOURCE_DIR}/external/Vulkan-Headers/include
-        ${PROJECT_SOURCE_DIR}/external/FP16/include
-      )
-    target_include_directories(${CORE_WITH_PYBIND_LIBRARY_NAME} SYSTEM
-      PRIVATE
-        ${PROJECT_SOURCE_DIR}/external/VulkanMemoryAllocator/include
-      )
-
-    # These commands should apply to the DLL that is loaded from python, not the OBJECT library.
-    if (MSVC)
-        set_property(TARGET ${CORE_WITH_PYBIND_LIBRARY_NAME} APPEND PROPERTY LINK_FLAGS /DEBUG)
-    endif ()
-
-    if (WIN32)
-        set_target_properties(${CORE_WITH_PYBIND_LIBRARY_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY
-                "${CMAKE_CURRENT_SOURCE_DIR}/runtimes")
-    endif ()
-
-    install(TARGETS ${CORE_WITH_PYBIND_LIBRARY_NAME}
-            RUNTIME DESTINATION ${INSTALL_LIB_DIR}/core
-            LIBRARY DESTINATION ${INSTALL_LIB_DIR}/core)
-endif()
-
 if (NOT APPLE)
     # For more background on what is slim_libdevice.10.bc, and why version 10, not 12.8
     # See https://github.com/Genesis-Embodied-AI/quadrants/issues/166#issuecomment-3289552564
     install(FILES ${CMAKE_SOURCE_DIR}/external/cuda_libdevice/slim_libdevice.10.bc
-            DESTINATION ${INSTALL_LIB_DIR}/runtime)
+            DESTINATION ${QD_RUNTIME_INSTALL_DIR}
+            COMPONENT runtime)
 endif()
 
 if (QD_WITH_AMDGPU)
     # Install ROCm 7.0 libdevice files
     file(GLOB AMDGPU_BC_FILES_ROCM70 ${CMAKE_SOURCE_DIR}/external/amdgpu_libdevice_rocm70/*.bc)
     install(FILES ${AMDGPU_BC_FILES_ROCM70}
-            DESTINATION ${INSTALL_LIB_DIR}/runtime_rocm70)
+            DESTINATION ${QD_ROCM_RUNTIME_INSTALL_DIR}
+            COMPONENT runtime)
 endif()

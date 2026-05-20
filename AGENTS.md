@@ -25,11 +25,11 @@ Code-review agents: flag PRs that change the public API or its usage without cor
 
 Code should be written in the highest-level language possible that will give similar performance to a lower-level alternative.
 
-- Prefer Python to C++.
+- Prefer Haxe to C++.
 - Prefer `.cu` to `.ptx`.
 - Prefer C/C++ over LLVM IR.
 - Prefer C/C++ to LLVM Builder.
-- Prefer Python over Bash.
+- Prefer Bash over Python script.
 
 Only drop down to a lower-level language when there is a concrete performance (or other technical) reason that the higher-level option cannot meet.
 

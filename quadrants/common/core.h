@@ -29,7 +29,6 @@
 
 // Avoid dependency on glibc 2.27
 #if defined(QD_PLATFORM_LINUX) && defined(QD_ARCH_x64)
-// objdump -T libquadrants_python.so| grep  GLIBC_2.27
 __asm__(".symver logf,logf@GLIBC_2.2.5");
 __asm__(".symver powf,powf@GLIBC_2.2.5");
 __asm__(".symver expf,expf@GLIBC_2.2.5");
@@ -93,19 +92,13 @@ static_assert(__cplusplus >= 201402L, "C++14 required.");
 
 #undef assert
 #ifdef _WIN64
-#ifndef QD_PASS_EXCEPTION_TO_PYTHON
 // For Visual Studio debugging...
 #define DEBUG_TRIGGER __debugbreak()
 #else
 #define DEBUG_TRIGGER
 #endif
-#else
-#define DEBUG_TRIGGER
-#endif
 
 #define QD_STATIC_ASSERT(x) static_assert((x), #x)
-
-void quadrants_raise_assertion_failure_in_python(const char *msg);
 
 namespace quadrants {
 
@@ -115,14 +108,9 @@ namespace quadrants {
 
 class CoreState {
  public:
-  bool python_imported = false;
   bool trigger_gdb_when_crash = false;
 
   static CoreState &get_instance();
-
-  static void set_python_imported(bool val) {
-    get_instance().python_imported = val;
-  }
 
   static void set_trigger_gdb_when_crash(bool val) {
     get_instance().trigger_gdb_when_crash = val;
@@ -302,10 +290,6 @@ class DeferedExecution {
 #define QD_DEFER(x) quadrants::DeferedExecution _defered([&]() { x; });
 
 std::string get_repo_dir();
-
-std::string get_python_package_dir();
-
-void set_python_package_dir(const std::string &dir);
 
 inline std::string assets_dir() {
   return get_repo_dir() + "/assets/";

@@ -1,8 +1,0 @@
-quadrants/_lib/runtime
-quadrants/_lib/core/*.so
-quadrants/_lib/core/*.pyd
-quadrants.egg-info
-quadrants/include
-quadrants/assets
-quadrants/tests
-release
