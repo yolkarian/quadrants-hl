@@ -40,8 +40,14 @@ endif()
 add_library(quadrants.hdll SHARED
   quadrants_hl.cpp
   descriptor.cpp
+  descriptor_decode.cpp
+  descriptor_validate.cpp
+  descriptor_lower_type.cpp
+  descriptor_lower_expr.cpp
+  descriptor_lower_stmt.cpp
   quadrants_hl.h
-  descriptor.h)
+  descriptor.h
+  descriptor_internal.h)
 
 set_target_properties(quadrants.hdll PROPERTIES
   PREFIX ""

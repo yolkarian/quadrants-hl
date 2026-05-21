@@ -67,4 +67,49 @@ abstract Vector<T>(VectorData<T>) {
       return cast (da * db);
     });
   }
+  public function dot(other:Vector<T>):Float {
+    if (length != other.length) {
+      throw "Quadrants vector length mismatch";
+    }
+    var total = 0.0;
+    for (i in 0...length) {
+      var a:Dynamic = this.values[i];
+      var b:Dynamic = other.get(i);
+      total += a * b;
+    }
+    return total;
+  }
+
+  public function norm():Float {
+    return Math.sqrt(dot(cast this));
+  }
+
+  public function normalized():Vector<Float> {
+    var n = norm();
+    if (n == 0.0) {
+      throw "Quadrants cannot normalize a zero-length vector";
+    }
+    return new Vector([for (value in this.values) {
+      var d:Dynamic = value;
+      d / n;
+    }]);
+  }
+
+  public function cross(other:Vector<T>):Vector<Float> {
+    if (length != 3 || other.length != 3) {
+      throw "Quadrants cross product requires two 3D vectors";
+    }
+    var ax:Dynamic = this.values[0];
+    var ay:Dynamic = this.values[1];
+    var az:Dynamic = this.values[2];
+    var bx:Dynamic = other.get(0);
+    var by:Dynamic = other.get(1);
+    var bz:Dynamic = other.get(2);
+    return new Vector([
+      ay * bz - az * by,
+      az * bx - ax * bz,
+      ax * by - ay * bx,
+    ]);
+  }
+
 }

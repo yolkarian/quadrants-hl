@@ -43,7 +43,10 @@
 namespace quadrants::lang {
 std::atomic<int> Program::num_instances_;
 
-Program::Program(Arch desired_arch)
+Program::Program(Arch desired_arch) : Program(desired_arch, default_compile_config.kernel_profiler) {
+}
+
+Program::Program(Arch desired_arch, bool kernel_profiler)
     : snode_rw_accessors_bank_(this), adstack_cache_(std::make_unique<AdStackCache>(this)) {
   QD_TRACE("Program initializing...");
 
@@ -65,6 +68,7 @@ Program::Program(Arch desired_arch)
   auto &config = compile_config_;
   config = default_compile_config;
   config.arch = desired_arch;
+  config.kernel_profiler = kernel_profiler;
   config.fit();
   stream_manager_ = StreamManager(config.arch);
 

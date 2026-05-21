@@ -2,6 +2,7 @@ class Main {
   static function main():Void {
     TestArchApi.run();
     TestBindingApi.run();
+    TestDescriptorSnapshot.run();
     TestBasics.run();
     TestFor.run();
     TestIf.run();
@@ -17,6 +18,12 @@ class Main {
     TestMatrix.run();
     TestAtomic.run();
     TestFunction.run();
+    TestReturn.run();
+    TestField.run();
+    TestQdFunc.run();
+    TestNdrange.run();
+    TestSimtApi.run();
+    TestTapeApi.run();
     Sys.println("hashlink tests ok");
   }
 }

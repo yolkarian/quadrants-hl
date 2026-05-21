@@ -4,7 +4,13 @@
 #include <optional>
 #include <unordered_set>
 
+#if defined(QD_WITH_LLVM)
 #include "llvm/IR/Module.h"
+#else
+namespace llvm {
+class Module;
+}  // namespace llvm
+#endif
 #include "quadrants/common/serialization.h"
 #include "quadrants/ir/adstack_size_expr.h"
 #include "quadrants/transforms/static_adstack_analysis.h"
@@ -161,6 +167,7 @@ class OffloadedTask {
             arr_reads);
 };
 
+#if defined(QD_WITH_LLVM)
 struct LLVMCompiledTask {
   std::vector<OffloadedTask> tasks;
   std::unique_ptr<llvm::Module> module{nullptr};
@@ -194,5 +201,6 @@ struct LLVMCompiledKernel {
   LLVMCompiledKernel clone() const;
   QD_IO_DEF(tasks);
 };
+#endif
 
 }  // namespace quadrants::lang

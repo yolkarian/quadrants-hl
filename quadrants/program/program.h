@@ -69,10 +69,15 @@ class QD_DLL_EXPORT Program {
   }
 
   explicit Program(Arch arch);
+  Program(Arch arch, bool kernel_profiler);
 
   ~Program();
 
   const CompileConfig &compile_config() const {
+    return compile_config_;
+  }
+
+  CompileConfig &mutable_compile_config() {
     return compile_config_;
   }
 

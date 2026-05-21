@@ -1,6 +1,8 @@
 import quadrants.Context;
 import quadrants.Kernel;
 import quadrants.Types.Arch;
+import quadrants.Tensor;
+import quadrants.Types.I32;
 
 class TestCast {
   static function expectEq(name:String, got:Int, expected:Int):Void {
@@ -13,13 +15,13 @@ class TestCast {
     var ctx = new Context(Arch.Cuda);
     var k:Kernel = null;
     try {
-      var out = ctx.ndarrayI32([1]);
+      var out = new Tensor<I32>(ctx, [1]);
       k = Kernel.build(ctx, macro (out, x) -> {
         out[0] = cast(x, Int);
       });
       k.launch(out, 17);
       ctx.sync();
-      expectEq("cast", out.readI32(0), 17);
+      expectEq("cast", out.read(0), 17);
       k.close();
       ctx.close();
     } catch (e:Dynamic) {

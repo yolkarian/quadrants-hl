@@ -1,6 +1,8 @@
 import quadrants.Context;
 import quadrants.Kernel;
 import quadrants.Types.Arch;
+import quadrants.Tensor;
+import quadrants.Types.I32;
 
 class TestCompare {
   static function expectEq(name:String, got:Int, expected:Int):Void {
@@ -13,7 +15,7 @@ class TestCompare {
     var ctx = new Context(Arch.Cuda);
     var k:Kernel = null;
     try {
-      var out = ctx.ndarrayI32([6]);
+      var out = new Tensor<I32>(ctx, [6]);
       k = Kernel.build(ctx, macro (out, x, y) -> {
         if (x == y) out[0] = 1; else out[0] = 0;
         if (x != y) out[1] = 1; else out[1] = 0;
@@ -24,12 +26,12 @@ class TestCompare {
       });
       k.launch(out, 2, 5);
       ctx.sync();
-      expectEq("eq", out.readI32(0), 0);
-      expectEq("neq", out.readI32(1), 1);
-      expectEq("logic", out.readI32(2), 1);
-      expectEq("bit", out.readI32(3), (2 & 3) | (5 ^ 1));
-      expectEq("not_or_gte", out.readI32(4), 1);
-      expectEq("lte", out.readI32(5), 1);
+      expectEq("eq", out.read(0), 0);
+      expectEq("neq", out.read(1), 1);
+      expectEq("logic", out.read(2), 1);
+      expectEq("bit", out.read(3), (2 & 3) | (5 ^ 1));
+      expectEq("not_or_gte", out.read(4), 1);
+      expectEq("lte", out.read(5), 1);
       k.close();
       ctx.close();
     } catch (e:Dynamic) {

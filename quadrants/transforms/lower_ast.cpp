@@ -271,7 +271,8 @@ class LowerAST : public IRVisitor {
       fctx.push_back(std::move(new_for));
     } else if (stmt->mesh) {
       auto &&new_for = std::make_unique<MeshForStmt>(stmt->mesh, stmt->element_type, std::move(stmt->body),
-                                                     stmt->is_bit_vectorized, stmt->num_cpu_threads, stmt->block_dim);
+                                                     stmt->is_bit_vectorized, stmt->num_cpu_threads, stmt->block_dim,
+                                                     stmt->mesh_ptr);
       new_for->body->insert(std::make_unique<LoopIndexStmt>(new_for.get(), 0), 0);
       new_for->body->local_var_to_stmt[stmt->loop_var_ids[0]] = new_for->body->statements[0].get();
       new_for->mem_access_opt = stmt->mem_access_opt;

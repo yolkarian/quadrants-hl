@@ -1,6 +1,8 @@
 import quadrants.Context;
 import quadrants.Kernel;
 import quadrants.Types.Arch;
+import quadrants.Tensor;
+import quadrants.Types.I32;
 
 class TestLoops {
   static function expectEq(name:String, got:Int, expected:Int):Void {
@@ -11,8 +13,8 @@ class TestLoops {
     var ctx = new Context(Arch.Cuda);
     var k:Kernel = null;
     try {
-      var out = ctx.ndarrayI32([5]);
-      out.fillI32(-1);
+      var out = new Tensor<I32>(ctx, [5]);
+      out.fill(-1);
       k = Kernel.build(ctx, macro (out) -> {
         var i = 0;
         while (i < 5) {
@@ -29,10 +31,10 @@ class TestLoops {
       });
       k.launch(out);
       ctx.sync();
-      expectEq("loop0", out.readI32(0), 100);
-      expectEq("loop1", out.readI32(1), -1);
-      expectEq("loop3", out.readI32(3), 103);
-      expectEq("loop4", out.readI32(4), -1);
+      expectEq("loop0", out.read(0), 100);
+      expectEq("loop1", out.read(1), -1);
+      expectEq("loop3", out.read(3), 103);
+      expectEq("loop4", out.read(4), -1);
       k.close();
       ctx.close();
     } catch (e:Dynamic) {

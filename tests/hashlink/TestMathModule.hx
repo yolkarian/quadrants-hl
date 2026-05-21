@@ -1,7 +1,8 @@
 import quadrants.Context;
 import quadrants.Kernel;
-import quadrants.Tensor;
 import quadrants.Types.Arch;
+import quadrants.Tensor;
+import quadrants.Types.I32;
 import quadrants.Types.F64;
 
 class TestMathModule {
@@ -17,7 +18,7 @@ class TestMathModule {
     var ctx = new Context(Arch.Cuda);
     var k:Kernel = null;
     try {
-      var out = ctx.ndarrayI32([4]);
+      var out = new Tensor<I32>(ctx, [4]);
       k = Kernel.build(ctx, macro (out, x) -> {
         out[0] = abs(-x);
         out[1] = min(x, 7);
@@ -26,25 +27,27 @@ class TestMathModule {
       });
       k.launch(out, 5);
       ctx.sync();
-      expectEq("abs", out.readI32(0), 5);
-      expectEq("min", out.readI32(1), 5);
-      expectEq("max", out.readI32(2), 7);
-      expectEq("floor", out.readI32(3), 3);
+      expectEq("abs", out.read(0), 5);
+      expectEq("min", out.read(1), 5);
+      expectEq("max", out.read(2), 7);
+      expectEq("floor", out.read(3), 3);
       k.close();
 
-      var fout:Tensor<F64> = ctx.ndarrayF64([4]);
+      var fout:Tensor<F64> = new Tensor<F64>(ctx, [5]);
       k = Kernel.build(ctx, macro (fout:Tensor<F64>) -> {
         fout[0] = Math.sqrt(9.0);
         fout[1] = Math.ceil(2.1);
         fout[2] = Math.sin(0.0);
         fout[3] = Math.cos(0.0);
+        fout[4] = Math.atan(1.0);
       });
       k.launch(fout);
       ctx.sync();
-      expectFloat("sqrt", fout.readF64(0), 3.0);
-      expectFloat("ceil", fout.readF64(1), 3.0);
-      expectFloat("sin", fout.readF64(2), 0.0);
-      expectFloat("cos", fout.readF64(3), 1.0);
+      expectFloat("sqrt", fout.read(0), 3.0);
+      expectFloat("ceil", fout.read(1), 3.0);
+      expectFloat("sin", fout.read(2), 0.0);
+      expectFloat("cos", fout.read(3), 1.0);
+      expectFloat("atan", fout.read(4), 0.785398);
       k.close();
       ctx.close();
     } catch (e:Dynamic) {

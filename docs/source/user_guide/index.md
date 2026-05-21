@@ -1,23 +1,15 @@
 # User guide
 
-```{toctree}
-:caption: Haxe/HashLink
-:maxdepth: 1
-:titlesonly:
+## Haxe/HashLink
 
-getting_started
-hashlink
-haxe_api
-kernel_language
-supported_systems
-troubleshooting
-```
+- [Getting started](getting_started.md)
+- [Haxe/HashLink integration](hashlink.md)
+- [Haxe/HashLink public API](haxe_api.md)
+- [Haxe kernel language](kernel_language.md)
+- [Supported systems](supported_systems.md)
+- [Troubleshooting](troubleshooting.md)
 
-```{toctree}
-:caption: Development
-:maxdepth: 1
-:titlesonly:
+## Development
 
-contributing
-building_cudagraph_conditional_fatbin
-```
+- [Contributing](contributing.md)
+- [Building the CUDA graph conditional fatbin](building_cudagraph_conditional_fatbin.md)

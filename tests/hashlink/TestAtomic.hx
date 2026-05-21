@@ -1,6 +1,8 @@
 import quadrants.Context;
 import quadrants.Kernel;
 import quadrants.Types.Arch;
+import quadrants.Tensor;
+import quadrants.Types.I32;
 
 class TestAtomic {
   static inline final FETCH_ADD_N = 32;
@@ -65,8 +67,8 @@ class TestAtomic {
     }
 
     try {
-      var out = ctx.ndarrayI32([1]);
-      out.fillI32(0);
+      var out = new Tensor<I32>(ctx, [1]);
+      out.fill(0);
       k = Kernel.build(ctx, macro (out, n) -> {
         for (i in 0...n) {
           out[0] += 1;
@@ -74,11 +76,11 @@ class TestAtomic {
       });
       k.launch(out, 32);
       ctx.sync();
-      expectEq('${name}_atomic_add', out.readI32(0), 32);
+      expectEq('${name}_atomic_add', out.read(0), 32);
       k.close();
       k = null;
 
-      out.fillI32(40);
+      out.fill(40);
       k = Kernel.build(ctx, macro (out, n) -> {
         for (i in 0...n) {
           out[0] -= 1;
@@ -86,14 +88,14 @@ class TestAtomic {
       });
       k.launch(out, 8);
       ctx.sync();
-      expectEq('${name}_atomic_sub', out.readI32(0), 32);
+      expectEq('${name}_atomic_sub', out.read(0), 32);
       k.close();
       k = null;
 
-      var counts = ctx.ndarrayI32([1]);
-      var seen = ctx.ndarrayI32([FETCH_ADD_N]);
-      counts.fillI32(0);
-      seen.fillI32(0);
+      var counts = new Tensor<I32>(ctx, [1]);
+      var seen = new Tensor<I32>(ctx, [FETCH_ADD_N]);
+      counts.fill(0);
+      seen.fill(0);
       k = Kernel.build(ctx, macro (counts, seen, n) -> {
         for (i in 0...n) {
           var slot = atomicAdd(counts[0], 1);
@@ -104,9 +106,9 @@ class TestAtomic {
       });
       k.launch(counts, seen, FETCH_ADD_N);
       ctx.sync();
-      expectEq('${name}_atomic_fetch_add_count', counts.readI32(0), FETCH_ADD_N);
+      expectEq('${name}_atomic_fetch_add_count', counts.read(0), FETCH_ADD_N);
       for (i in 0...FETCH_ADD_N) {
-        expectEq('${name}_atomic_fetch_add_seen[${i}]', seen.readI32(i), 1);
+        expectEq('${name}_atomic_fetch_add_seen[${i}]', seen.read(i), 1);
       }
       k.close();
       k = null;

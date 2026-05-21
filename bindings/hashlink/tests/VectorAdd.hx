@@ -1,6 +1,8 @@
 import quadrants.Context;
 import quadrants.Kernel;
+import quadrants.Tensor;
 import quadrants.Types.Arch;
+import quadrants.Types.I32;
 
 class VectorAdd {
   static function main():Void {
@@ -8,14 +10,14 @@ class VectorAdd {
     var k:Kernel = null;
     try {
       final n = 16;
-      var a = ctx.ndarrayI32([n]);
-      var b = ctx.ndarrayI32([n]);
-      var out = ctx.ndarrayI32([n]);
+      var a = new Tensor<I32>(ctx, [n]);
+      var b = new Tensor<I32>(ctx, [n]);
+      var out = new Tensor<I32>(ctx, [n]);
 
       for (i in 0...n) {
-        a.writeI32(i, i * 2);
-        b.writeI32(i, 100 - i);
-        out.writeI32(i, 0);
+        a.write(i, i * 2);
+        b.write(i, 100 - i);
+        out.write(i, 0);
       }
 
       k = Kernel.build(ctx, macro (a, b, out, n) -> {
@@ -28,7 +30,7 @@ class VectorAdd {
 
       for (i in 0...n) {
         var expected = i * 2 + (100 - i);
-        var got = out.readI32(i);
+        var got = out.read(i);
         if (got != expected) {
           throw 'bad result at ${i}: ${got} != ${expected}';
         }

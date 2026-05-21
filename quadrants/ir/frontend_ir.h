@@ -189,6 +189,7 @@ class FrontendForStmt : public Stmt {
  public:
   SNode *snode{nullptr};
   Expr external_tensor;
+  mesh::MeshPtr mesh_ptr;
   mesh::Mesh *mesh{nullptr};
   mesh::MeshElementType element_type;
   Expr begin, end;

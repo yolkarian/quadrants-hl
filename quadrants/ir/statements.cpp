@@ -254,8 +254,10 @@ MeshForStmt::MeshForStmt(mesh::Mesh *mesh,
                          std::unique_ptr<Block> &&body,
                          bool is_bit_vectorized,
                          int num_cpu_threads,
-                         int block_dim)
-    : mesh(mesh),
+                         int block_dim,
+                         mesh::MeshPtr mesh_ptr)
+    : mesh(mesh_ptr.ptr ? mesh_ptr.ptr.get() : mesh),
+      mesh_ptr(std::move(mesh_ptr)),
       body(std::move(body)),
       is_bit_vectorized(is_bit_vectorized),
       num_cpu_threads(num_cpu_threads),
@@ -267,7 +269,7 @@ MeshForStmt::MeshForStmt(mesh::Mesh *mesh,
 
 std::unique_ptr<Stmt> MeshForStmt::clone() const {
   auto new_stmt = std::make_unique<MeshForStmt>(mesh, major_from_type, body->clone(), is_bit_vectorized,
-                                                num_cpu_threads, block_dim);
+                                                num_cpu_threads, block_dim, mesh_ptr);
   new_stmt->major_to_types = major_to_types;
   new_stmt->minor_relation_types = minor_relation_types;
   new_stmt->mem_access_opt = mem_access_opt;
@@ -368,6 +370,10 @@ std::unique_ptr<Stmt> OffloadedStmt::clone() const {
   new_stmt->index_offsets = index_offsets;
 
   new_stmt->mesh = mesh;
+  new_stmt->mesh_ptr = mesh_ptr;
+  if (new_stmt->mesh_ptr.ptr) {
+    new_stmt->mesh = new_stmt->mesh_ptr.ptr.get();
+  }
   new_stmt->major_from_type = major_from_type;
   new_stmt->major_to_types = major_to_types;
   new_stmt->minor_relation_types = minor_relation_types;

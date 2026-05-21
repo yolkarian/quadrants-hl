@@ -1,6 +1,8 @@
 import quadrants.Context;
 import quadrants.Kernel;
 import quadrants.Types.Arch;
+import quadrants.Tensor;
+import quadrants.Types.I32;
 
 class TestIf {
   static function expectEq(name:String, got:Int, expected:Int):Void {
@@ -11,7 +13,7 @@ class TestIf {
     var ctx = new Context(Arch.Cuda);
     var k:Kernel = null;
     try {
-      var out = ctx.ndarrayI32([4]);
+      var out = new Tensor<I32>(ctx, [4]);
       k = Kernel.build(ctx, macro (out, x) -> {
         if (x > 0) {
           out[0] = 1;
@@ -22,12 +24,12 @@ class TestIf {
       });
       k.launch(out, 3);
       ctx.sync();
-      expectEq("if_true", out.readI32(0), 1);
-      expectEq("select", out.readI32(1), 30);
+      expectEq("if_true", out.read(0), 1);
+      expectEq("select", out.read(1), 30);
       k.launch(out, -2);
       ctx.sync();
-      expectEq("if_false", out.readI32(0), -1);
-      expectEq("select_false", out.readI32(1), 40);
+      expectEq("if_false", out.read(0), -1);
+      expectEq("select_false", out.read(1), 40);
       k.close();
       ctx.close();
     } catch (e:Dynamic) {

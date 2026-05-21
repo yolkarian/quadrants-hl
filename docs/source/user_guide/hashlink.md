@@ -110,7 +110,7 @@ The CTest suite compiles `tests/hashlink/hashlink_tests.hxml`, runs the CPU smok
 | Run CUDA HL/JIT smoke coverage | Set `QD_HASHLINK_TEST_ARCHES=cuda` and make CUDA libraries visible to `hl`. |
 | Check macro diagnostics | `cmake/RunHaxeCompileFailTests.cmake` over `tests/hashlink/compile_fail/*.hx`. |
 | Run the CUDA bridge sample manually | `bindings/hashlink/tests/hashlink_bridge_test.hxml` when `QD_WITH_CUDA=ON` and CUDA libraries are visible to `hl`. |
-| Build docs for the Haxe public API | `make -C docs html`. |
+| Build docs for the Haxe public API | `haxelib install dox` once, then `make -C docs html`. |
 
 Manual smoke test from an installed haxelib package:
 
@@ -153,16 +153,18 @@ For the user-facing API surface and migration notes from the former Python bindi
 ```haxe
 import quadrants.Context;
 import quadrants.Kernel;
+import quadrants.Tensor;
 import quadrants.Types.Arch;
+import quadrants.Types.I32;
 
 var ctx = new Context(Arch.Cpu);
-var a = ctx.ndarrayI32([16]);
-var b = ctx.ndarrayI32([16]);
-var out = ctx.ndarrayI32([16]);
+var a = new Tensor<I32>(ctx, [16]);
+var b = new Tensor<I32>(ctx, [16]);
+var out = new Tensor<I32>(ctx, [16]);
 
 for (i in 0...16) {
-  a.writeI32(i, i * 2);
-  b.writeI32(i, 100 - i);
+  a.write(i, i * 2);
+  b.write(i, 100 - i);
 }
 
 final k = Kernel.build(ctx, macro (a, b, out, n) -> {
@@ -178,7 +180,7 @@ k.close();
 ctx.close();
 ```
 
-Primitive ndarray helpers are available for `I8`, `I16`, `I32`, `I64`, `U8`, `U16`, `U32`, `U64`, `F32`, and `F64` through methods such as `ctx.ndarrayI32([n])` and `ctx.ndarrayF32([n])`.
+Primitive tensors are allocated with `new Tensor<T>(ctx, shape)`, where `T` is one of `I8`, `I16`, `I32`, `I64`, `U8`, `U16`, `U32`, `U64`, `U1`, `F16`, `F32`, or `F64`. Host access uses the typed `fill`, `read`, `write`, `readAt`, `writeAt`, `toArray`, and `fromArray` methods.
 
 ## Kernel macro coverage
 
@@ -186,13 +188,22 @@ The current Haxe macro supports:
 
 - Primitive scalar and `Tensor<T>` parameters.
 - Ndarray indexing, including nested indexing up to rank 8.
-- `for (i in start...end)`, `while`, `break`, and `continue`.
-- `if` statements and expression-level `if`/select.
+- `for (i in start...end)`, `for (I in Ndrange.of(...))`, `for (I in Ndrange.ranges(...))`, `for (i in fieldOrTensor)`, `for (i in Static.range(...))`, `while`, `break`, and `continue`.
+- `if` statements, compile-time literal `if (true)` / `if (false)`, expression-level `if`/select, and Haxe ternary expressions.
 - Local variable declarations and assignments.
-- Ndarray element stores, atomic `+=`/`-=` on ndarray elements, and `atomicAdd(a[i], value)` fetch-add expressions.
+- Ndarray element stores, atomic compound assignment on ndarray elements, and `atomicAdd(a[i], value)`/related fetch-atomic expressions, including `atomicCompareExchange(a[i], expected, desired)`.
 - Arithmetic, comparison, boolean, integer bitwise, unary `!`, unary `-`, and bitwise `~` expressions.
-- `abs`, `sin`, `cos`, `tan`, `exp`, `log`, `sqrt`, `floor`, `ceil`, `min`, and `max`.
-- Explicit casts to supported primitive scalar types.
+- Vector locals via `Vec2`/`Vec3`/`Vec4` or `Vector.ofArray`, including component/index access, elementwise arithmetic, `dot`, `cross`, `norm`, and `normalized`.
+- Matrix locals via `Mat2`/`Mat3`/`Mat4` or `Matrix.ofArray`, including constant row/column indexing, elementwise arithmetic, `matmul`, and `transpose`.
+- Shared arrays via `Shared.array*(size)` and fixed 16x16 tiles via `Shared.tile16*()` for primitive dtypes with direct indexing in kernel bodies.
+- Struct locals from `Struct.ofN("field", value, ...)` with scalar field access and assignment.
+- `abs`, `sin`, `asin`, `cos`, `acos`, `tan`, `atan`, `tanh`, `exp`, `log`, `sqrt`, `rsqrt`, `floor`, `ceil`, `round`, `min`, `max`, `atan2`, `pow`, `inv`, `rcp`, `popcnt`, `clz`, `ffs`, `sgn`, `isnan`, `isinf`, and `select(cond, a, b)`.
+- Random scalar calls: `randI32()`, `randU32()`, `randF32()`, and `randF64()`.
+- Explicit casts and `bitCast` to supported primitive scalar types.
+- `print(...)` and `assert(...)` frontend statements.
+- Primitive scalar return values via `Kernel.launchRet(args...)`.
+- Autodiff descriptor rebuild helpers (`Kernel.grad()`, `forwardGrad()`, `validationKernel()`) and `Tape` replay for recorded launches.
+- `Ndrange.of`, `shape(tensor, axis)`, loop hints (`blockDim`, `parallelize`, `serialize`), `@:qdFunc` helper calls, `Grid.threadIdx()`, and `Block`/`Subgroup`/`Workgroup` SIMT helpers inside lowered loops.
 
 Unsupported constructs are rejected by the Haxe macro with `Unsupported Quadrants HashLink ...` diagnostics.
 

@@ -1,4 +1,4 @@
-// EXPECT_ERROR: Unsupported quoted Haxe expression node EArrayDecl
+// EXPECT_ERROR: Unsupported Quadrants HashLink kernel expression
 import quadrants.Context;
 import quadrants.Kernel;
 

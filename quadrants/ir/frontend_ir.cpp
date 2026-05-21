@@ -74,12 +74,12 @@ FrontendForStmt::FrontendForStmt(const ExprGroup &loop_vars,
 }
 
 FrontendForStmt::FrontendForStmt(const ExprGroup &loop_vars,
-                                 const mesh::MeshPtr &mesh,
+                                 const mesh::MeshPtr &mesh_ptr,
                                  const mesh::MeshElementType &element_type,
                                  Arch arch,
                                  const ForLoopConfig &config,
                                  const DebugInfo &dbg_info)
-    : Stmt(dbg_info), mesh(mesh.ptr.get()), element_type(element_type) {
+    : Stmt(dbg_info), mesh_ptr(mesh_ptr), mesh(this->mesh_ptr.ptr.get()), element_type(element_type) {
   init_config(arch, config);
   init_loop_vars(loop_vars);
 }
@@ -99,7 +99,8 @@ FrontendForStmt::FrontendForStmt(const FrontendForStmt &o)
     : Stmt(o.dbg_info),
       snode(o.snode),
       external_tensor(o.external_tensor),
-      mesh(o.mesh),
+      mesh_ptr(o.mesh_ptr),
+      mesh(mesh_ptr.ptr ? mesh_ptr.ptr.get() : o.mesh),
       element_type(o.element_type),
       begin(o.begin),
       end(o.end),

@@ -1,6 +1,8 @@
 import quadrants.Context;
 import quadrants.Kernel;
 import quadrants.Types.Arch;
+import quadrants.Tensor;
+import quadrants.Types.I32;
 
 class TestBasics {
   static function expectEq(name:String, got:Int, expected:Int):Void {
@@ -13,7 +15,7 @@ class TestBasics {
     var ctx = new Context(Arch.Cuda);
     var k:Kernel = null;
     try {
-      var out = ctx.ndarrayI32([4]);
+      var out = new Tensor<I32>(ctx, [4]);
       k = Kernel.build(ctx, macro (out) -> {
         var acc = 1;
         acc = acc + 2;
@@ -21,7 +23,7 @@ class TestBasics {
       });
       k.launch(out);
       ctx.sync();
-      expectEq("local_assign", out.readI32(0), 3);
+      expectEq("local_assign", out.read(0), 3);
       k.close();
       ctx.close();
     } catch (e:Dynamic) {

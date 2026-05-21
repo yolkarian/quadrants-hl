@@ -24,13 +24,14 @@ The HashLink CTest suite compiles the Haxe tests, runs a CPU `hl` smoke test, an
 
 ## Documentation
 
-Build the user docs with Sphinx/MyST when changing public Haxe APIs:
+Build the Haxe public API docs with Dox when changing public Haxe APIs:
 
 ```bash
+haxelib install dox
 make -C docs html
 ```
 
-The docs no longer import the removed Python package or generate Python AutoAPI output.
+The docs build generates Haxe XML from `bindings/hashlink/haxe` and renders it with `haxelib run dox`; it no longer depends on Sphinx/MyST or the removed Python package.
 
 ## Haxe package development
 

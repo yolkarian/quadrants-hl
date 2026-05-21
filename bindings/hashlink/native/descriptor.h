@@ -1,10 +1,13 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
+
+#include "quadrants/inc/constants.h"
 
 namespace quadrants::lang {
 class CompiledKernelData;
@@ -25,6 +28,8 @@ enum class DescriptorDType : std::uint8_t {
   u64 = 7,
   f32 = 8,
   f64 = 9,
+  u1 = 10,
+  f16 = 11,
 };
 
 enum class ParameterKind : std::uint8_t {
@@ -74,6 +79,51 @@ enum class ExprOpcode : std::uint8_t {
   unary_bit_not = 39,
   const_f64 = 40,
   atomic_add = 41,
+  const_i64 = 42,
+  const_u64 = 43,
+  const_f32 = 44,
+  const_bool = 45,
+  unary_asin = 46,
+  unary_acos = 47,
+  binary_atan2 = 48,
+  binary_pow = 49,
+  unary_rsqrt = 50,
+  unary_round = 51,
+  atomic_sub = 52,
+  atomic_min = 53,
+  atomic_max = 54,
+  atomic_bit_and = 55,
+  atomic_bit_or = 56,
+  atomic_bit_xor = 57,
+  atomic_exchange = 58,
+  thread_idx = 59,
+  shape_axis = 60,
+  unary_tanh = 61,
+  unary_inv = 62,
+  unary_rcp = 63,
+  unary_popcnt = 64,
+  unary_clz = 65,
+  unary_ffs = 66,
+  unary_sgn = 67,
+  bit_cast = 68,
+  atomic_mul = 69,
+  block_thread_idx = 70,
+  subgroup_size = 71,
+  subgroup_invocation_id = 72,
+  subgroup_elect = 73,
+  subgroup_shuffle = 74,
+  subgroup_shuffle_down = 75,
+  subgroup_shuffle_up = 76,
+  subgroup_broadcast = 77,
+  local_invocation_id = 78,
+  global_invocation_id = 79,
+  vk_global_thread_idx = 80,
+  cuda_active_mask = 81,
+  block_barrier_and = 82,
+  block_barrier_or = 83,
+  block_barrier_count = 84,
+  atomic_compare_exchange = 85,
+  rand = 86,
 };
 
 enum class StmtOpcode : std::uint8_t {
@@ -88,6 +138,31 @@ enum class StmtOpcode : std::uint8_t {
   continue_stmt = 9,
   atomic_add = 10,
   atomic_sub = 11,
+  return_value = 12,
+  atomic_min = 13,
+  atomic_max = 14,
+  atomic_bit_and = 15,
+  atomic_bit_or = 16,
+  atomic_bit_xor = 17,
+  atomic_exchange = 18,
+  atomic_mul = 19,
+  loop_block_dim = 20,
+  loop_parallelize = 21,
+  loop_serialize = 22,
+  print_stmt = 23,
+  assert_stmt = 24,
+  block_barrier = 25,
+  block_mem_fence = 26,
+  grid_mem_fence = 27,
+  workgroup_barrier = 28,
+  workgroup_memory_barrier = 29,
+  grid_memory_barrier = 30,
+  subgroup_barrier = 31,
+  subgroup_memory_barrier = 32,
+  warp_barrier = 33,
+  struct_for_external_tensor = 34,
+  return_values = 35,
+  mesh_for = 36,
 };
 
 struct ParameterDescriptor {
@@ -101,13 +176,27 @@ struct LocalDescriptor {
   DescriptorDType dtype{DescriptorDType::i32};
   bool allocate{false};
   std::uint32_t name_id{0};
+  std::uint32_t shared_size{0};
 };
+
+struct SourceSpanDescriptor {
+  std::uint32_t file_name_id{0};
+  std::uint32_t line{0};
+  std::uint32_t begin{0};
+  std::uint32_t end{0};
+};
+
 
 struct ExpressionDescriptor {
   ExprOpcode opcode{ExprOpcode::const_i32};
   std::int32_t const_i32{0};
   double const_f64{0.0};
+  std::int64_t const_i64{0};
+  std::uint64_t const_u64{0};
+  float const_f32{0.0f};
+  bool const_bool{false};
   std::uint32_t index{0};
+  std::uint32_t axis{0};
   DescriptorDType cast_dtype{DescriptorDType::i32};
   std::unique_ptr<ExpressionDescriptor> target;
   std::vector<std::unique_ptr<ExpressionDescriptor>> indices;
@@ -115,14 +204,22 @@ struct ExpressionDescriptor {
   std::unique_ptr<ExpressionDescriptor> rhs;
   std::unique_ptr<ExpressionDescriptor> operand;
   std::unique_ptr<ExpressionDescriptor> value;
+  std::unique_ptr<ExpressionDescriptor> expected;
 };
 
 struct StatementDescriptor {
   StmtOpcode opcode{StmtOpcode::return_void};
   std::uint32_t local_id{0};
+  std::uint32_t hint_value{0};
+  std::uint8_t mesh_element_type{0};
+  std::array<std::uint32_t, 4> mesh_num_elements{};
+  bool print_value{false};
+  bool has_message{false};
+  std::string message;
   std::unique_ptr<ExpressionDescriptor> target;
   std::vector<std::unique_ptr<ExpressionDescriptor>> indices;
   std::unique_ptr<ExpressionDescriptor> value;
+  std::vector<std::unique_ptr<ExpressionDescriptor>> values;
   std::unique_ptr<ExpressionDescriptor> begin;
   std::unique_ptr<ExpressionDescriptor> end;
   std::unique_ptr<ExpressionDescriptor> condition;
@@ -130,12 +227,24 @@ struct StatementDescriptor {
   std::vector<std::unique_ptr<StatementDescriptor>> else_body;
 };
 
+struct FunctionDescriptor {
+  std::uint32_t name_id{0};
+  bool has_return{false};
+  DescriptorDType return_dtype{DescriptorDType::i32};
+  std::vector<ParameterDescriptor> parameters;
+};
+
 struct KernelDescriptor {
   std::vector<std::string> strings;
   std::uint32_t kernel_name_id{0};
+  bool has_return{false};
+  DescriptorDType return_dtype{DescriptorDType::i32};
   std::vector<ParameterDescriptor> parameters;
+  std::vector<DescriptorDType> return_dtypes;
   std::vector<LocalDescriptor> locals;
   std::vector<std::unique_ptr<StatementDescriptor>> statements;
+  std::vector<SourceSpanDescriptor> source_spans;
+  std::vector<FunctionDescriptor> functions;
 };
 
 struct KernelBuildResult {
@@ -146,6 +255,10 @@ struct KernelBuildResult {
 KernelDescriptor decode_descriptor(const std::uint8_t *data);
 KernelDescriptor decode_descriptor(const std::uint8_t *data, std::size_t size);
 
-KernelBuildResult build_kernel_from_descriptor(lang::Program &program, const KernelDescriptor &descriptor);
+AutodiffMode autodiff_mode_from_bridge_id(int mode);
+
+KernelBuildResult build_kernel_from_descriptor(lang::Program &program,
+                                              const KernelDescriptor &descriptor,
+                                              AutodiffMode autodiff_mode);
 
 }  // namespace quadrants::hashlink

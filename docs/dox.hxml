@@ -1,0 +1,4 @@
+-cp ../bindings/hashlink/haxe
+-xml build/xml/quadrants.xml
+-hl build/xml/quadrants-doc.hl
+quadrants

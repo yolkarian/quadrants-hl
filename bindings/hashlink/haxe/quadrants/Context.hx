@@ -1,16 +1,17 @@
 package quadrants;
 
 import quadrants.Types.Arch;
-import quadrants.Types.DType;
 import quadrants.Native.QContext;
 
 class Context {
   final handle:QContext;
+  public final root:FieldsBuilder;
   var closed:Bool = false;
 
-  public function new(arch:Arch = Cpu) {
+  public function new(arch:Arch = Cpu, enableProfiler:Bool = false) {
     Native.ensureConfigured();
-    handle = Native.context_create(arch);
+    handle = Native.context_create_configured(arch, enableProfiler ? 1 : 0);
+    root = new FieldsBuilder(this);
   }
 
   public function nativeHandle():QContext {
@@ -24,35 +25,57 @@ class Context {
     Native.context_sync(nativeHandle());
   }
 
+  public function stream():Stream {
+    return new Stream(this);
+  }
+
+  public function profiler():Profiler {
+    return new Profiler(this);
+  }
+
+  public function setOfflineCache(enabled:Bool, path:String = ""):Void {
+    var cachePath = @:privateAccess path.toUtf8();
+    Native.context_set_offline_cache(nativeHandle(), enabled ? 1 : 0, cachePath);
+  }
+
+  public function setAdstackConfig(experimentalEnabled:Bool, stackSize:Int = 0, sparseThresholdBytes:Int = 104857600):Void {
+    if (stackSize < 0) {
+      throw "Quadrants adstack size must be non-negative";
+    }
+    if (sparseThresholdBytes < 0) {
+      throw "Quadrants adstack sparse threshold must be non-negative";
+    }
+    Native.context_set_adstack_config(nativeHandle(), experimentalEnabled ? 1 : 0, stackSize, sparseThresholdBytes);
+  }
+
+  public function setRandomSeed(seed:Int):Void {
+    Native.context_set_random_seed(nativeHandle(), seed);
+  }
+
+  public function setCpuMaxNumThreads(threadCount:Int):Void {
+    if (threadCount <= 0) {
+      throw "Quadrants CPU max thread count must be positive";
+    }
+    Native.context_set_cpu_max_num_threads(nativeHandle(), threadCount);
+  }
+
+  public function setFastMath(enabled:Bool):Void {
+    Native.context_set_fast_math(nativeHandle(), enabled ? 1 : 0);
+  }
+
+  public function setBoundsCheck(enabled:Bool):Void {
+    Native.context_set_bounds_check(nativeHandle(), enabled ? 1 : 0);
+  }
+
+  public function setDebugDump(path:String, printIr:Bool = true, printPreprocessedIr:Bool = false, printIrDebugInfo:Bool = false):Void {
+    var dumpPath = @:privateAccess path.toUtf8();
+    Native.context_set_debug_dump(nativeHandle(), dumpPath, printIr ? 1 : 0, printPreprocessedIr ? 1 : 0, printIrDebugInfo ? 1 : 0);
+  }
+
   public function close():Void {
     if (!closed) {
       Native.context_close(handle);
       closed = true;
     }
   }
-
-  public function ndarray<T>(dtype:DType, shape:Array<Int>):Tensor<T> {
-    if (shape.length == 0) {
-      throw "Quadrants ndarray shape must have at least one dimension";
-    }
-    var nativeShape = new hl.NativeArray<Int>(shape.length);
-    for (i in 0...shape.length) {
-      if (shape[i] <= 0) {
-        throw "Quadrants ndarray shape dimensions must be positive";
-      }
-      nativeShape[i] = shape[i];
-    }
-    return new Tensor<T>(this, Native.ndarray_create(nativeHandle(), dtype, nativeShape), shape.copy(), dtype);
-  }
-
-  public function ndarrayI8(shape:Array<Int>):Tensor<Int> return ndarray(DType.I8, shape);
-  public function ndarrayI16(shape:Array<Int>):Tensor<Int> return ndarray(DType.I16, shape);
-  public function ndarrayI32(shape:Array<Int>):Tensor<Int> return ndarray(DType.I32, shape);
-  public function ndarrayI64(shape:Array<Int>):Tensor<haxe.Int64> return ndarray(DType.I64, shape);
-  public function ndarrayU8(shape:Array<Int>):Tensor<Int> return ndarray(DType.U8, shape);
-  public function ndarrayU16(shape:Array<Int>):Tensor<Int> return ndarray(DType.U16, shape);
-  public function ndarrayU32(shape:Array<Int>):Tensor<haxe.Int64> return ndarray(DType.U32, shape);
-  public function ndarrayU64(shape:Array<Int>):Tensor<haxe.Int64> return ndarray(DType.U64, shape);
-  public function ndarrayF32(shape:Array<Int>):Tensor<quadrants.Types.F32> return ndarray(DType.F32, shape);
-  public function ndarrayF64(shape:Array<Int>):Tensor<quadrants.Types.F64> return ndarray(DType.F64, shape);
 }

@@ -147,6 +147,10 @@ class Offloader {
           offloaded->body->insert(std::move(st->body->statements[j]));
         }
         offloaded->mesh = st->mesh;
+        offloaded->mesh_ptr = st->mesh_ptr;
+        if (offloaded->mesh_ptr.ptr) {
+          offloaded->mesh = offloaded->mesh_ptr.ptr.get();
+        }
         offloaded->major_from_type = std::move(st->major_from_type);
         offloaded->major_to_types = std::move(st->major_to_types);
         offloaded->minor_relation_types = std::move(st->minor_relation_types);

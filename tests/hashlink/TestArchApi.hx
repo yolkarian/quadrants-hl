@@ -1,6 +1,8 @@
 import quadrants.Context;
 import quadrants.Kernel;
 import quadrants.Types.Arch;
+import quadrants.Tensor;
+import quadrants.Types.I32;
 
 class TestArchApi {
   static inline final N = 4;
@@ -57,11 +59,11 @@ class TestArchApi {
     }
 
     try {
-      var input = ctx.ndarrayI32([N]);
-      var output = ctx.ndarrayI32([N]);
+      var input = new Tensor<I32>(ctx, [N]);
+      var output = new Tensor<I32>(ctx, [N]);
       for (i in 0...N) {
-        input.writeI32(i, i + 1);
-        output.writeI32(i, -1);
+        input.write(i, i + 1);
+        output.write(i, -1);
       }
 
       k = Kernel.build(ctx, macro (input, output) -> {
@@ -73,7 +75,7 @@ class TestArchApi {
       ctx.sync();
 
       for (i in 0...N) {
-        expectEq('${name}_kernel[${i}]', output.readI32(i), (i + 1) * 3 + 1);
+        expectEq('${name}_kernel[${i}]', output.read(i), (i + 1) * 3 + 1);
       }
 
       k.close();

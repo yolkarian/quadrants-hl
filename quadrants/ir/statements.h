@@ -1044,6 +1044,7 @@ class StructForStmt : public Stmt {
 class MeshForStmt : public Stmt {
  public:
   mesh::Mesh *mesh;
+  mesh::MeshPtr mesh_ptr;
   std::unique_ptr<Block> body;
   bool is_bit_vectorized;
   int num_cpu_threads;
@@ -1058,7 +1059,8 @@ class MeshForStmt : public Stmt {
               std::unique_ptr<Block> &&body,
               bool is_bit_vectorized,
               int num_cpu_threads,
-              int block_dim);
+              int block_dim,
+              mesh::MeshPtr mesh_ptr = {});
 
   bool is_container_statement() const override {
     return true;
@@ -1356,6 +1358,7 @@ class OffloadedStmt : public Stmt {
   std::string loop_name;
 
   mesh::Mesh *mesh{nullptr};
+  mesh::MeshPtr mesh_ptr;
   mesh::MeshElementType major_from_type;
   std::unordered_set<mesh::MeshElementType> major_to_types;
   std::unordered_set<mesh::MeshRelationType> minor_relation_types;

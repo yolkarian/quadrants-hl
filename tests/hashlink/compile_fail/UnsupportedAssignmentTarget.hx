@@ -1,4 +1,4 @@
-// EXPECT_ERROR: Quadrants HashLink only supports ndarray element or local variable assignments
+// EXPECT_ERROR: Quadrants HashLink only supports ndarray element, vector component, matrix element, struct field, or local variable assignments
 import quadrants.Context;
 import quadrants.Kernel;
 

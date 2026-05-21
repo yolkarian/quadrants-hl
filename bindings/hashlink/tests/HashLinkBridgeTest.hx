@@ -1,6 +1,8 @@
 import quadrants.Context;
 import quadrants.Kernel;
+import quadrants.Tensor;
 import quadrants.Types.Arch;
+import quadrants.Types.I32;
 
 class HashLinkBridgeTest {
   static inline final N = 16;
@@ -15,14 +17,14 @@ class HashLinkBridgeTest {
     var ctx = new Context(Arch.Cuda);
     var k:Kernel = null;
     try {
-      var a = ctx.ndarrayI32([N]);
-      var b = ctx.ndarrayI32([N]);
-      var out = ctx.ndarrayI32([N]);
+      var a = new Tensor<I32>(ctx, [N]);
+      var b = new Tensor<I32>(ctx, [N]);
+      var out = new Tensor<I32>(ctx, [N]);
 
       for (i in 0...N) {
-        a.writeI32(i, i * 2);
-        b.writeI32(i, 100 - i);
-        out.writeI32(i, -1);
+        a.write(i, i * 2);
+        b.write(i, 100 - i);
+        out.write(i, -1);
       }
 
       k = Kernel.build(ctx, macro (a, b, out, n) -> {
@@ -34,7 +36,7 @@ class HashLinkBridgeTest {
       ctx.sync();
 
       for (i in 0...N) {
-        expectEq('vector_add[${i}]', out.readI32(i), i * 2 + (100 - i));
+        expectEq('vector_add[${i}]', out.read(i), i * 2 + (100 - i));
       }
       if (k != null) {
         k.close();

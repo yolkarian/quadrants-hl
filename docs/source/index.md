@@ -5,11 +5,13 @@ Quadrants is a high-performance compiler for CPU/GPU kernels used from Haxe thro
 ```haxe
 import quadrants.Context;
 import quadrants.Kernel;
+import quadrants.Tensor;
 import quadrants.Types.Arch;
+import quadrants.Types.I32;
 
 var ctx = new Context(Arch.Cpu);
-var a = ctx.ndarrayI32([4]);
-var out = ctx.ndarrayI32([4]);
+var a = new Tensor<I32>(ctx, [4]);
+var out = new Tensor<I32>(ctx, [4]);
 
 final k = Kernel.build(ctx, macro (a, out) -> {
   for (i in 0...4) {
@@ -18,9 +20,6 @@ final k = Kernel.build(ctx, macro (a, out) -> {
 });
 ```
 
-```{toctree}
-:caption: Quadrants
-:maxdepth: 2
+## Documentation
 
-user_guide/index
-```
+- [User guide](user_guide/index.md)

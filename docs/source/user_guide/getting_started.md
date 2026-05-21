@@ -21,18 +21,20 @@ Create `Main.hx`:
 ```haxe
 import quadrants.Context;
 import quadrants.Kernel;
+import quadrants.Tensor;
 import quadrants.Types.Arch;
+import quadrants.Types.I32;
 
 class Main {
   static function main():Void {
     final n = 16;
     var ctx = new Context(Arch.Cpu);
-    var input = ctx.ndarrayI32([n]);
-    var output = ctx.ndarrayI32([n]);
+    var input = new Tensor<I32>(ctx, [n]);
+    var output = new Tensor<I32>(ctx, [n]);
 
     for (i in 0...n) {
-      input.writeI32(i, i + 1);
-      output.writeI32(i, 0);
+      input.write(i, i + 1);
+      output.write(i, 0);
     }
 
     var k = Kernel.build(ctx, macro (input, output, n) -> {
@@ -45,7 +47,7 @@ class Main {
     ctx.sync();
 
     for (i in 0...n) {
-      if (output.readI32(i) != (i + 1) * 2) {
+      if (output.read(i) != (i + 1) * 2) {
         throw 'bad result at $i';
       }
     }
