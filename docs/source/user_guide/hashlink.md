@@ -97,7 +97,7 @@ cmake --build "$QD_BUILD_DIR" --target quadrants.hdll
 ctest --test-dir "$QD_BUILD_DIR" --output-on-failure
 ```
 
-The CTest suite compiles `tests/hashlink/hashlink_tests.hxml`, runs the CPU smoke test from `tests/hashlink/hashlink_smoke.hxml`, and verifies the Haxe macro compile-fail cases in `tests/hashlink/compile_fail/`.
+The CTest suite compiles `tests/hashlink/hashlink_tests.hxml`, runs the CPU HL/JIT runtime shards from `tests/hashlink/hashlink_runtime_alpha.hxml`, `tests/hashlink/hashlink_runtime_beta.hxml`, and `tests/hashlink/hashlink_runtime_gamma.hxml`, keeps the fast smoke path from `tests/hashlink/hashlink_smoke.hxml`, runs the isolated print runtime check from `tests/hashlink/hashlink_print.hxml`, and verifies the Haxe macro compile-fail cases in `tests/hashlink/compile_fail/`.
 
 ## Build/test helper entry points
 
@@ -106,10 +106,12 @@ The CTest suite compiles `tests/hashlink/hashlink_tests.hxml`, runs the CPU smok
 | Build/install the Haxe package and native bridge | CMake with `-DQD_WITH_HASHLINK=ON`, target `quadrants.hdll`, and `cmake --install --component hashlink`. |
 | Package and install into global haxelib | `scripts/package_hashlink_haxelib.sh --build-dir <build> --runtime-dir <build>/runtime --out build/quadrants-haxelib.zip`, then `haxelib --global install ...`. |
 | Compile Haxe binding tests | `tests/hashlink/hashlink_tests.hxml` through `cmake/RunHashLinkTest.cmake`. |
-| Run a CPU HL/JIT smoke test | `tests/hashlink/hashlink_smoke.hxml` through `ctest` or `hl <output>.hl`. |
-| Run CUDA HL/JIT smoke coverage | Set `QD_HASHLINK_TEST_ARCHES=cuda` and make CUDA libraries visible to `hl`. |
-| Check macro diagnostics | `cmake/RunHaxeCompileFailTests.cmake` over `tests/hashlink/compile_fail/*.hx`. |
+| Run the full CPU HL/JIT suite | `ctest` entries `hashlink_hl_runtime_alpha`, `hashlink_hl_runtime_beta`, and `hashlink_hl_runtime_gamma`, or run the matching `tests/hashlink/hashlink_runtime_*.hxml` outputs with `hl`. |
+| Run the fast CPU HL/JIT smoke test | `tests/hashlink/hashlink_smoke.hxml` through `ctest` (`hashlink_hl_smoke`) or `hl <output>.hl`. |
+| Run the isolated kernel `print(...)` check | `tests/hashlink/hashlink_print.hxml` through `ctest` (`hashlink_hl_print`). |
+| Run requested device HL/JIT coverage | Set `QD_HASHLINK_TEST_ARCHES=<arch>` (for example `cuda`) and rerun `hashlink_hl_runtime_alpha`, `hashlink_hl_runtime_beta`, and `hashlink_hl_runtime_gamma` on a build with that backend enabled. |
 | Run the CUDA bridge sample manually | `bindings/hashlink/tests/hashlink_bridge_test.hxml` when `QD_WITH_CUDA=ON` and CUDA libraries are visible to `hl`. |
+| Check macro diagnostics | `cmake/RunHaxeCompileFailTests.cmake` over `tests/hashlink/compile_fail/*.hx`. |
 | Build docs for the Haxe public API | `haxelib install dox` once, then `make -C docs html`. |
 
 Manual smoke test from an installed haxelib package:
@@ -204,6 +206,10 @@ The current Haxe macro supports:
 - Primitive scalar return values via `Kernel.launchRet(args...)`.
 - Autodiff descriptor rebuild helpers (`Kernel.grad()`, `forwardGrad()`, `validationKernel()`) and `Tape` replay for recorded launches.
 - `Ndrange.of`, `shape(tensor, axis)`, loop hints (`blockDim`, `parallelize`, `serialize`), `@:qdFunc` helper calls, `Grid.threadIdx()`, and `Block`/`Subgroup`/`Workgroup` SIMT helpers inside lowered loops.
+- Template specialization through `Template.build(DType.I32, ctx, macro (...:Tensor<TemplateDType>, ...) -> { ... })`.
+- Flattened struct returns that can be decoded on the host with `Struct.decodeSchema(...)`.
+- External-pointer and DLPack tensor import/export on LLVM-backed backends (`Cpu`, `Cuda`, `Amdgpu`).
+- Stream events (`Stream.createEvent()`, `recordEvent`, `waitEvent`) on CUDA/AMDGPU contexts.
 
 Unsupported constructs are rejected by the Haxe macro with `Unsupported Quadrants HashLink ...` diagnostics.
 

@@ -2,14 +2,19 @@ package quadrants;
 
 import quadrants.Types.Arch;
 import quadrants.Native.QContext;
+import sys.FileSystem;
 
 class Context {
   final handle:QContext;
+  public final arch:Arch;
   public final root:FieldsBuilder;
+  public var offlineCacheEnabled(default, null):Bool = false;
+  public var offlineCachePath(default, null):String = "";
   var closed:Bool = false;
 
   public function new(arch:Arch = Cpu, enableProfiler:Bool = false) {
     Native.ensureConfigured();
+    this.arch = arch;
     handle = Native.context_create_configured(arch, enableProfiler ? 1 : 0);
     root = new FieldsBuilder(this);
   }
@@ -33,9 +38,36 @@ class Context {
     return new Profiler(this);
   }
 
+  public function supportsStreamEvents():Bool {
+    return Native.stream_supports_events(nativeHandle()) != 0;
+  }
+
   public function setOfflineCache(enabled:Bool, path:String = ""):Void {
     var cachePath = @:privateAccess path.toUtf8();
     Native.context_set_offline_cache(nativeHandle(), enabled ? 1 : 0, cachePath);
+    offlineCacheEnabled = enabled;
+    offlineCachePath = path;
+  }
+
+  public function clearOfflineCache():Void {
+    if (offlineCachePath == null || offlineCachePath.length == 0) {
+      throw "Quadrants offline cache path is unknown; pass an explicit path to setOfflineCache() first";
+    }
+    if (!FileSystem.exists(offlineCachePath)) {
+      return;
+    }
+    deleteTree(offlineCachePath);
+  }
+
+  static function deleteTree(path:String):Void {
+    if (FileSystem.isDirectory(path)) {
+      for (entry in FileSystem.readDirectory(path)) {
+        deleteTree(path + "/" + entry);
+      }
+      FileSystem.deleteDirectory(path);
+    } else {
+      FileSystem.deleteFile(path);
+    }
   }
 
   public function setAdstackConfig(experimentalEnabled:Bool, stackSize:Int = 0, sparseThresholdBytes:Int = 104857600):Void {

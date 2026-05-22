@@ -91,8 +91,8 @@ Kernel parameters may not be shadowed by locals. Re-declaring the same local nam
 - `shape(tensor, axis)` or `tensor.shape(axis)` returns a tensor/field parameter's runtime extent along a literal axis.
 - Vector locals from `Vec2`/`Vec3`/`Vec4` factories or `Vector.ofArray([...])`, with component/index access, elementwise arithmetic, `dot`, `cross`, `norm`, and `normalized` lowering to scalar IR.
 - Matrix locals from `Mat2`/`Mat3`/`Mat4` factories or `Matrix.ofArray(rows, cols, [...])`, with constant row/column indexing, elementwise arithmetic, `matmul`, and `transpose` lowering to scalar IR.
-- Shared local arrays from `Shared.arrayI8/I16/I32/I64/U8/U16/U32/U64/U1/F16/F32/F64(size)` or fixed 16x16 tiles from matching `Shared.tile16*()` factories with normal `shared[i]` indexing inside kernels.
-- Struct locals from `Struct.ofN("field", value, ...)` with scalar fields, field reads, and field assignment/compound assignment.
+- Shared local arrays from `Shared.arrayI8/I16/I32/I64/U8/U16/U32/U64/U1/F16/F32/F64(size)` or `Shared.array(DType.I32, size)`, plus fixed 16x16 tiles from the matching `Shared.tile16*()` or `Shared.tile16(DType.F32)` factories, with normal `shared[i]` indexing inside kernels.
+- Struct locals from `Struct.ofN("field", value, ...)` or object literals such as `{mass: value, velocity: value + 1}`, with scalar/nested struct fields, field reads, and field assignment/compound assignment.
 - `Grid.threadIdx()` returns the backend linear thread index for the current lowered loop.
 - SIMT helpers: `Block.threadIdx()`, `Block.barrierAnd(value)`, `Block.barrierOr(value)`, `Block.barrierCount(value)`, `Subgroup.size()`, `Subgroup.invocationId()`, `Subgroup.elect()`, `Subgroup.shuffle(value, lane)`, `Subgroup.shuffleUp(value, delta)`, `Subgroup.shuffleDown(value, delta)`, `Subgroup.broadcast(value, lane)`, `Workgroup.localInvocationId()`, `Workgroup.globalInvocationId()`, `Grid.activeMask()`, and `Grid.vkGlobalThreadIdx()`.
 
@@ -142,8 +142,8 @@ Unsupported syntax fails during Haxe compilation with an `Unsupported Quadrants 
 
 Common unsupported constructs include:
 
-- General Haxe arrays, object literals, classes, strings, and dynamic objects inside kernel bodies. `return [a, b, ...]`, `Vector.ofArray([...])`, and `Struct.ofN(...)` are kernel-only macro constructs.
-- Function calls other than the supported math, atomic, `shape`, `bitCast`, loop-hint, SIMT, `Grid.threadIdx`, `Mesh.for*`, and `@:qdFunc` calls.
+- General Haxe arrays, classes, strings, and dynamic objects inside kernel bodies. `return [a, b, ...]`, `Vector.ofArray([...])`, `Struct.ofN(...)`, and struct-style object literals are the supported structured-value constructs; arbitrary objects remain unsupported.
+- Function calls other than the supported math, atomic, `shape`, `bitCast`, loop-hint, SIMT, `Grid.threadIdx`, `Mesh.for*`, `Shared.array(...)`, `Shared.tile16(...)`, and `@:qdFunc` calls.
 - `switch`, `try`/`catch`, `throw`, `do while`, and `for` over arbitrary iterables.
 - Assigning to anything except a local variable, ndarray element, vector/matrix component, or struct field.
 - Re-declaring a local variable in the same scope or shadowing a kernel parameter.

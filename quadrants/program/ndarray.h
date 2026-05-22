@@ -34,7 +34,8 @@ class QD_DLL_EXPORT Ndarray {
                    const DataType type,
                    const std::vector<int> &shape,
                    ExternalArrayLayout layout = ExternalArrayLayout::kNull,
-                   const DebugInfo &dbg_info = DebugInfo());
+                   const DebugInfo &dbg_info = DebugInfo(),
+                   Program *prog = nullptr);
 
   /* Constructs a Ndarray from an existing DeviceAllocation.
    * This is an overloaded constructor for constructing Ndarray with TensorType
@@ -45,7 +46,8 @@ class QD_DLL_EXPORT Ndarray {
                    const std::vector<int> &shape,
                    const std::vector<int> &element_shape,
                    ExternalArrayLayout layout = ExternalArrayLayout::kNull,
-                   const DebugInfo &dbg_info = DebugInfo());
+                   const DebugInfo &dbg_info = DebugInfo(),
+                   Program *prog = nullptr);
 
   DeviceAllocation ndarray_alloc_{kDeviceNullAllocation};
   DataType dtype;
@@ -70,6 +72,7 @@ class QD_DLL_EXPORT Ndarray {
   float64 read_float(const std::vector<int> &i);
   void write_int(const std::vector<int> &i, int64 val);
   void write_float(const std::vector<int> &i, float64 val);
+  void detach_program(Program *live_program = nullptr);
 
   const std::vector<int> &total_shape() const {
     return total_shape_;
@@ -82,6 +85,7 @@ class QD_DLL_EXPORT Ndarray {
   std::vector<int> total_shape_;
 
   Program *prog_{nullptr};
+  bool owns_allocation_{false};
 };
 
 }  // namespace quadrants::lang

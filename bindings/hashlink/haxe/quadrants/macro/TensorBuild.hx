@@ -34,6 +34,7 @@ class TensorBuild {
     var viewType = DTypeBuild.bufferViewComplexType(valueType);
     var typePathName = 'quadrants.Types.${spec.typeName}';
     var dtype = 'quadrants.Types.DType.${spec.typeName}';
+    var classPath = '${DTypeBuild.generatedPack.join(".")}.${className}';
     var suffix = spec.suffix;
 
     var fields:Array<Field> = [];
@@ -53,18 +54,42 @@ class TensorBuild {
 
     add("new", [APublic], fun([
       DTypeBuild.arg("context", DTypeBuild.contextType()),
-      DTypeBuild.arg("shape", macro : Array<Int>)
-    ], null, '{ super(context, ${dtype}, shape); }'));
+      DTypeBuild.arg("shape", macro : Array<Int>),
+      DTypeBuild.arg("existingHandle", macro : quadrants.Native.QNdarray, null, true)
+    ], null, '{ super(context, ${dtype}, shape, existingHandle); }'));
 
     add("enableGrad", [APublic], fun([
       DTypeBuild.arg("enabled", DTypeBuild.boolType(), macro true)
     ], self, "{ enableGradFlag(enabled); return this; }"));
 
     add("lazyGrad", [APublic], fun([], self,
-      '{ if (gradTensor == null) gradTensor = new ${DTypeBuild.generatedPack.join(".")}.${className}(context, shape.copy()); return cast gradTensor; }'));
+      '{ if (gradTensor == null) { gradTensor = new ${DTypeBuild.generatedPack.join(".")}.${className}(context, quadrants.TensorStorage.copyIntArray(shape)); quadrants.Native.ndarray_set_grad_handle(nativeHandle(), (cast gradTensor).nativeHandle()); } return cast gradTensor; }'));
 
     add("lazyDual", [APublic], fun([], self,
-      '{ if (dualTensor == null) dualTensor = new ${DTypeBuild.generatedPack.join(".")}.${className}(context, shape.copy()); return cast dualTensor; }'));
+      '{ if (dualTensor == null) { dualTensor = new ${DTypeBuild.generatedPack.join(".")}.${className}(context, quadrants.TensorStorage.copyIntArray(shape)); quadrants.Native.ndarray_set_dual_handle(nativeHandle(), (cast dualTensor).nativeHandle()); } return cast dualTensor; }'));
+
+    add("fromDLPack", [APublic, AStatic], fun([
+      DTypeBuild.arg("context", DTypeBuild.contextType()),
+      DTypeBuild.arg("capsule", macro : quadrants.DLPackTensor)
+    ], self,
+      '{ quadrants.TensorStorage.requireDLPackDType(capsule, ${dtype}); var importedShape = quadrants.TensorStorage.dlpackShape(capsule); quadrants.TensorStorage.requireContiguousDLPack(capsule, importedShape); return new ${classPath}(context, importedShape, quadrants.Native.ndarray_import_dlpack(context.nativeHandle(), ${dtype}, capsule.takeHandle())); }'));
+
+    add("importDLPack", [APublic], fun([
+      DTypeBuild.arg("capsule", macro : quadrants.DLPackTensor)
+    ], DTypeBuild.voidType(),
+      '{ quadrants.TensorStorage.requireDLPackDType(capsule, ${dtype}); var importedShape = quadrants.TensorStorage.dlpackShape(capsule); quadrants.TensorStorage.requireSameShape(shape, importedShape, "DLPack tensor"); quadrants.TensorStorage.requireContiguousDLPack(capsule, importedShape); adoptImportedHandle(quadrants.Native.ndarray_import_dlpack(context.nativeHandle(), ${dtype}, capsule.takeHandle())); }'));
+
+    add("fromExternalPointer", [APublic, AStatic], fun([
+      DTypeBuild.arg("context", DTypeBuild.contextType()),
+      DTypeBuild.arg("pointer", macro : haxe.Int64),
+      DTypeBuild.arg("shape", macro : Array<Int>)
+    ], self,
+      '{ var checkedShape = quadrants.TensorStorage.validateShape(shape); return new ${classPath}(context, checkedShape, quadrants.Native.ndarray_import_external_pointer(context.nativeHandle(), pointer, ${dtype}, quadrants.TensorStorage.nativeIntArray(checkedShape))); }'));
+
+    add("importExternalPointer", [APublic], fun([
+      DTypeBuild.arg("pointer", macro : haxe.Int64)
+    ], DTypeBuild.voidType(),
+      '{ adoptImportedHandle(quadrants.Native.ndarray_import_external_pointer(context.nativeHandle(), pointer, ${dtype}, quadrants.TensorStorage.nativeIntArray(shape))); }'));
 
     add("fill", [APublic, AInline], fun([
       DTypeBuild.arg("value", valueType)
@@ -100,7 +125,7 @@ class TensorBuild {
     add("fromArray", [APublic], fun([
       DTypeBuild.arg("values", arrayValueType)
     ], DTypeBuild.voidType(),
-      "{ quadrants.TensorStorage.requireElementCount(shape, values.length); for (i in 0...values.length) write(i, values[i]); }"));
+      '{ quadrants.TensorStorage.requireElementCount(shape, values.length); for (i in 0...values.length) write(i, values[i]); }'));
 
     add("view", [APublic], fun([
       DTypeBuild.arg("flatStart", DTypeBuild.intType()),

@@ -302,7 +302,7 @@ class TestBindingApi {
       expectEq("tensor_grad_storage", i32.grad.read(0), 12);
       expectEq("tensor_dual_storage", i32.dual.read(0), 13);
       expectEq("tensor_zero_copy_probe", i32.supportsZeroCopy(), true);
-      expectEq("tensor_external_pointer_probe", i32.supportsExternalPointerImport(), false);
+      expectEq("tensor_external_pointer_probe", i32.supportsExternalPointerImport(), true);
       expectEq("tensor_dlpack_probe", i32.supportsDLPack(), true);
 
       var i64Value = Int64.make(0x11223344, 0x55667788);
@@ -609,7 +609,7 @@ class TestBindingApi {
       tensor.fill(7.0);
       expectEq("zero_copy_supported", tensor.supportsZeroCopy(), true);
       expectEq("dlpack_supported", tensor.supportsDLPack(), true);
-      expectEq("external_pointer_import_supported", tensor.supportsExternalPointerImport(), false);
+      expectEq("external_pointer_import_supported", tensor.supportsExternalPointerImport(), true);
       var pointer = tensor.exportDevicePointer();
       if (Int64.compare(pointer, Int64.make(0, 0)) == 0) {
         throw "device_pointer_nonzero";

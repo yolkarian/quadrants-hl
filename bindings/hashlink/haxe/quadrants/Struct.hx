@@ -1,6 +1,14 @@
 package quadrants;
 
 class Struct {
+  public static macro function decode(typeExpr:haxe.macro.Expr, valuesExpr:haxe.macro.Expr):haxe.macro.Expr {
+    return quadrants.macro.StructMacro.decode(typeExpr, valuesExpr);
+  }
+
+  public static macro function decodeSchema(schemaExpr:haxe.macro.Expr, valuesExpr:haxe.macro.Expr):haxe.macro.Expr {
+    return quadrants.macro.StructMacro.decodeSchema(schemaExpr, valuesExpr);
+  }
+
   public static function of1(name0:String, value0:Dynamic):Dynamic {
     throw "Quadrants Struct.of1 is a kernel-only construct";
   }

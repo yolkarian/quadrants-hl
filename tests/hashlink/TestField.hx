@@ -38,23 +38,38 @@ class TestField {
       expectEq("field_host_write", x.read(0), 3);
       var tensor:Tensor<I32> = x.toTensor();
       expectEq("field_to_tensor_typed", tensor.read(0), 3);
+
+      var denseSource = new Tensor<I32>(ctx, [4]);
+      denseSource.fromArray([5, 6, 7, 8]);
+      x.fromTensor(denseSource);
+      if (x.snodeId < 0) throw "field_from_tensor_keeps_snode";
+      expectEq("field_from_tensor_dense_copy", x.read(2), 7);
+
       x.grad.write(0, 9);
       expectEq("field_grad_host", x.grad.read(0), 9);
       x.lazyDual().write(0, 11);
       expectEq("field_dual_host", x.dual.read(0), 11);
       ctx.root.destroy();
+
       var y = new Field<I16>(ctx);
       ctx.root.pointer(Axis.i, 2).bitmasked(Axis.j, 2).place(y);
       if (y.snodeId < 0) throw "field_sparse_snode_id";
       y.write(0, 7);
       expectEq("field_pointer_bitmasked_host", y.read(0), 7);
+      var yGrad = y.grad;
+      if (yGrad.snodeId < 0) throw "field_sparse_grad_snode_id";
+      yGrad.write(0, 9);
+      expectEq("field_sparse_grad_host", yGrad.read(0), 9);
       ctx.root.destroy();
+
       var flag = new Field<U1>(ctx);
       ctx.root.dynamic_(Axis.i, 2).place(flag);
       if (flag.snodeId < 0) throw "field_dynamic_snode_id";
       flag.write(0, true);
       if (!flag.read(0)) throw "field_dynamic_u1_host";
+      if (flag.dual.snodeId < 0) throw "field_dynamic_dual_snode_id";
       ctx.root.destroy();
+
       var shaped = new Field<I32>(ctx, [2]);
       if (shaped.snodeId < 0) throw "field_constructor_snode_id";
       shaped.write(1, 13);
@@ -63,7 +78,7 @@ class TestField {
       source.write(0, 42);
       var alias = new Field<I32>(ctx);
       alias.fromTensor(source);
-      expectEq("field_from_tensor", alias.read(0), 42);
+      expectEq("field_from_tensor_alias", alias.read(0), 42);
       alias.close();
       expectEq("field_close_keeps_borrowed_tensor", source.read(0), 42);
       expectThrows("field_closed_access", "closed", function() {
@@ -84,8 +99,10 @@ class TestField {
       });
       k.launch(x, 4);
       ctx.sync();
-      expectEq("field_kernel", x.read(0), 7);
+      expectEq("field_kernel", x.read(0), 9);
       k.close();
+      denseSource.close();
+      source.close();
       ctx.close();
     } catch (e:Dynamic) {
       if (k != null) k.close();

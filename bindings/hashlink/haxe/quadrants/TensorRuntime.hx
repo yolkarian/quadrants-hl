@@ -7,17 +7,17 @@ class TensorRuntime implements TensorHandle {
   public final context:Context;
   public final shape:Array<Int>;
   public final dtype:DType;
-  final handle:QNdarray;
+  var handle:QNdarray;
   public var gradTensor:Dynamic = null;
   public var dualTensor:Dynamic = null;
   public var needsGrad(default, null):Bool = false;
   var closed:Bool = false;
 
-  public function new(context:Context, dtype:DType, shape:Array<Int>) {
+  public function new(context:Context, dtype:DType, shape:Array<Int>, ?existingHandle:QNdarray) {
     this.context = context;
     this.shape = TensorStorage.validateShape(shape);
     this.dtype = dtype;
-    this.handle = TensorStorage.create(context, dtype, this.shape);
+    this.handle = existingHandle == null ? TensorStorage.create(context, dtype, this.shape) : existingHandle;
   }
 
   public function nativeHandle():QNdarray {
@@ -25,6 +25,16 @@ class TensorRuntime implements TensorHandle {
       throw "Quadrants tensor is closed";
     }
     return handle;
+  }
+
+  @:noCompletion public function adoptImportedHandle(importedHandle:QNdarray):Void {
+    if (closed) {
+      throw "Quadrants tensor is closed";
+    }
+    Native.ndarray_close(handle);
+    handle = importedHandle;
+    gradTensor = null;
+    dualTensor = null;
   }
 
   public function close():Void {
@@ -37,6 +47,7 @@ class TensorRuntime implements TensorHandle {
   public function enableGradFlag(enabled:Bool):Void {
     needsGrad = enabled;
     if (!enabled) {
+      Native.ndarray_clear_autodiff_handles(nativeHandle());
       gradTensor = null;
       dualTensor = null;
     }
@@ -47,7 +58,7 @@ class TensorRuntime implements TensorHandle {
   }
 
   public function supportsExternalPointerImport():Bool {
-    return false;
+    return Native.ndarray_supports_external_pointer_import(context.nativeHandle()) != 0;
   }
 
   public function supportsDLPack():Bool {
@@ -58,9 +69,6 @@ class TensorRuntime implements TensorHandle {
     return new DLPackTensor(Native.ndarray_export_dlpack(context.nativeHandle(), nativeHandle()));
   }
 
-  public function importDLPack(_capsule:Dynamic):Void {
-    throw "Quadrants HashLink DLPack import into an existing Tensor is not supported; construct a Tensor from typed Quadrants storage instead";
-  }
 
   public function exportDevicePointer():haxe.Int64 {
     return Native.ndarray_export_device_pointer(context.nativeHandle(), nativeHandle());

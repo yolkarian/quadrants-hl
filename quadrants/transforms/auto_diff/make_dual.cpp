@@ -230,6 +230,36 @@ class MakeDual : public ADTransform {
 
   void visit(GlobalLoadStmt *stmt) override {
     // issue global store to dual
+    if (stmt->src->is<ExternalPtrStmt>() ||
+        (stmt->src->is<MatrixPtrStmt>() && stmt->src->as<MatrixPtrStmt>()->origin->is<ExternalPtrStmt>())) {
+      ExternalPtrStmt *src = nullptr;
+      bool is_ptr_offset = false;
+      if (stmt->src->is<MatrixPtrStmt>()) {
+        is_ptr_offset = true;
+        src = stmt->src->as<MatrixPtrStmt>()->origin->as<ExternalPtrStmt>();
+      } else {
+        src = stmt->src->as<ExternalPtrStmt>();
+      }
+      auto arg = src->base_ptr->as<ArgLoadStmt>();
+      if (arg->ret_type.ptr_removed()->as<StructType>()->elements().size() <= TypeFactory::GRAD_PTR_POS_IN_NDARRAY) {
+        return;
+      }
+      QD_ASSERT_INFO(!src->is_grad,
+                     "Cannot automatically forward-differentiate through a dual "
+                     "tensor, if you really want to do that, pass the dual "
+                     "tensor into the kernel directly");
+      auto dual_ptr =
+          insert<ExternalPtrStmt>(src->base_ptr, src->indices, src->ndim, src->element_shape, /*is_grad=*/true);
+      dual_ptr->ret_type = src->ret_type;
+      if (is_ptr_offset) {
+        dual_ptr = insert<MatrixPtrStmt>(dual_ptr, stmt->src->as<MatrixPtrStmt>()->offset);
+        dual_ptr->ret_type = stmt->src->ret_type;
+        dual_ptr->ret_type.set_is_pointer(true);
+      }
+      accumulate(stmt, insert<GlobalLoadStmt>(dual_ptr));
+      return;
+    }
+
     GlobalPtrStmt *src = nullptr;
     bool is_ptr_offset = false;
     if (stmt->src->is<MatrixPtrStmt>()) {
@@ -258,6 +288,36 @@ class MakeDual : public ADTransform {
   }
 
   void visit(GlobalStoreStmt *stmt) override {
+    if (stmt->dest->is<ExternalPtrStmt>() ||
+        (stmt->dest->is<MatrixPtrStmt>() && stmt->dest->as<MatrixPtrStmt>()->origin->is<ExternalPtrStmt>())) {
+      ExternalPtrStmt *dest = nullptr;
+      bool is_ptr_offset = false;
+      if (stmt->dest->is<MatrixPtrStmt>()) {
+        is_ptr_offset = true;
+        dest = stmt->dest->as<MatrixPtrStmt>()->origin->as<ExternalPtrStmt>();
+      } else {
+        dest = stmt->dest->as<ExternalPtrStmt>();
+      }
+      auto arg = dest->base_ptr->as<ArgLoadStmt>();
+      if (arg->ret_type.ptr_removed()->as<StructType>()->elements().size() <= TypeFactory::GRAD_PTR_POS_IN_NDARRAY) {
+        return;
+      }
+      QD_ASSERT_INFO(!dest->is_grad,
+                     "Cannot automatically forward-differentiate through a dual "
+                     "tensor, if you really want to do that, pass the dual "
+                     "tensor into the kernel directly");
+      auto dual_ptr =
+          insert<ExternalPtrStmt>(dest->base_ptr, dest->indices, dest->ndim, dest->element_shape, /*is_grad=*/true);
+      dual_ptr->ret_type = dest->ret_type;
+      if (is_ptr_offset) {
+        dual_ptr = insert<MatrixPtrStmt>(dual_ptr, stmt->dest->as<MatrixPtrStmt>()->offset);
+        dual_ptr->ret_type = stmt->dest->ret_type;
+        dual_ptr->ret_type.set_is_pointer(true);
+      }
+      insert<AtomicOpStmt>(AtomicOpType::add, dual_ptr, load(dual(stmt->val)));
+      return;
+    }
+
     GlobalPtrStmt *dest = nullptr;
     bool is_ptr_offset = false;
     if (stmt->dest->is<MatrixPtrStmt>()) {
@@ -282,6 +342,36 @@ class MakeDual : public ADTransform {
   }
 
   void visit(AtomicOpStmt *stmt) override {
+    if (stmt->dest->is<ExternalPtrStmt>() ||
+        (stmt->dest->is<MatrixPtrStmt>() && stmt->dest->as<MatrixPtrStmt>()->origin->is<ExternalPtrStmt>())) {
+      ExternalPtrStmt *dest = nullptr;
+      bool is_ptr_offset = false;
+      if (stmt->dest->is<MatrixPtrStmt>()) {
+        is_ptr_offset = true;
+        dest = stmt->dest->as<MatrixPtrStmt>()->origin->as<ExternalPtrStmt>();
+      } else {
+        dest = stmt->dest->as<ExternalPtrStmt>();
+      }
+      auto arg = dest->base_ptr->as<ArgLoadStmt>();
+      if (arg->ret_type.ptr_removed()->as<StructType>()->elements().size() <= TypeFactory::GRAD_PTR_POS_IN_NDARRAY) {
+        return;
+      }
+      QD_ASSERT_INFO(!dest->is_grad,
+                     "Cannot automatically forward-differentiate through a dual "
+                     "tensor, if you really want to do that, pass the dual "
+                     "tensor into the kernel directly");
+      auto dual_ptr =
+          insert<ExternalPtrStmt>(dest->base_ptr, dest->indices, dest->ndim, dest->element_shape, /*is_grad=*/true);
+      dual_ptr->ret_type = dest->ret_type;
+      if (is_ptr_offset) {
+        dual_ptr = insert<MatrixPtrStmt>(dual_ptr, stmt->dest->as<MatrixPtrStmt>()->offset);
+        dual_ptr->ret_type = stmt->dest->ret_type;
+        dual_ptr->ret_type.set_is_pointer(true);
+      }
+      insert<AtomicOpStmt>(AtomicOpType::add, dual_ptr, load(dual(stmt->val)));
+      return;
+    }
+
     GlobalPtrStmt *dest = nullptr;
     bool is_ptr_offset = false;
     if (stmt->dest->is<MatrixPtrStmt>()) {

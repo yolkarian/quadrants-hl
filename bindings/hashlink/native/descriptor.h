@@ -166,10 +166,16 @@ enum class StmtOpcode : std::uint8_t {
 };
 
 struct ParameterDescriptor {
+  static constexpr std::uint8_t flag_needs_grad = 1u;
   ParameterKind kind{ParameterKind::scalar};
   DescriptorDType dtype{DescriptorDType::i32};
   std::uint8_t rank{0};
+  std::uint8_t flags{0};
   std::uint32_t name_id{0};
+
+  bool needs_grad() const {
+    return (flags & flag_needs_grad) != 0;
+  }
 };
 
 struct LocalDescriptor {

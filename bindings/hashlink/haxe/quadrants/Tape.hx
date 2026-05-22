@@ -9,7 +9,7 @@ private class TapeRecord {
       throw "Quadrants tape cannot record a null kernel";
     }
     this.kernel = kernel;
-    this.args = args.copy();
+    this.args = [for (arg in args) arg];
   }
 }
 

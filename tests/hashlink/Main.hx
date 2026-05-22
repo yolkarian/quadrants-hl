@@ -1,8 +1,18 @@
 class Main {
   static function main():Void {
-    TestArchApi.run();
     TestBindingApi.run();
     TestDescriptorSnapshot.run();
+    TestReturn.run();
+    TestField.run();
+    TestSimtApi.run();
+    TestTapeApi.run();
+    TestOfflineCacheRuntime.run();
+    TestInteropImportRuntime.run();
+    TestTemplateRuntime.run();
+    TestStructRuntime.run();
+    TestStreamEventRuntime.run();
+
+    TestArchApi.run();
     TestBasics.run();
     TestFor.run();
     TestIf.run();
@@ -18,12 +28,15 @@ class Main {
     TestMatrix.run();
     TestAtomic.run();
     TestFunction.run();
-    TestReturn.run();
-    TestField.run();
     TestQdFunc.run();
     TestNdrange.run();
-    TestSimtApi.run();
-    TestTapeApi.run();
+    TestGraphRuntime.run();
+    TestAutodiffRuntime.run();
+    TestSharedSimtRuntime.run();
+    TestKernelFeatureRuntime.run();
+    TestProfilerRuntime.run();
+
+    TestRuntimeSupport.closeSharedContexts();
     Sys.println("hashlink tests ok");
   }
 }

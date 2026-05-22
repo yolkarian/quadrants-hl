@@ -1,5 +1,4 @@
 import quadrants.Context;
-import quadrants.Types.Arch;
 import quadrants.Tensor;
 import quadrants.Types.I32;
 import quadrants.Types.F32;
@@ -14,8 +13,7 @@ class TestNativeFunctions {
   }
 
   public static function run():Void {
-    var ctx = new Context(Arch.Cuda);
-    try {
+    TestRuntimeSupport.runEachRuntimeContext(function(_name, ctx) {
       var i32 = new Tensor<I32>(ctx, [2, 2]);
       i32.fill(4);
       i32.writeAt([1, 1], 9);
@@ -26,10 +24,6 @@ class TestNativeFunctions {
       f32.fill(1.25);
       expectFloat("fill_f32", f32.read(0), 1.25);
       ctx.sync();
-      ctx.close();
-    } catch (e:Dynamic) {
-      ctx.close();
-      throw e;
-    }
+    });
   }
 }

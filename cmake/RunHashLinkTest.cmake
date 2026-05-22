@@ -19,6 +19,19 @@ endif()
 
 get_filename_component(OUTPUT_DIR "${OUTPUT_HL}" DIRECTORY)
 file(MAKE_DIRECTORY "${OUTPUT_DIR}")
+if(EXISTS "${QUADRANTS_RUNTIME_DIR}/runtime_cuda.bc"
+   AND NOT EXISTS "${QUADRANTS_RUNTIME_DIR}/slim_libdevice.10.bc"
+   AND EXISTS "${REPO_ROOT}/external/cuda_libdevice/slim_libdevice.10.bc")
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${REPO_ROOT}/external/cuda_libdevice/slim_libdevice.10.bc"
+            "${QUADRANTS_RUNTIME_DIR}/slim_libdevice.10.bc"
+    RESULT_VARIABLE LIBDEVICE_COPY_RESULT)
+  if(NOT LIBDEVICE_COPY_RESULT EQUAL 0)
+    message(FATAL_ERROR "Failed to stage slim_libdevice.10.bc into ${QUADRANTS_RUNTIME_DIR}")
+  endif()
+endif()
+
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
@@ -69,8 +82,15 @@ if(RUN_HL)
     ERROR_VARIABLE HL_ERROR)
 
   message(STATUS "${HL_OUTPUT}")
+  if(DEFINED EXPECT_STDOUT_SUBSTRING)
+    string(FIND "${HL_OUTPUT}" "${EXPECT_STDOUT_SUBSTRING}" _stdout_match)
+    if(_stdout_match EQUAL -1)
+      message(STATUS "${HL_ERROR}")
+      message(FATAL_ERROR "Expected stdout substring '${EXPECT_STDOUT_SUBSTRING}' was not found for ${OUTPUT_HL}")
+    endif()
+  endif()
   if(NOT HL_RESULT EQUAL 0)
     message(STATUS "${HL_ERROR}")
-    message(FATAL_ERROR "HashLink smoke test failed for ${OUTPUT_HL}")
+    message(FATAL_ERROR "HashLink test failed for ${OUTPUT_HL}")
   endif()
 endif()

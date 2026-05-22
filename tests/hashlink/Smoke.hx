@@ -1,8 +1,9 @@
 class Smoke {
   static function main():Void {
-    TestArchApi.run();
     TestBindingApi.run();
+    TestArchApi.run();
     TestAtomic.run();
+    TestRuntimeSupport.closeSharedContexts();
     Sys.println("hashlink smoke ok");
   }
 }

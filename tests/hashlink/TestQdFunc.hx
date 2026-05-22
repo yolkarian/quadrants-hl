@@ -1,8 +1,6 @@
 import quadrants.Context;
 import quadrants.Kernel;
-import quadrants.Types.Arch;
 import quadrants.Tensor;
-import quadrants.Types.I8;
 import quadrants.Types.I32;
 
 class TestQdFunc {
@@ -57,29 +55,28 @@ class TestQdFunc {
 
   public static function run():Void {
     testDescriptorFunctionSignatures();
-    var ctx = new Context(Arch.Cuda);
-    var k:Kernel = null;
-    try {
-      var input = new Tensor<I32>(ctx, [3]);
-      var out = new Tensor<I32>(ctx, [3]);
-      input.fromArray([1, 2, 3]);
-      k = Kernel.build(ctx, macro (a:Tensor<I32>, b:Tensor<I32>, n:I32) -> {
-        for (i in 0...n) {
-          var f:I32 = folded(a[i]);
-          b[i] = helper(a[i]) + f;
-        }
-      });
-      k.launch(input, out, 3);
-      ctx.sync();
-      expectEq("qdFunc0", out.read(0), 10);
-      expectEq("qdFunc1", out.read(1), 17);
-      expectEq("qdFunc2", out.read(2), 28);
-      k.close();
-      ctx.close();
-    } catch (e:Dynamic) {
-      if (k != null) k.close();
-      ctx.close();
-      throw e;
-    }
+    TestRuntimeSupport.runEachRuntimeContext(function(_name, ctx) {
+      var k:Kernel = null;
+      try {
+        var input = new Tensor<I32>(ctx, [3]);
+        var out = new Tensor<I32>(ctx, [3]);
+        input.fromArray([1, 2, 3]);
+        k = Kernel.build(ctx, macro (a:Tensor<I32>, b:Tensor<I32>, n:I32) -> {
+          for (i in 0...n) {
+            var f:I32 = folded(a[i]);
+            b[i] = helper(a[i]) + f;
+          }
+        });
+        k.launch(input, out, 3);
+        ctx.sync();
+        expectEq("qdFunc0", out.read(0), 10);
+        expectEq("qdFunc1", out.read(1), 17);
+        expectEq("qdFunc2", out.read(2), 28);
+      } catch (e:Dynamic) {
+        TestRuntimeSupport.closeKernel(k);
+        throw e;
+      }
+      TestRuntimeSupport.closeKernel(k);
+    });
   }
 }

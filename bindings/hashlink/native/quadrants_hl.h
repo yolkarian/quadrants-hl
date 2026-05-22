@@ -7,12 +7,14 @@
 #define _QD_KERNEL _ABSTRACT(qd_kernel)
 #define _QD_NDARRAY _ABSTRACT(qd_ndarray)
 #define _QD_STREAM _ABSTRACT(qd_stream)
+#define _QD_EVENT _ABSTRACT(qd_event)
 #define _QD_SNODE_TREE _ABSTRACT(qd_snode_tree)
 
 struct qd_context;
 struct qd_kernel;
 struct qd_ndarray;
 struct qd_stream;
+struct qd_event;
 struct qd_snode_tree;
 
 HL_PRIM void HL_NAME(runtime_set_lib_dir)(vbyte *path);
@@ -21,6 +23,12 @@ HL_PRIM qd_context *HL_NAME(context_create_configured)(int arch, int enable_prof
 HL_PRIM void HL_NAME(context_sync)(qd_context *ctx);
 HL_PRIM void HL_NAME(context_close)(qd_context *ctx);
 HL_PRIM qd_stream *HL_NAME(stream_create)(qd_context *ctx);
+HL_PRIM int HL_NAME(stream_supports_events)(qd_context *ctx);
+HL_PRIM qd_event *HL_NAME(stream_event_create)(qd_context *ctx);
+HL_PRIM void HL_NAME(stream_event_record)(qd_context *ctx, qd_event *event, qd_stream *stream);
+HL_PRIM void HL_NAME(stream_event_sync)(qd_context *ctx, qd_event *event);
+HL_PRIM void HL_NAME(stream_wait_event)(qd_context *ctx, qd_stream *stream, qd_event *event);
+HL_PRIM void HL_NAME(stream_event_close)(qd_event *event);
 HL_PRIM void HL_NAME(stream_sync)(qd_context *ctx, qd_stream *stream);
 HL_PRIM void HL_NAME(stream_close)(qd_stream *stream);
 HL_PRIM void HL_NAME(context_set_offline_cache)(qd_context *ctx, int enabled, vbyte *path);
@@ -35,9 +43,13 @@ HL_PRIM void HL_NAME(profiler_stop)(qd_context *ctx);
 HL_PRIM void HL_NAME(profiler_clear)(qd_context *ctx);
 HL_PRIM double HL_NAME(profiler_total_time)(qd_context *ctx);
 HL_PRIM int HL_NAME(profiler_query_count)(qd_context *ctx, vbyte *kernel_name);
+HL_PRIM double HL_NAME(profiler_query_min)(qd_context *ctx, vbyte *kernel_name);
+HL_PRIM double HL_NAME(profiler_query_max)(qd_context *ctx, vbyte *kernel_name);
 HL_PRIM double HL_NAME(profiler_query_avg)(qd_context *ctx, vbyte *kernel_name);
 
 HL_PRIM qd_ndarray *HL_NAME(ndarray_create)(qd_context *ctx, int dtype, varray *shape);
+HL_PRIM qd_ndarray *HL_NAME(ndarray_import_dlpack)(qd_context *ctx, int dtype, int64 handle);
+HL_PRIM qd_ndarray *HL_NAME(ndarray_import_external_pointer)(qd_context *ctx, int64 pointer, int dtype, varray *shape);
 HL_PRIM void HL_NAME(ndarray_close)(qd_ndarray *arr);
 HL_PRIM void HL_NAME(ndarray_fill_i8)(qd_context *ctx, qd_ndarray *arr, int value);
 HL_PRIM int HL_NAME(ndarray_read_i8)(qd_context *ctx, qd_ndarray *arr, int flat_index);
@@ -97,6 +109,7 @@ HL_PRIM double HL_NAME(ndarray_read_f64)(qd_context *ctx, qd_ndarray *arr, int f
 HL_PRIM void HL_NAME(ndarray_write_f64)(qd_context *ctx, qd_ndarray *arr, int flat_index, double value);
 
 HL_PRIM int HL_NAME(ndarray_supports_zero_copy)(qd_context *ctx);
+HL_PRIM int HL_NAME(ndarray_supports_external_pointer_import)(qd_context *ctx);
 HL_PRIM int64 HL_NAME(ndarray_export_device_pointer)(qd_context *ctx, qd_ndarray *arr);
 HL_PRIM int64 HL_NAME(ndarray_export_dlpack)(qd_context *ctx, qd_ndarray *arr);
 HL_PRIM void HL_NAME(dlpack_release)(int64 handle);
@@ -145,6 +158,20 @@ HL_PRIM double HL_NAME(snode_read_f16)(qd_context *ctx, int snode_id, varray *in
 HL_PRIM void HL_NAME(snode_write_f16)(qd_context *ctx, int snode_id, varray *indices, double value);
 HL_PRIM double HL_NAME(snode_read_f64)(qd_context *ctx, int snode_id, varray *indices);
 HL_PRIM void HL_NAME(snode_write_f64)(qd_context *ctx, int snode_id, varray *indices, double value);
+HL_PRIM void HL_NAME(snode_fill_i8)(qd_context *ctx, int snode_id, int value);
+HL_PRIM void HL_NAME(snode_fill_i16)(qd_context *ctx, int snode_id, int value);
+HL_PRIM void HL_NAME(snode_fill_i32)(qd_context *ctx, int snode_id, int value);
+HL_PRIM void HL_NAME(snode_fill_i64)(qd_context *ctx, int snode_id, int64 value);
+HL_PRIM void HL_NAME(snode_fill_u8)(qd_context *ctx, int snode_id, int value);
+HL_PRIM void HL_NAME(snode_fill_u16)(qd_context *ctx, int snode_id, int value);
+HL_PRIM void HL_NAME(snode_fill_u32)(qd_context *ctx, int snode_id, int64 value);
+HL_PRIM void HL_NAME(snode_fill_u64)(qd_context *ctx, int snode_id, int64 value);
+HL_PRIM void HL_NAME(snode_fill_u1)(qd_context *ctx, int snode_id, int value);
+HL_PRIM void HL_NAME(snode_fill_f16)(qd_context *ctx, int snode_id, double value);
+HL_PRIM void HL_NAME(snode_fill_f32)(qd_context *ctx, int snode_id, double value);
+HL_PRIM void HL_NAME(snode_fill_f64)(qd_context *ctx, int snode_id, double value);
+HL_PRIM void HL_NAME(snode_copy_to_ndarray)(qd_context *ctx, int snode_id, int dtype, qd_ndarray *arr);
+HL_PRIM void HL_NAME(snode_copy_from_ndarray)(qd_context *ctx, int snode_id, int dtype, qd_ndarray *arr);
 
 HL_PRIM qd_kernel *HL_NAME(kernel_compile)(qd_context *ctx, vbyte *descriptor, int descriptor_length, int autodiff_mode);
 HL_PRIM void HL_NAME(kernel_launch)(qd_context *ctx, qd_kernel *kernel, varray *args);

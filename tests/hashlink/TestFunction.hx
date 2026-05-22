@@ -1,6 +1,5 @@
 import quadrants.Context;
 import quadrants.Kernel;
-import quadrants.Types.Arch;
 import quadrants.Tensor;
 import quadrants.Types.I32;
 
@@ -18,23 +17,22 @@ class TestFunction {
   }
 
   public static function run():Void {
-    var ctx = new Context(Arch.Cuda);
-    var k:Kernel = null;
-    try {
-      var a = new Tensor<I32>(ctx, [3]);
-      var out = new Tensor<I32>(ctx, [3]);
-      for (i in 0...3) a.write(i, i + 1);
-      k = buildScale(ctx);
-      k.launch(a, out, 3, 4);
-      ctx.sync();
-      expectEq("function0", out.read(0), 4);
-      expectEq("function2", out.read(2), 12);
-      k.close();
-      ctx.close();
-    } catch (e:Dynamic) {
-      if (k != null) k.close();
-      ctx.close();
-      throw e;
-    }
+    TestRuntimeSupport.runEachRuntimeContext(function(_name, ctx) {
+      var k:Kernel = null;
+      try {
+        var a = new Tensor<I32>(ctx, [3]);
+        var out = new Tensor<I32>(ctx, [3]);
+        for (i in 0...3) a.write(i, i + 1);
+        k = buildScale(ctx);
+        k.launch(a, out, 3, 4);
+        ctx.sync();
+        expectEq("function0", out.read(0), 4);
+        expectEq("function2", out.read(2), 12);
+      } catch (e:Dynamic) {
+        TestRuntimeSupport.closeKernel(k);
+        throw e;
+      }
+      TestRuntimeSupport.closeKernel(k);
+    });
   }
 }

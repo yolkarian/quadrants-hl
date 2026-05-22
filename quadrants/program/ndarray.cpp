@@ -34,7 +34,8 @@ Ndarray::Ndarray(Program *prog,
       dbg_info(dbg_info_),
       nelement_(std::accumulate(std::begin(shape_), std::end(shape_), 1, std::multiplies<>())),
       element_size_(data_type_size(dtype)),
-      prog_(prog) {
+      prog_(prog),
+      owns_allocation_(true) {
   // Now that we have two shapes which may be concatenated differently
   // depending on layout, total_shape_ comes handy.
   total_shape_ = shape;
@@ -57,14 +58,16 @@ Ndarray::Ndarray(DeviceAllocation &devalloc,
                  const DataType type,
                  const std::vector<int> &shape,
                  ExternalArrayLayout layout,
-                 const DebugInfo &dbg_info)
+                 const DebugInfo &dbg_info,
+                 Program *prog)
     : ndarray_alloc_(devalloc),
       dtype(type),
       shape(shape),
       layout(layout),
       dbg_info(dbg_info),
       nelement_(std::accumulate(std::begin(shape), std::end(shape), 1, std::multiplies<>())),
-      element_size_(data_type_size(dtype)) {
+      element_size_(data_type_size(dtype)),
+      prog_(prog) {
   // When element_shape is specified but layout is not, default layout is AOS.
   auto element_shape = data_type_shape(dtype);
   if (!element_shape.empty() && layout == ExternalArrayLayout::kNull) {
@@ -91,8 +94,9 @@ Ndarray::Ndarray(DeviceAllocation &devalloc,
                  const std::vector<int> &shape,
                  const std::vector<int> &element_shape,
                  ExternalArrayLayout layout,
-                 const DebugInfo &dbg_info)
-    : Ndarray(devalloc, TypeFactory::create_tensor_type(element_shape, type), shape, layout, dbg_info) {
+                 const DebugInfo &dbg_info,
+                 Program *prog)
+    : Ndarray(devalloc, TypeFactory::create_tensor_type(element_shape, type), shape, layout, dbg_info, prog) {
   QD_ASSERT(type->is<PrimitiveType>());
 }
 
@@ -102,8 +106,18 @@ Ndarray::~Ndarray() {
     // by a future Ndarray allocation. Without this, a new Ndarray that happens to occupy the same heap address
     // would pick up the destroyed ndarray's last generation counter and could falsely match a cache snapshot.
     prog_->adstack_cache().erase_ndarray_data_gen(const_cast<DeviceAllocation *>(&ndarray_alloc_));
-    ndarray_alloc_.device->dealloc_memory(ndarray_alloc_);
+    if (owns_allocation_) {
+      ndarray_alloc_.device->dealloc_memory(ndarray_alloc_);
+    }
   }
+}
+
+void Ndarray::detach_program(Program *live_program) {
+  if (live_program != nullptr && live_program == prog_) {
+    live_program->adstack_cache().erase_ndarray_data_gen(const_cast<DeviceAllocation *>(&ndarray_alloc_));
+  }
+  prog_ = nullptr;
+  owns_allocation_ = false;
 }
 
 intptr_t Ndarray::get_device_allocation_ptr_as_int() const {
@@ -140,8 +154,10 @@ TypedConstant Ndarray::read(const std::vector<int> &I) const {
   // Surface any pending adstack overflow at this host entry. The internal `synchronize()`
   // below drains the queue but does NOT raise; the explicit poll catches DLPack-bypass overflows from a
   // previous launch within one entry of the offending kernel even when the user never calls `qd.sync()`.
-  prog_->check_adstack_overflow_and_assert();
-  prog_->synchronize();
+  if (prog_ != nullptr) {
+    prog_->check_adstack_overflow_and_assert();
+    prog_->synchronize();
+  }
   size_t index = flatten_index(total_shape_, I);
   size_t size = data_type_size(get_element_data_type());
   quadrants::lang::Device::AllocParams alloc_params;
@@ -193,11 +209,13 @@ void Ndarray::write(const std::vector<int> &I, TypedConstant val) const {
   staging_buf_->device->unmap(*staging_buf_);
   staging_buf_->device->memcpy_internal(this->ndarray_alloc_.get_ptr(index * size_), staging_buf_->get_ptr(), size_);
 
-  prog_->synchronize();
-  // Host-side mutation of the ndarray contents: bump the per-DeviceAllocation generation so any cached
-  // adstack-sizer metadata that depended on `ExternalTensorRead` of this ndarray is evicted on next launch.
-  // Keyed by the same `&ndarray_alloc_` the kernel launchers use in `bump_writes_for_kernel_*`.
-  prog_->adstack_cache().bump_ndarray_data_gen(const_cast<DeviceAllocation *>(&ndarray_alloc_));
+  if (prog_ != nullptr) {
+    prog_->synchronize();
+    // Host-side mutation of the ndarray contents: bump the per-DeviceAllocation generation so any cached
+    // adstack-sizer metadata that depended on `ExternalTensorRead` of this ndarray is evicted on next launch.
+    // Keyed by the same `&ndarray_alloc_` the kernel launchers use in `bump_writes_for_kernel_*`.
+    prog_->adstack_cache().bump_ndarray_data_gen(const_cast<DeviceAllocation *>(&ndarray_alloc_));
+  }
 }
 
 int64 Ndarray::read_int(const std::vector<int> &i) {

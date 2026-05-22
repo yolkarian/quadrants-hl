@@ -12,6 +12,7 @@ private typedef ParamInfo = {
   var kind:Int;
   var rank:Int;
   var dtype:Int;
+  var needsGrad:Bool;
   var rankFromShape:Bool;
 }
 
@@ -283,6 +284,7 @@ private class DescriptorBuilder {
   final matrixScopes:Array<Map<String, MatrixLocalInfo>> = [];
   final structScopes:Array<Map<String, StructLocalInfo>> = [];
   final functions:Map<String, QdFunctionInfo>;
+  final kernelName:String;
   final inlineArgScopes:Array<Map<String, Expr>> = [];
   final inlineFunctionStack:Array<String> = [];
   final inlineReturnTargets:Array<Int> = [];
@@ -290,7 +292,7 @@ private class DescriptorBuilder {
   var hasReturn:Bool = false;
   var returnDType:Int = DTYPE_I32;
   var returnDTypes:Array<Int> = [];
-  public function new(args:Array<FunctionArg>, functions:Map<String, QdFunctionInfo>) {
+  public function new(args:Array<FunctionArg>, functions:Map<String, QdFunctionInfo>, kernelName:String) {
     for (arg in args) {
       if (paramIds.exists(arg.name)) {
         Context.error('Duplicate Quadrants kernel parameter ${arg.name}', arg.value == null ? Context.currentPos() : arg.value.pos);
@@ -299,20 +301,21 @@ private class DescriptorBuilder {
       if (isBufferViewComplexType(arg.type)) {
         var dtype = bufferViewElementDType(arg.type, argPos);
         paramIds[arg.name] = params.length;
-        params.push({name: arg.name, kind: PARAM_NDARRAY, rank: 1, dtype: dtype, rankFromShape: false});
+        params.push({name: arg.name, kind: PARAM_NDARRAY, rank: 1, dtype: dtype, needsGrad: needsGradForDType(dtype), rankFromShape: false});
         var startParamId = params.length;
-        params.push({name: uniqueParameterName('__qd_view_start_${arg.name}'), kind: PARAM_SCALAR, rank: 0, dtype: DTYPE_I32, rankFromShape: false});
+        params.push({name: uniqueParameterName('__qd_view_start_${arg.name}'), kind: PARAM_SCALAR, rank: 0, dtype: DTYPE_I32, needsGrad: false, rankFromShape: false});
         var lengthParamId = params.length;
-        params.push({name: uniqueParameterName('__qd_view_length_${arg.name}'), kind: PARAM_SCALAR, rank: 0, dtype: DTYPE_I32, rankFromShape: false});
+        params.push({name: uniqueParameterName('__qd_view_length_${arg.name}'), kind: PARAM_SCALAR, rank: 0, dtype: DTYPE_I32, needsGrad: false, rankFromShape: false});
         bufferViewStartParamIds[arg.name] = startParamId;
         bufferViewLengthParamIds[arg.name] = lengthParamId;
       } else {
         var typeInfo = parameterTypeInfo(arg.type, argPos);
         paramIds[arg.name] = params.length;
-        params.push({name: arg.name, kind: typeInfo.kind, rank: 0, dtype: typeInfo.dtype, rankFromShape: false});
+        params.push({name: arg.name, kind: typeInfo.kind, rank: 0, dtype: typeInfo.dtype, needsGrad: typeInfo.needsGrad, rankFromShape: false});
       }
     }
     this.functions = functions;
+    this.kernelName = kernelName;
     scopes.push(new Map());
     vectorScopes.push(new Map());
     matrixScopes.push(new Map());
@@ -341,7 +344,7 @@ private class DescriptorBuilder {
       return id;
     }
 
-    var kernelNameId = intern("haxe_kernel");
+    var kernelNameId = intern(kernelName);
     for (param in params) {
       intern(param.name);
     }
@@ -373,7 +376,7 @@ private class DescriptorBuilder {
       paramsSection.u8(param.kind);
       paramsSection.u8(param.dtype);
       paramsSection.u8(param.rank);
-      paramsSection.u8(0);
+      paramsSection.u8(param.needsGrad ? 1 : 0);
       paramsSection.u32(intern(param.name));
     }
 
@@ -1021,18 +1024,32 @@ private class DescriptorBuilder {
     return switch (expr.expr) {
       case ECall(callee, args):
         var path = callPath(callee, expr.pos);
-        var tileSize = path.indexOf("Shared.tile16") == 0 || path.indexOf("quadrants.Shared.tile16") == 0 ? 256 : 0;
-        var dtype = sharedDTypeForPath(path, tileSize > 0 ? "tile16" : "array");
-        if (dtype < 0) null else if (tileSize > 0) {
-          if (args.length != 0) {
-            Context.error("Quadrants shared tile16 factory expects no arguments", expr.pos);
+        if (path == "Shared.array" || path == "quadrants.Shared.array") {
+          if (args.length != 2) {
+            Context.error("Quadrants generic shared array expects a DType and one integer literal size", expr.pos);
           }
-          {dtype: dtype, size: tileSize};
-        } else {
+          {dtype: sharedGenericDType(args[0], args[0].pos), size: staticIntLiteral(args[1], args[1].pos)};
+        } else if (path == "Shared.tile16" || path == "quadrants.Shared.tile16") {
           if (args.length != 1) {
-            Context.error("Quadrants shared array factory expects one integer literal size", expr.pos);
+            Context.error("Quadrants generic shared tile16 expects one DType argument", expr.pos);
           }
-          {dtype: dtype, size: staticIntLiteral(args[0], args[0].pos)};
+          {dtype: sharedGenericDType(args[0], args[0].pos), size: 256};
+        } else {
+          var tileSize = path.indexOf("Shared.tile16") == 0 || path.indexOf("quadrants.Shared.tile16") == 0 ? 256 : 0;
+          var dtype = sharedDTypeForPath(path, tileSize > 0 ? "tile16" : "array");
+          if (dtype < 0) {
+            null;
+          } else if (tileSize > 0) {
+            if (args.length != 0) {
+              Context.error("Quadrants shared tile16 factory expects no arguments", expr.pos);
+            }
+            {dtype: dtype, size: tileSize};
+          } else {
+            if (args.length != 1) {
+              Context.error("Quadrants shared array factory expects one integer literal size", expr.pos);
+            }
+            {dtype: dtype, size: staticIntLiteral(args[0], args[0].pos)};
+          }
         }
       default:
         null;
@@ -1050,6 +1067,19 @@ private class DescriptorBuilder {
       "";
     };
     return dtypeSuffix(suffix);
+  }
+
+  function sharedGenericDType(expression:Expr, pos:Position):Int {
+    return switch (strip(expression).expr) {
+      case EField(_, name), EConst(CIdent(name)):
+        var dtype = dtypeSuffix(name);
+        if (dtype < 0) {
+          Context.error("Quadrants generic shared local expects a concrete DType enum value", pos);
+        }
+        dtype;
+      default:
+        Context.error("Quadrants generic shared local expects a concrete DType enum value", pos);
+    };
   }
 
   function dtypeSuffix(suffix:String):Int {
@@ -2562,6 +2592,7 @@ private class DescriptorBuilder {
     }
     param.kind = PARAM_SCALAR;
     param.rank = 0;
+    param.needsGrad = false;
   }
 
   function markParamNdarray(paramId:Int, rank:Int, pos:Position):Void {
@@ -2579,6 +2610,7 @@ private class DescriptorBuilder {
     }
     param.kind = PARAM_NDARRAY;
     param.rank = rank;
+    param.needsGrad = needsGradForDType(param.dtype);
     param.rankFromShape = false;
   }
 
@@ -2594,6 +2626,11 @@ private class DescriptorBuilder {
       var matrix = lookupMatrix(matrixName);
       return [for (row in 0...matrix.rows) for (col in 0...matrix.cols) matrixElementExpr(matrixName, row, col, expr.pos)];
     }
+    var inlineStruct = structInitializer(expr);
+    if (inlineStruct != null) {
+      return [for (field in inlineStruct) field.value];
+    }
+
     switch (expr.expr) {
       case EConst(CIdent(name)):
         var struct = lookupStruct(name);
@@ -2996,15 +3033,20 @@ private class DescriptorBuilder {
     }
   }
 
-  function parameterTypeInfo(type:Null<ComplexType>, pos:Position):{kind:Int, dtype:Int} {
+  function needsGradForDType(dtype:Int):Bool {
+    return dtype == DTYPE_F16 || dtype == DTYPE_F32 || dtype == DTYPE_F64;
+  }
+
+  function parameterTypeInfo(type:Null<ComplexType>, pos:Position):{kind:Int, dtype:Int, needsGrad:Bool} {
     if (type == null) {
-      return {kind: PARAM_UNKNOWN, dtype: DTYPE_I32};
+      return {kind: PARAM_UNKNOWN, dtype: DTYPE_I32, needsGrad: false};
     }
     return switch (type) {
       case TPath(path) if (isTensorPath(path)):
-        {kind: PARAM_NDARRAY, dtype: tensorElementDType(path, pos)};
+        var dtype = tensorElementDType(path, pos);
+        {kind: PARAM_NDARRAY, dtype: dtype, needsGrad: needsGradForDType(dtype)};
       default:
-        {kind: PARAM_SCALAR, dtype: dtypeFromComplexType(type, pos)};
+        {kind: PARAM_SCALAR, dtype: dtypeFromComplexType(type, pos), needsGrad: false};
     }
   }
 
@@ -3121,12 +3163,17 @@ class KernelBuilder {
       Context.error("Quadrants HashLink kernel function must have a body", functionExpr.pos);
     }
 
-    var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions());
+    var kernelName = kernelNameFromPosition(functionExpr.pos);
+    var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(), kernelName);
     var descriptorBytes = builder.build(functionDef.expr);
     var descriptorExpr = bytesExpression(descriptorBytes, functionExpr.pos);
     var autodiffMode = autodiffModeFromOptions(options);
     var graphLaunch = graphFromOptions(options);
-    return macro quadrants.Kernel.fromDescriptor($e{ctx}, $e{descriptorExpr}, $v{descriptorBytes.length}, $v{autodiffMode}, $v{graphLaunch});
+    var reverseAutodiffReason = reverseAutodiffBlockedReason(functionDef.expr);
+    if ((autodiffMode == 2 || autodiffMode == 3) && reverseAutodiffReason != null) {
+      Context.error(reverseAutodiffReason, functionExpr.pos);
+    }
+    return macro quadrants.Kernel.fromDescriptor($e{ctx}, $e{descriptorExpr}, $v{descriptorBytes.length}, $v{autodiffMode}, $v{graphLaunch}, $v{kernelName}, $v{reverseAutodiffReason});
   }
 
   public static function descriptorBytes(fn:Expr):Expr {
@@ -3138,7 +3185,7 @@ class KernelBuilder {
     if (functionDef.expr == null) {
       Context.error("Quadrants HashLink kernel function must have a body", functionExpr.pos);
     }
-    var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions());
+    var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(), kernelNameFromPosition(functionExpr.pos));
     var descriptorBytes = builder.build(functionDef.expr);
     return bytesExpression(descriptorBytes, functionExpr.pos);
   }
@@ -3176,6 +3223,92 @@ class KernelBuilder {
     }
     return functions;
   }
+  static function kernelNameFromPosition(pos:Position):String {
+    var info = Context.getPosInfos(pos);
+    var file = info.file;
+    var slash = file.lastIndexOf("/");
+    if (slash >= 0) {
+      file = file.substr(slash + 1);
+    }
+    file = file.split(".").join("_");
+    return 'haxe_kernel_${file}_${info.min}_${info.max}';
+  }
+
+  static function reverseAutodiffBlockedReason(functionBody:Expr):Null<String> {
+    if (containsReverseUnsupportedControlFlow(functionBody)) {
+      return "Quadrants HashLink reverse/validate autodiff does not support while, break, or continue; split the control flow into separate kernels or use forward autodiff";
+    }
+    var roots = topLevelStatements(functionBody);
+    var hasFor = false;
+    var hasNonFor = false;
+    for (statement in roots) {
+      switch (DescriptorBuilder.strip(statement).expr) {
+        case EFor(_, _):
+          hasFor = true;
+        default:
+          hasNonFor = true;
+      }
+    }
+    if (hasFor && hasNonFor) {
+      return "Quadrants HashLink reverse/validate autodiff does not support mixing top-level for-loops with non-loop statements; split them into separate kernels";
+    }
+    return null;
+  }
+
+  static function topLevelStatements(expression:Expr):Array<Expr> {
+    return switch (DescriptorBuilder.strip(expression).expr) {
+      case EBlock(expressions): expressions;
+      default: [expression];
+    };
+  }
+
+  static function containsReverseUnsupportedControlFlow(expression:Expr):Bool {
+    return switch (DescriptorBuilder.strip(expression).expr) {
+      case EWhile(_, _, _), EBreak, EContinue:
+        true;
+      case EBlock(expressions):
+        Lambda.exists(expressions, containsReverseUnsupportedControlFlow);
+      case EIf(cond, eif, eelse):
+        containsReverseUnsupportedControlFlow(cond)
+          || containsReverseUnsupportedControlFlow(eif)
+          || (eelse != null && containsReverseUnsupportedControlFlow(eelse));
+      case EFor(it, body):
+        containsReverseUnsupportedControlFlow(it) || containsReverseUnsupportedControlFlow(body);
+      case EFunction(_, f):
+        f.expr != null && containsReverseUnsupportedControlFlow(f.expr);
+      case EReturn(value):
+        value != null && containsReverseUnsupportedControlFlow(value);
+      case EBinop(_, lhs, rhs):
+        containsReverseUnsupportedControlFlow(lhs) || containsReverseUnsupportedControlFlow(rhs);
+      case EUnop(_, _, inner), EParenthesis(inner), EMeta(_, inner), ECheckType(inner, _), ECast(inner, _):
+        containsReverseUnsupportedControlFlow(inner);
+      case EArray(base, index):
+        containsReverseUnsupportedControlFlow(base) || containsReverseUnsupportedControlFlow(index);
+      case EArrayDecl(values):
+        Lambda.exists(values, containsReverseUnsupportedControlFlow);
+      case EObjectDecl(fields):
+        Lambda.exists(fields, function(field) return containsReverseUnsupportedControlFlow(field.expr));
+      case ECall(callee, args):
+        containsReverseUnsupportedControlFlow(callee) || Lambda.exists(args, containsReverseUnsupportedControlFlow);
+      case EField(base, _):
+        containsReverseUnsupportedControlFlow(base);
+      case EVars(vars):
+        Lambda.exists(vars, function(v) return v.expr != null && containsReverseUnsupportedControlFlow(v.expr));
+      case ETernary(cond, eif, eelse):
+        containsReverseUnsupportedControlFlow(cond) || containsReverseUnsupportedControlFlow(eif) || containsReverseUnsupportedControlFlow(eelse);
+      case ESwitch(subject, cases, defaultExpr):
+        containsReverseUnsupportedControlFlow(subject)
+          || Lambda.exists(cases, function(caseExpr) return Lambda.exists(caseExpr.values, containsReverseUnsupportedControlFlow)
+            || (caseExpr.guard != null && containsReverseUnsupportedControlFlow(caseExpr.guard))
+            || containsReverseUnsupportedControlFlow(caseExpr.expr))
+          || (defaultExpr != null && containsReverseUnsupportedControlFlow(defaultExpr));
+      case ETry(body, catches):
+        containsReverseUnsupportedControlFlow(body) || Lambda.exists(catches, function(catchExpr) return containsReverseUnsupportedControlFlow(catchExpr.expr));
+      default:
+        false;
+    };
+  }
+
 
   static function autodiffModeFromOptions(options:Null<Expr>):Int {
     if (options == null) {
@@ -3284,6 +3417,9 @@ class KernelBuilder {
         ECall(decodeQuotedExpr(parts.params[0]), [for (item in arrayElements(parts.params[1])) decodeQuotedExpr(item)]);
       case "EArrayDecl":
         EArrayDecl([for (item in arrayElements(parts.params[0])) decodeQuotedExpr(item)]);
+      case "EObjectDecl":
+        EObjectDecl([for (item in arrayElements(parts.params[0])) decodeQuotedObjectField(item)]);
+
       case "EField":
         EField(decodeQuotedExpr(parts.params[0]), stringLiteral(parts.params[1]));
       case "ECast":
@@ -3369,6 +3505,22 @@ class KernelBuilder {
       meta: null,
     };
   }
+  static function decodeQuotedObjectField(source:Expr):ObjectField {
+    var fieldExpr = objectField(source, "field");
+    if (fieldExpr == null) {
+      Context.error("Quoted Haxe object field is missing a field name", source.pos);
+    }
+    var exprExpr = objectField(source, "expr");
+    if (exprExpr == null) {
+      Context.error("Quoted Haxe object field is missing an expression", source.pos);
+    }
+    return {
+      field: stringLiteral(fieldExpr),
+      expr: decodeQuotedExpr(exprExpr),
+      quotes: null
+    };
+  }
+
 
   static function decodeQuotedFunctionKind(source:Expr):Null<FunctionKind> {
     return switch (constructorName(source)) {

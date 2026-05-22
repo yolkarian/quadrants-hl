@@ -56,17 +56,19 @@ class FieldBuild {
 
     add("fromTensor", [APublic], fun([
       DTypeBuild.arg("source", tensorType)
-    ], DTypeBuild.voidType(), "{ setTensor(source, false); }"));
+    ], DTypeBuild.voidType(), "{ copyFromTensor(source); }"));
 
     add("lazyGrad", [APublic], fun([], self,
-      '{ if (shape == null) throw "Quadrants field has not been placed"; if (gradField == null) gradField = new ${fieldClassPath}(context, shape.copy()); return cast gradField; }'));
+      '{ if (shape == null) throw "Quadrants field has not been placed"; if (gradField == null) { if (hasSNode()) { var created = new ${fieldClassPath}(context); (cast created : quadrants.FieldRuntime).placeCloneOf(this); gradField = created; } else { gradField = new ${fieldClassPath}(context, quadrants.TensorStorage.copyIntArray(shape)); } refreshAutodiffPeerHandles(); } return cast gradField; }'));
 
     add("lazyDual", [APublic], fun([], self,
-      '{ if (shape == null) throw "Quadrants field has not been placed"; if (dualField == null) dualField = new ${fieldClassPath}(context, shape.copy()); return cast dualField; }'));
+      '{ if (shape == null) throw "Quadrants field has not been placed"; if (dualField == null) { if (hasSNode()) { var created = new ${fieldClassPath}(context); (cast created : quadrants.FieldRuntime).placeCloneOf(this); dualField = created; } else { dualField = new ${fieldClassPath}(context, quadrants.TensorStorage.copyIntArray(shape)); } refreshAutodiffPeerHandles(); } return cast dualField; }'));
 
     add("fill", [APublic], fun([
       DTypeBuild.arg("value", valueType)
-    ], DTypeBuild.voidType(), "{ for (i in 0...elementCount()) write(i, value); }"));
+    ], DTypeBuild.voidType(), spec.typeName == "U1"
+      ? '{ if (hasSNode()) quadrants.Native.snode_fill_${suffix}(context.nativeHandle(), snodeId, ((value : Bool) ? 1 : 0)); else toTensor().fill(value); }'
+      : '{ if (hasSNode()) quadrants.Native.snode_fill_${suffix}(context.nativeHandle(), snodeId, cast value); else toTensor().fill(value); }'));
 
     add("read", [APublic], fun([
       DTypeBuild.arg("flatIndex", DTypeBuild.intType())
@@ -96,7 +98,7 @@ class FieldBuild {
     add("fromArray", [APublic], fun([
       DTypeBuild.arg("values", arrayValueType)
     ], DTypeBuild.voidType(),
-      "{ quadrants.TensorStorage.requireElementCount(shape, values.length); for (i in 0...values.length) write(i, values[i]); }"));
+      '{ quadrants.TensorStorage.requireElementCount(shape, values.length); for (i in 0...values.length) write(i, values[i]); }'));
 
     Context.defineType({
       pack: DTypeBuild.generatedPack,

@@ -1015,7 +1015,7 @@ KernelDescriptor decode_descriptor(const std::uint8_t *data, std::size_t size) {
       param.kind = parse_parameter_kind(reader.read_u8());
       param.dtype = parse_dtype(reader.read_u8());
       param.rank = reader.read_u8();
-      reader.read_u8();
+      param.flags = reader.read_u8();
       param.name_id = reader.read_u32();
       checked_string(descriptor, param.name_id, "parameter name");
       if (param.kind == ParameterKind::scalar && param.rank != 0) {
@@ -1083,7 +1083,7 @@ KernelDescriptor decode_descriptor(const std::uint8_t *data, std::size_t size) {
           param.kind = parse_parameter_kind(reader.read_u8());
           param.dtype = parse_dtype(reader.read_u8());
           param.rank = reader.read_u8();
-          reader.read_u8();
+          param.flags = reader.read_u8();
           param.name_id = reader.read_u32();
           checked_string(descriptor, param.name_id, "function parameter name");
           if (param.kind == ParameterKind::scalar && param.rank != 0) {
@@ -1177,7 +1177,7 @@ KernelBuildResult build_kernel_from_descriptor(lang::Program &program,
           if (param.kind == ParameterKind::scalar) {
             arg_ids.push_back(kernel->insert_scalar_param(lower_dtype(param.dtype), name));
           } else {
-            arg_ids.push_back(kernel->insert_ndarray_param(lower_dtype(param.dtype), param.rank, name, false));
+            arg_ids.push_back(kernel->insert_ndarray_param(lower_dtype(param.dtype), param.rank, name, param.needs_grad()));
           }
         }
         kernel->finalize_params();
@@ -1196,7 +1196,7 @@ KernelBuildResult build_kernel_from_descriptor(lang::Program &program,
                                                              debug_info);
           } else {
             expr = lang::Expr::make<lang::ExternalTensorExpression>(lower_dtype(param.dtype), param.rank, arg_ids[i],
-                                                                    false, BoundaryMode::kUnsafe);
+                                                                    param.needs_grad(), BoundaryMode::kUnsafe);
           }
           expr.set_dbg_info(debug_info);
           expr.type_check(&program.compile_config());

@@ -22,6 +22,22 @@ class Stream {
     return handle;
   }
 
+  public function supportsEvents():Bool {
+    return Native.stream_supports_events(context.nativeHandle()) != 0;
+  }
+
+  public function createEvent():StreamEvent {
+    return new StreamEvent(context);
+  }
+
+  public function recordEvent(event:StreamEvent):Void {
+    event.recordOn(this);
+  }
+
+  public function waitEvent(event:StreamEvent):Void {
+    Native.stream_wait_event(context.nativeHandle(), nativeHandle(), event.nativeHandle());
+  }
+
   public function sync():Void {
     Native.stream_sync(context.nativeHandle(), nativeHandle());
   }

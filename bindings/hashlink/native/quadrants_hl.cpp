@@ -13,6 +13,7 @@
 
 #include "bindings/hashlink/native/descriptor.h"
 #include "quadrants/ir/type.h"
+#include "quadrants/ir/type_utils.h"
 #include "quadrants/ir/frontend_ir.h"
 #include "quadrants/program/kernel.h"
 #include "quadrants/ir/snode.h"
@@ -20,6 +21,7 @@
 #include "quadrants/program/ndarray.h"
 #include "quadrants/program/program.h"
 #include "quadrants/rhi/arch.h"
+#include "quadrants/rhi/llvm/llvm_device.h"
 #include "quadrants/util/lang_util.h"
 #include "dlpack/dlpack.h"
 
@@ -33,6 +35,7 @@ using quadrants::lang::CompiledKernelData;
 using quadrants::lang::Kernel;
 using quadrants::lang::LaunchContextBuilder;
 using quadrants::lang::Ndarray;
+using quadrants::lang::DebugInfo;
 using quadrants::lang::Expr;
 using quadrants::lang::FieldExpression;
 using quadrants::lang::PrimitiveType;
@@ -350,11 +353,22 @@ struct qd_stream {
   quadrants::uint64 stream_handle{0};
   bool released{false};
 };
+struct qd_event {
+  void (*finalize)(qd_event *self){nullptr};
+  QdContextState *state{nullptr};
+  quadrants::uint64 event_handle{0};
+  bool released{false};
+};
+
 
 struct qd_ndarray {
   void (*finalize)(qd_ndarray *self){nullptr};
   QdContextState *state{nullptr};
   Ndarray *array{nullptr};
+  qd_ndarray *grad_handle{nullptr};
+  qd_ndarray *dual_handle{nullptr};
+  bool managed_by_program{true};
+  DLManagedTensor *imported_dlpack{nullptr};
   bool released{false};
 };
 
@@ -365,6 +379,7 @@ struct qd_snode_tree {
   bool committed{false};
   bool released{false};
 };
+
 
 namespace {
 void release_context_handle(qd_context *ctx) noexcept {
@@ -405,19 +420,56 @@ void release_stream_handle(qd_stream *stream) noexcept {
   stream->stream_handle = 0;
   stream->released = true;
 }
+void release_event_handle(qd_event *event) noexcept {
+  if (event == nullptr || event->released) {
+    return;
+  }
+  if (event->state != nullptr && event->state->program != nullptr) {
+    try {
+      event->state->program->stream_manager().destroy_event(event->event_handle);
+    } catch (...) {
+    }
+  }
+  release_state(event->state);
+  event->state = nullptr;
+  event->event_handle = 0;
+  event->released = true;
+}
+
 
 
 void release_ndarray_handle(qd_ndarray *array) noexcept {
   if (array == nullptr || array->released) {
     return;
   }
-  if (array->state != nullptr && array->state->program != nullptr && array->array != nullptr) {
+  array->grad_handle = nullptr;
+  array->dual_handle = nullptr;
+  if (array->array != nullptr) {
     try {
-      array->state->program->delete_ndarray(array->array);
+      if (array->managed_by_program) {
+        if (array->state != nullptr && array->state->program != nullptr) {
+          array->state->program->delete_ndarray(array->array);
+        }
+      } else {
+        Program *live_program = nullptr;
+        if (array->state != nullptr && array->state->program != nullptr) {
+          live_program = array->state->program.get();
+          live_program->synchronize();
+        }
+        array->array->detach_program(live_program);
+        delete array->array;
+      }
+    } catch (...) {
+    }
+  }
+  if (array->imported_dlpack != nullptr && array->imported_dlpack->deleter != nullptr) {
+    try {
+      array->imported_dlpack->deleter(array->imported_dlpack);
     } catch (...) {
     }
   }
   array->array = nullptr;
+  array->imported_dlpack = nullptr;
   release_state(array->state);
   array->state = nullptr;
   array->released = true;
@@ -448,6 +500,11 @@ void finalize_stream(qd_stream *stream) {
   release_stream_handle(stream);
   stream->~qd_stream();
 }
+void finalize_event(qd_event *event) {
+  release_event_handle(event);
+  event->~qd_event();
+}
+
 
 void finalize_ndarray(qd_ndarray *array) {
   release_ndarray_handle(array);
@@ -458,6 +515,21 @@ void finalize_snode_tree(qd_snode_tree *tree) {
   release_snode_tree_handle(tree);
   tree->~qd_snode_tree();
 }
+qd_ndarray *make_ndarray_handle(QdContextState &state,
+                               Ndarray *array,
+                               bool managed_by_program,
+                               DLManagedTensor *imported_dlpack = nullptr) {
+  auto *handle = static_cast<qd_ndarray *>(hl_gc_alloc_finalizer(sizeof(qd_ndarray)));
+  new (handle) qd_ndarray();
+  handle->finalize = finalize_ndarray;
+  handle->state = &state;
+  handle->array = array;
+  handle->managed_by_program = managed_by_program;
+  handle->imported_dlpack = imported_dlpack;
+  retain_state(&state);
+  return handle;
+}
+
 
 QdContextState &require_context(qd_context *ctx) {
   if (ctx == nullptr || ctx->state == nullptr || ctx->released) {
@@ -488,6 +560,16 @@ qd_stream &require_stream(QdContextState &state, qd_stream *stream) {
   }
   return *stream;
 }
+qd_event &require_event(QdContextState &state, qd_event *event) {
+  if (event == nullptr || event->state == nullptr || event->released) {
+    throw std::runtime_error("Quadrants stream event is closed");
+  }
+  if (event->state != &state) {
+    throw std::runtime_error("Quadrants stream event belongs to a different context");
+  }
+  return *event;
+}
+
 
 qd_ndarray *dynamic_to_ndarray(vdynamic *value) {
   if (value == nullptr) {
@@ -499,6 +581,29 @@ qd_ndarray *dynamic_to_ndarray(vdynamic *value) {
   return static_cast<qd_ndarray *>(value->v.ptr);
 }
 
+qd_ndarray &require_ndarray_handle(qd_ndarray *array, const char *name) {
+  if (array == nullptr || array->state == nullptr || array->released || array->array == nullptr) {
+    throw std::runtime_error(std::string("Quadrants ") + name + " ndarray handle is closed");
+  }
+  return *array;
+}
+
+qd_ndarray *autodiff_peer_handle_for_kernel(qd_ndarray *array_handle, const Kernel &kernel_ref) {
+  switch (kernel_ref.autodiff_mode) {
+    case AutodiffMode::kForward:
+      return array_handle->dual_handle;
+    case AutodiffMode::kReverse:
+    case AutodiffMode::kCheckAutodiffValid:
+      return array_handle->grad_handle;
+    case AutodiffMode::kNone:
+      return array_handle->grad_handle;
+  }
+  return nullptr;
+}
+
+const char *required_autodiff_storage_name(const Kernel &kernel_ref) {
+  return kernel_ref.autodiff_mode == AutodiffMode::kForward ? "dual" : "grad";
+}
 Kernel &require_kernel(QdContextState &state, qd_kernel *kernel) {
   if (kernel == nullptr || kernel->state == nullptr || kernel->released || kernel->kernel == nullptr ||
       kernel->compiled_kernel_data == nullptr || kernel->metadata == nullptr) {
@@ -656,6 +761,138 @@ void write_snode_float(QdContextState &state, int snode_id, varray *indices, dou
   SNode &snode = require_committed_place_snode(state, snode_id);
   snode.write_float(checked_snode_indices(snode, indices), value);
 }
+void require_snode_matches_ndarray_shape(SNode &snode, const Ndarray &array) {
+  if (static_cast<std::size_t>(snode.num_active_indices) != array.shape.size()) {
+    throw std::runtime_error("Quadrants field/tensor mirror rank mismatch");
+  }
+  for (int axis = 0; axis < snode.num_active_indices; ++axis) {
+    if (snode.shape_along_axis(axis) != array.shape[static_cast<std::size_t>(axis)]) {
+      throw std::runtime_error("Quadrants field/tensor mirror shape mismatch");
+    }
+  }
+}
+
+std::vector<int> snode_shape(SNode &snode) {
+  std::vector<int> shape;
+  shape.reserve(snode.num_active_indices);
+  for (int axis = 0; axis < snode.num_active_indices; ++axis) {
+    shape.push_back(snode.shape_along_axis(axis));
+  }
+  return shape;
+}
+
+std::vector<int> flat_to_indices(const std::vector<int> &shape, std::size_t flat_index) {
+  std::vector<int> indices(shape.size(), 0);
+  for (std::size_t axis = shape.size(); axis > 0; --axis) {
+    const std::size_t current = axis - 1;
+    const std::size_t dim = static_cast<std::size_t>(shape[current]);
+    indices[current] = static_cast<int>(flat_index % dim);
+    flat_index /= dim;
+  }
+  return indices;
+}
+
+void fill_snode_int(QdContextState &state, int snode_id, int64 value) {
+  SNode &snode = require_committed_place_snode(state, snode_id);
+  auto shape = snode_shape(snode);
+  std::size_t total = 1;
+  for (int dim : shape) {
+    total *= static_cast<std::size_t>(dim);
+  }
+  for (std::size_t i = 0; i < total; ++i) {
+    snode.write_int(flat_to_indices(shape, i), value);
+  }
+}
+
+void fill_snode_uint(QdContextState &state, int snode_id, quadrants::uint64 value) {
+  SNode &snode = require_committed_place_snode(state, snode_id);
+  auto shape = snode_shape(snode);
+  std::size_t total = 1;
+  for (int dim : shape) {
+    total *= static_cast<std::size_t>(dim);
+  }
+  for (std::size_t i = 0; i < total; ++i) {
+    snode.write_uint(flat_to_indices(shape, i), value);
+  }
+}
+
+void fill_snode_float(QdContextState &state, int snode_id, double value) {
+  SNode &snode = require_committed_place_snode(state, snode_id);
+  auto shape = snode_shape(snode);
+  std::size_t total = 1;
+  for (int dim : shape) {
+    total *= static_cast<std::size_t>(dim);
+  }
+  for (std::size_t i = 0; i < total; ++i) {
+    snode.write_float(flat_to_indices(shape, i), value);
+  }
+}
+
+void copy_snode_to_ndarray(QdContextState &state, int snode_id, PrimitiveTypeID dtype, qd_ndarray *arr) {
+  SNode &snode = require_committed_place_snode(state, snode_id);
+  Ndarray &array = require_typed_ndarray(state, arr, dtype);
+  require_snode_matches_ndarray_shape(snode, array);
+  for (std::size_t i = 0; i < array.get_nelement(); ++i) {
+    auto indices = flat_to_indices(array, static_cast<int>(i));
+    switch (dtype) {
+      case PrimitiveTypeID::i8:
+      case PrimitiveTypeID::i16:
+      case PrimitiveTypeID::i32:
+      case PrimitiveTypeID::i64:
+        array.write_int(indices, snode.read_int(indices));
+        break;
+      case PrimitiveTypeID::u8:
+      case PrimitiveTypeID::u16:
+      case PrimitiveTypeID::u32:
+      case PrimitiveTypeID::u64:
+        array.write_int(indices, static_cast<int64>(snode.read_uint(indices)));
+        break;
+      case PrimitiveTypeID::u1:
+        array.write_int(indices, snode.read_uint(indices) != 0 ? 1 : 0);
+        break;
+      case PrimitiveTypeID::f16:
+      case PrimitiveTypeID::f32:
+      case PrimitiveTypeID::f64:
+        array.write_float(indices, snode.read_float(indices));
+        break;
+      default:
+        throw std::runtime_error("Unsupported Quadrants field dtype for copy-to-ndarray");
+    }
+  }
+}
+
+void copy_ndarray_to_snode(QdContextState &state, int snode_id, PrimitiveTypeID dtype, qd_ndarray *arr) {
+  SNode &snode = require_committed_place_snode(state, snode_id);
+  Ndarray &array = require_typed_ndarray(state, arr, dtype);
+  require_snode_matches_ndarray_shape(snode, array);
+  for (std::size_t i = 0; i < array.get_nelement(); ++i) {
+    auto indices = flat_to_indices(array, static_cast<int>(i));
+    switch (dtype) {
+      case PrimitiveTypeID::i8:
+      case PrimitiveTypeID::i16:
+      case PrimitiveTypeID::i32:
+      case PrimitiveTypeID::i64:
+        snode.write_int(indices, array.read_int(indices));
+        break;
+      case PrimitiveTypeID::u8:
+      case PrimitiveTypeID::u16:
+      case PrimitiveTypeID::u32:
+      case PrimitiveTypeID::u64:
+        snode.write_uint(indices, array.read_uint(indices));
+        break;
+      case PrimitiveTypeID::u1:
+        snode.write_int(indices, array.read_uint(indices) != 0 ? 1 : 0);
+        break;
+      case PrimitiveTypeID::f16:
+      case PrimitiveTypeID::f32:
+      case PrimitiveTypeID::f64:
+        snode.write_float(indices, array.read_float(indices));
+        break;
+      default:
+        throw std::runtime_error("Unsupported Quadrants field dtype for copy-from-ndarray");
+    }
+  }
+}
 
 struct QdDlpackManager {
   QdContextState *state{nullptr};
@@ -743,6 +980,127 @@ DLManagedTensor *checked_dlpack_handle(int64 value) {
   }
   return reinterpret_cast<DLManagedTensor *>(static_cast<intptr_t>(value));
 }
+int bridge_dtype_from_dlpack(const DLDataType &dtype) {
+  if (dtype.lanes != 1) {
+    throw std::runtime_error("Quadrants DLPack import requires a scalar-lane tensor");
+  }
+  if (dtype.code == static_cast<std::uint8_t>(kDLInt)) {
+    switch (dtype.bits) {
+      case 8:
+        return 0;
+      case 16:
+        return 1;
+      case 32:
+        return 2;
+      case 64:
+        return 3;
+    }
+  }
+  if (dtype.code == static_cast<std::uint8_t>(kDLUInt)) {
+    switch (dtype.bits) {
+      case 8:
+        return 4;
+      case 16:
+        return 5;
+      case 32:
+        return 6;
+      case 64:
+        return 7;
+    }
+  }
+  if (dtype.code == static_cast<std::uint8_t>(kDLFloat)) {
+    switch (dtype.bits) {
+      case 16:
+        return 11;
+      case 32:
+        return 8;
+      case 64:
+        return 9;
+    }
+  }
+  if (dtype.code == static_cast<std::uint8_t>(kDLBool) && dtype.bits == 8) {
+    return 10;
+  }
+  throw std::runtime_error("Quadrants DLPack import dtype is unsupported");
+}
+
+void require_dlpack_device_matches_context(const DLManagedTensor *managed, Arch arch) {
+  const auto expected = dl_device_type_from_arch(arch);
+  if (managed->dl_tensor.device.device_type != expected) {
+    throw std::runtime_error("Quadrants DLPack device type does not match the target context");
+  }
+  if (managed->dl_tensor.device.device_id != 0) {
+    throw std::runtime_error("Quadrants DLPack device id does not match the target context");
+  }
+}
+
+std::vector<int> dlpack_shape_to_ints(const DLManagedTensor *managed) {
+  if (managed->dl_tensor.ndim <= 0) {
+    throw std::runtime_error("Quadrants DLPack import requires at least one dimension");
+  }
+  std::vector<int> shape;
+  shape.reserve(static_cast<std::size_t>(managed->dl_tensor.ndim));
+  for (int axis = 0; axis < managed->dl_tensor.ndim; ++axis) {
+    const int64 dim = managed->dl_tensor.shape[axis];
+    if (dim <= 0) {
+      throw std::runtime_error("Quadrants DLPack import requires positive dimensions");
+    }
+    if (dim > std::numeric_limits<int>::max()) {
+      throw std::runtime_error("Quadrants DLPack import dimension exceeds Haxe Int range");
+    }
+    shape.push_back(static_cast<int>(dim));
+  }
+  return shape;
+}
+
+void require_contiguous_dlpack(const DLManagedTensor *managed, const std::vector<int> &shape) {
+  if (managed->dl_tensor.strides == nullptr) {
+    return;
+  }
+  int64 expected = 1;
+  for (int axis = static_cast<int>(shape.size()) - 1; axis >= 0; --axis) {
+    if (managed->dl_tensor.strides[axis] != expected) {
+      throw std::runtime_error("Quadrants DLPack import requires a contiguous row-major tensor");
+    }
+    expected *= shape[static_cast<std::size_t>(axis)];
+  }
+}
+
+quadrants::lang::LlvmDevice &require_llvm_device(QdContextState &state, const char *what) {
+  if (!quadrants::arch_uses_llvm(state.arch)) {
+    throw std::runtime_error(std::string("Quadrants ") + what + " requires an LLVM-backed context");
+  }
+  auto *device = dynamic_cast<quadrants::lang::LlvmDevice *>(state.program->get_compute_device());
+  if (device == nullptr) {
+    throw std::runtime_error(std::string("Quadrants ") + what + " requires an LLVM device");
+  }
+  return *device;
+}
+
+void *checked_external_data_ptr(const DLManagedTensor *managed) {
+  auto *base = static_cast<std::uint8_t *>(managed->dl_tensor.data);
+  if (base == nullptr) {
+    throw std::runtime_error("Quadrants DLPack import data pointer is null");
+  }
+  return base + managed->dl_tensor.byte_offset;
+}
+
+std::size_t checked_import_byte_size(const std::vector<int> &shape, int bridge_dtype) {
+  std::size_t count = 1;
+  for (int dim : shape) {
+    const std::size_t size_dim = static_cast<std::size_t>(dim);
+    if (count > std::numeric_limits<std::size_t>::max() / size_dim) {
+      throw std::runtime_error("Quadrants external import shape overflows size_t");
+    }
+    count *= size_dim;
+  }
+  const std::size_t element_size = static_cast<std::size_t>(quadrants::lang::data_type_size(dtype_from_bridge_id(bridge_dtype)));
+  if (count > std::numeric_limits<std::size_t>::max() / element_size) {
+    throw std::runtime_error("Quadrants external import byte size overflows size_t");
+  }
+  return count * element_size;
+}
+
 
 void require_flat_fill_supported(const Ndarray &array) {
   if (array.get_nelement() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
@@ -923,6 +1281,7 @@ void set_kernel_launch_args(QdContextState &state, qd_kernel *kernel, varray *ar
   if (args == nullptr) {
     throw std::runtime_error("Quadrants kernel argument array is null");
   }
+  Kernel &kernel_ref = require_kernel(state, kernel);
   const auto &parameters = kernel->metadata->parameters;
   if (args->size != static_cast<int>(parameters.size())) {
     throw std::runtime_error("Quadrants kernel argument count mismatch");
@@ -936,15 +1295,42 @@ void set_kernel_launch_args(QdContextState &state, qd_kernel *kernel, varray *ar
         throw std::runtime_error("Quadrants scalar kernel argument is null");
       }
       set_scalar_arg(launch_context, static_cast<int>(i), param.dtype, values[i]);
-    } else {
-      qd_ndarray *array_handle = dynamic_to_ndarray(values[i]);
-      Ndarray &array = require_ndarray(state, array_handle);
-      if (param.rank != array.shape.size()) {
-        throw std::runtime_error("Quadrants ndarray kernel argument rank mismatch");
-      }
-      require_array_dtype(array, primitive_id_from_descriptor_dtype(param.dtype));
-      launch_context.set_arg_ndarray(static_cast<int>(i), array);
+      continue;
     }
+
+    qd_ndarray *array_handle = dynamic_to_ndarray(values[i]);
+    Ndarray &array = require_ndarray(state, array_handle);
+    if (param.rank != array.shape.size()) {
+      throw std::runtime_error("Quadrants ndarray kernel argument rank mismatch");
+    }
+    const auto dtype = primitive_id_from_descriptor_dtype(param.dtype);
+    require_array_dtype(array, dtype);
+
+    if (!param.needs_grad()) {
+      launch_context.set_arg_ndarray(static_cast<int>(i), array);
+      continue;
+    }
+
+    qd_ndarray *peer_handle = autodiff_peer_handle_for_kernel(array_handle, kernel_ref);
+    if (peer_handle == nullptr) {
+      if (kernel_ref.autodiff_mode != AutodiffMode::kNone) {
+        throw std::runtime_error(std::string("Quadrants autodiff kernel requires tensor ") +
+                                 required_autodiff_storage_name(kernel_ref) + " storage");
+      }
+      launch_context.set_arg_ndarray_impl(static_cast<int>(i), array.get_device_allocation_ptr_as_int(), array.shape, 0);
+      continue;
+    }
+
+    Ndarray &peer_array = require_ndarray(state, peer_handle);
+    if (peer_array.shape != array.shape) {
+      throw std::runtime_error(std::string("Quadrants tensor ") + required_autodiff_storage_name(kernel_ref) +
+                               " storage shape mismatch");
+    }
+    require_array_dtype(peer_array, dtype);
+    launch_context.set_arg_ndarray_impl(static_cast<int>(i),
+                                        array.get_device_allocation_ptr_as_int(),
+                                        array.shape,
+                                        peer_array.get_device_allocation_ptr_as_int());
   }
 }
 
@@ -1070,6 +1456,63 @@ HL_PRIM qd_stream *HL_NAME(stream_create)(qd_context *ctx) {
     return handle;
   });
 }
+HL_PRIM int HL_NAME(stream_supports_events)(qd_context *ctx) {
+  return guard([&]() -> int {
+    QdContextState &state = require_context(ctx);
+    return (quadrants::arch_is_cuda(state.arch) || quadrants::arch_is_amdgpu(state.arch)) ? 1 : 0;
+  });
+}
+
+HL_PRIM qd_event *HL_NAME(stream_event_create)(qd_context *ctx) {
+  return guard([&]() -> qd_event * {
+    QdContextState &state = require_context(ctx);
+    if (!quadrants::arch_is_cuda(state.arch) && !quadrants::arch_is_amdgpu(state.arch)) {
+      throw std::runtime_error("Quadrants stream events require a CUDA or AMDGPU context");
+    }
+    BlockingSection blocking;
+    auto *handle = static_cast<qd_event *>(hl_gc_alloc_finalizer(sizeof(qd_event)));
+    new (handle) qd_event();
+    handle->finalize = finalize_event;
+    handle->state = &state;
+    handle->event_handle = state.program->stream_manager().create_event();
+    retain_state(&state);
+    return handle;
+  });
+}
+
+HL_PRIM void HL_NAME(stream_event_record)(qd_context *ctx, qd_event *event, qd_stream *stream) {
+  guard([&]() {
+    QdContextState &state = require_context(ctx);
+    qd_event &event_ref = require_event(state, event);
+    qd_stream &stream_ref = require_stream(state, stream);
+    BlockingSection blocking;
+    state.program->stream_manager().record_event(event_ref.event_handle, stream_ref.stream_handle);
+  });
+}
+
+HL_PRIM void HL_NAME(stream_event_sync)(qd_context *ctx, qd_event *event) {
+  guard([&]() {
+    QdContextState &state = require_context(ctx);
+    qd_event &event_ref = require_event(state, event);
+    BlockingSection blocking;
+    state.program->stream_manager().synchronize_event(event_ref.event_handle);
+  });
+}
+
+HL_PRIM void HL_NAME(stream_wait_event)(qd_context *ctx, qd_stream *stream, qd_event *event) {
+  guard([&]() {
+    QdContextState &state = require_context(ctx);
+    qd_stream &stream_ref = require_stream(state, stream);
+    qd_event &event_ref = require_event(state, event);
+    BlockingSection blocking;
+    state.program->stream_manager().stream_wait_event(stream_ref.stream_handle, event_ref.event_handle);
+  });
+}
+
+HL_PRIM void HL_NAME(stream_event_close)(qd_event *event) {
+  guard([&]() { release_event_handle(event); });
+}
+
 
 HL_PRIM void HL_NAME(stream_sync)(qd_context *ctx, qd_stream *stream) {
   guard([&]() {
@@ -1203,6 +1646,26 @@ HL_PRIM int HL_NAME(profiler_query_count)(qd_context *ctx, vbyte *kernel_name) {
   });
 }
 
+HL_PRIM double HL_NAME(profiler_query_min)(qd_context *ctx, vbyte *kernel_name) {
+  return guard([&]() -> double {
+    QdContextState &state = require_context(ctx);
+    require_profiler(state);
+    auto result = state.program->query_kernel_profile_info(
+        kernel_name == nullptr ? std::string() : std::string(reinterpret_cast<const char *>(kernel_name)));
+    return result.min;
+  });
+}
+
+HL_PRIM double HL_NAME(profiler_query_max)(qd_context *ctx, vbyte *kernel_name) {
+  return guard([&]() -> double {
+    QdContextState &state = require_context(ctx);
+    require_profiler(state);
+    auto result = state.program->query_kernel_profile_info(
+        kernel_name == nullptr ? std::string() : std::string(reinterpret_cast<const char *>(kernel_name)));
+    return result.max;
+  });
+}
+
 HL_PRIM double HL_NAME(profiler_query_avg)(qd_context *ctx, vbyte *kernel_name) {
   return guard([&]() -> double {
     QdContextState &state = require_context(ctx);
@@ -1218,20 +1681,82 @@ HL_PRIM qd_ndarray *HL_NAME(ndarray_create)(qd_context *ctx, int dtype, varray *
     QdContextState &state = require_context(ctx);
     std::vector<int> dims = shape_from_hl_array(shape);
     Ndarray *array = state.program->create_ndarray(dtype_from_bridge_id(dtype), dims);
+    return make_ndarray_handle(state, array, true);
+  });
+}
 
-    auto *handle = static_cast<qd_ndarray *>(hl_gc_alloc_finalizer(sizeof(qd_ndarray)));
-    new (handle) qd_ndarray();
-    handle->finalize = finalize_ndarray;
-    handle->state = &state;
-    handle->array = array;
-    retain_state(&state);
-    return handle;
+HL_PRIM qd_ndarray *HL_NAME(ndarray_import_dlpack)(qd_context *ctx, int dtype, int64 handle) {
+  return guard([&]() -> qd_ndarray * {
+    QdContextState &state = require_context(ctx);
+    DLManagedTensor *managed = checked_dlpack_handle(handle);
+    try {
+      require_dlpack_device_matches_context(managed, state.arch);
+      const int actual_dtype = bridge_dtype_from_dlpack(managed->dl_tensor.dtype);
+      if (actual_dtype != dtype) {
+        throw std::runtime_error("Quadrants DLPack dtype mismatch");
+      }
+      auto shape = dlpack_shape_to_ints(managed);
+      require_contiguous_dlpack(managed, shape);
+      auto &device = require_llvm_device(state, "DLPack import");
+      auto imported = device.import_memory(checked_external_data_ptr(managed), checked_import_byte_size(shape, dtype));
+      auto *array = new Ndarray(imported, dtype_from_bridge_id(dtype), shape, ExternalArrayLayout::kNull, DebugInfo(), state.program.get());
+      return make_ndarray_handle(state, array, false, managed);
+    } catch (...) {
+      if (managed->deleter != nullptr) {
+        managed->deleter(managed);
+      }
+      throw;
+    }
+  });
+}
+
+HL_PRIM qd_ndarray *HL_NAME(ndarray_import_external_pointer)(qd_context *ctx, int64 pointer, int dtype, varray *shape) {
+  return guard([&]() -> qd_ndarray * {
+    QdContextState &state = require_context(ctx);
+    if (pointer == 0) {
+      throw std::runtime_error("Quadrants external pointer import pointer is null");
+    }
+    auto dims = shape_from_hl_array(shape);
+    auto &device = require_llvm_device(state, "external pointer import");
+    auto imported = device.import_memory(reinterpret_cast<void *>(static_cast<intptr_t>(pointer)), checked_import_byte_size(dims, dtype));
+    auto *array = new Ndarray(imported, dtype_from_bridge_id(dtype), dims, ExternalArrayLayout::kNull, DebugInfo(), state.program.get());
+    return make_ndarray_handle(state, array, false);
   });
 }
 
 HL_PRIM void HL_NAME(ndarray_close)(qd_ndarray *arr) {
   guard([&]() { release_ndarray_handle(arr); });
 }
+HL_PRIM void HL_NAME(ndarray_clear_autodiff_handles)(qd_ndarray *arr) {
+  guard([&]() {
+    qd_ndarray &array = require_ndarray_handle(arr, "tensor");
+    array.grad_handle = nullptr;
+    array.dual_handle = nullptr;
+  });
+}
+
+HL_PRIM void HL_NAME(ndarray_set_grad_handle)(qd_ndarray *arr, qd_ndarray *grad) {
+  guard([&]() {
+    qd_ndarray &array = require_ndarray_handle(arr, "tensor");
+    qd_ndarray &grad_array = require_ndarray_handle(grad, "tensor grad");
+    if (grad_array.state != array.state) {
+      throw std::runtime_error("Quadrants tensor grad handle belongs to a different context");
+    }
+    array.grad_handle = &grad_array;
+  });
+}
+
+HL_PRIM void HL_NAME(ndarray_set_dual_handle)(qd_ndarray *arr, qd_ndarray *dual) {
+  guard([&]() {
+    qd_ndarray &array = require_ndarray_handle(arr, "tensor");
+    qd_ndarray &dual_array = require_ndarray_handle(dual, "tensor dual");
+    if (dual_array.state != array.state) {
+      throw std::runtime_error("Quadrants tensor dual handle belongs to a different context");
+    }
+    array.dual_handle = &dual_array;
+  });
+}
+
 
 HL_PRIM void HL_NAME(ndarray_fill_i8)(qd_context *ctx, qd_ndarray *arr, int value) {
   guard([&]() { fill_ndarray_int(require_context(ctx), arr, PrimitiveTypeID::i8, value); });
@@ -1524,6 +2049,13 @@ HL_PRIM int HL_NAME(ndarray_supports_zero_copy)(qd_context *ctx) {
   });
 }
 
+HL_PRIM int HL_NAME(ndarray_supports_external_pointer_import)(qd_context *ctx) {
+  return guard([&]() -> int {
+    QdContextState &state = require_context(ctx);
+    return quadrants::arch_uses_llvm(state.arch) ? 1 : 0;
+  });
+}
+
 HL_PRIM int64 HL_NAME(ndarray_export_device_pointer)(qd_context *ctx, qd_ndarray *arr) {
   return guard([&]() -> int64 {
     QdContextState &state = require_context(ctx);
@@ -1631,13 +2163,20 @@ HL_PRIM int64 HL_NAME(dlpack_stride)(int64 handle, int axis) {
     if (axis < 0 || axis >= managed->dl_tensor.ndim) {
       throw std::runtime_error("Quadrants DLPack stride axis is out of range");
     }
+    if (managed->dl_tensor.strides == nullptr) {
+      int64 stride = 1;
+      for (int current = managed->dl_tensor.ndim - 1; current > axis; --current) {
+        stride *= managed->dl_tensor.shape[current];
+      }
+      return stride;
+    }
     return static_cast<int64>(managed->dl_tensor.strides[axis]);
   });
 }
 
 HL_PRIM int64 HL_NAME(dlpack_data_pointer)(int64 handle) {
   return guard([&]() -> int64 {
-    return static_cast<int64>(reinterpret_cast<intptr_t>(checked_dlpack_handle(handle)->dl_tensor.data));
+    return static_cast<int64>(reinterpret_cast<intptr_t>(checked_external_data_ptr(checked_dlpack_handle(handle))));
   });
 }
 
@@ -1809,6 +2348,62 @@ HL_PRIM double HL_NAME(snode_read_f64)(qd_context *ctx, int snode_id, varray *in
 HL_PRIM void HL_NAME(snode_write_f64)(qd_context *ctx, int snode_id, varray *indices, double value) {
   guard([&]() { write_snode_float(require_context(ctx), snode_id, indices, value); });
 }
+HL_PRIM void HL_NAME(snode_fill_i8)(qd_context *ctx, int snode_id, int value) {
+  guard([&]() { fill_snode_int(require_context(ctx), snode_id, value); });
+}
+
+HL_PRIM void HL_NAME(snode_fill_i16)(qd_context *ctx, int snode_id, int value) {
+  guard([&]() { fill_snode_int(require_context(ctx), snode_id, value); });
+}
+
+HL_PRIM void HL_NAME(snode_fill_i32)(qd_context *ctx, int snode_id, int value) {
+  guard([&]() { fill_snode_int(require_context(ctx), snode_id, value); });
+}
+
+HL_PRIM void HL_NAME(snode_fill_i64)(qd_context *ctx, int snode_id, int64 value) {
+  guard([&]() { fill_snode_int(require_context(ctx), snode_id, value); });
+}
+
+HL_PRIM void HL_NAME(snode_fill_u8)(qd_context *ctx, int snode_id, int value) {
+  guard([&]() { fill_snode_uint(require_context(ctx), snode_id, static_cast<quadrants::uint64>(value)); });
+}
+
+HL_PRIM void HL_NAME(snode_fill_u16)(qd_context *ctx, int snode_id, int value) {
+  guard([&]() { fill_snode_uint(require_context(ctx), snode_id, static_cast<quadrants::uint64>(value)); });
+}
+
+HL_PRIM void HL_NAME(snode_fill_u32)(qd_context *ctx, int snode_id, int64 value) {
+  guard([&]() { fill_snode_uint(require_context(ctx), snode_id, static_cast<quadrants::uint64>(value)); });
+}
+
+HL_PRIM void HL_NAME(snode_fill_u64)(qd_context *ctx, int snode_id, int64 value) {
+  guard([&]() { fill_snode_uint(require_context(ctx), snode_id, static_cast<quadrants::uint64>(value)); });
+}
+
+HL_PRIM void HL_NAME(snode_fill_u1)(qd_context *ctx, int snode_id, int value) {
+  guard([&]() { fill_snode_int(require_context(ctx), snode_id, value != 0 ? 1 : 0); });
+}
+
+HL_PRIM void HL_NAME(snode_fill_f16)(qd_context *ctx, int snode_id, double value) {
+  guard([&]() { fill_snode_float(require_context(ctx), snode_id, value); });
+}
+
+HL_PRIM void HL_NAME(snode_fill_f32)(qd_context *ctx, int snode_id, double value) {
+  guard([&]() { fill_snode_float(require_context(ctx), snode_id, value); });
+}
+
+HL_PRIM void HL_NAME(snode_fill_f64)(qd_context *ctx, int snode_id, double value) {
+  guard([&]() { fill_snode_float(require_context(ctx), snode_id, value); });
+}
+
+HL_PRIM void HL_NAME(snode_copy_to_ndarray)(qd_context *ctx, int snode_id, int dtype, qd_ndarray *arr) {
+  guard([&]() { copy_snode_to_ndarray(require_context(ctx), snode_id, primitive_id_from_bridge_id(dtype), arr); });
+}
+
+HL_PRIM void HL_NAME(snode_copy_from_ndarray)(qd_context *ctx, int snode_id, int dtype, qd_ndarray *arr) {
+  guard([&]() { copy_ndarray_to_snode(require_context(ctx), snode_id, primitive_id_from_bridge_id(dtype), arr); });
+}
+
 
 HL_PRIM qd_kernel *HL_NAME(kernel_compile)(qd_context *ctx, vbyte *descriptor_bytes, int descriptor_length, int autodiff_mode) {
   return guard([&]() -> qd_kernel * {
@@ -1940,6 +2535,12 @@ DEFINE_PRIM(_QD_CONTEXT, context_create_configured, _I32 _I32);
 DEFINE_PRIM(_VOID, context_sync, _QD_CONTEXT);
 DEFINE_PRIM(_VOID, context_close, _QD_CONTEXT);
 DEFINE_PRIM(_QD_STREAM, stream_create, _QD_CONTEXT);
+DEFINE_PRIM(_I32, stream_supports_events, _QD_CONTEXT);
+DEFINE_PRIM(_QD_EVENT, stream_event_create, _QD_CONTEXT);
+DEFINE_PRIM(_VOID, stream_event_record, _QD_CONTEXT _QD_EVENT _QD_STREAM);
+DEFINE_PRIM(_VOID, stream_event_sync, _QD_CONTEXT _QD_EVENT);
+DEFINE_PRIM(_VOID, stream_wait_event, _QD_CONTEXT _QD_STREAM _QD_EVENT);
+DEFINE_PRIM(_VOID, stream_event_close, _QD_EVENT);
 DEFINE_PRIM(_VOID, stream_sync, _QD_CONTEXT _QD_STREAM);
 DEFINE_PRIM(_VOID, stream_close, _QD_STREAM);
 DEFINE_PRIM(_VOID, context_set_offline_cache, _QD_CONTEXT _I32 _BYTES);
@@ -1954,9 +2555,13 @@ DEFINE_PRIM(_VOID, profiler_stop, _QD_CONTEXT);
 DEFINE_PRIM(_VOID, profiler_clear, _QD_CONTEXT);
 DEFINE_PRIM(_F64, profiler_total_time, _QD_CONTEXT);
 DEFINE_PRIM(_I32, profiler_query_count, _QD_CONTEXT _BYTES);
+DEFINE_PRIM(_F64, profiler_query_min, _QD_CONTEXT _BYTES);
+DEFINE_PRIM(_F64, profiler_query_max, _QD_CONTEXT _BYTES);
 DEFINE_PRIM(_F64, profiler_query_avg, _QD_CONTEXT _BYTES);
 
 DEFINE_PRIM(_QD_NDARRAY, ndarray_create, _QD_CONTEXT _I32 _ARR);
+DEFINE_PRIM(_QD_NDARRAY, ndarray_import_dlpack, _QD_CONTEXT _I32 _I64);
+DEFINE_PRIM(_QD_NDARRAY, ndarray_import_external_pointer, _QD_CONTEXT _I64 _I32 _ARR);
 DEFINE_PRIM(_VOID, ndarray_fill_i8, _QD_CONTEXT _QD_NDARRAY _I32);
 DEFINE_PRIM(_I32, ndarray_read_i8, _QD_CONTEXT _QD_NDARRAY _I32);
 DEFINE_PRIM(_VOID, ndarray_write_i8, _QD_CONTEXT _QD_NDARRAY _I32 _I32);
@@ -1981,6 +2586,9 @@ DEFINE_PRIM(_VOID, ndarray_write_u32, _QD_CONTEXT _QD_NDARRAY _I32 _I64);
 DEFINE_PRIM(_VOID, ndarray_fill_u64, _QD_CONTEXT _QD_NDARRAY _I64);
 DEFINE_PRIM(_I64, ndarray_read_u64, _QD_CONTEXT _QD_NDARRAY _I32);
 DEFINE_PRIM(_VOID, ndarray_close, _QD_NDARRAY);
+DEFINE_PRIM(_VOID, ndarray_clear_autodiff_handles, _QD_NDARRAY);
+DEFINE_PRIM(_VOID, ndarray_set_grad_handle, _QD_NDARRAY _QD_NDARRAY);
+DEFINE_PRIM(_VOID, ndarray_set_dual_handle, _QD_NDARRAY _QD_NDARRAY);
 DEFINE_PRIM(_VOID, ndarray_write_u64, _QD_CONTEXT _QD_NDARRAY _I32 _I64);
 DEFINE_PRIM(_VOID, ndarray_fill_u1, _QD_CONTEXT _QD_NDARRAY _I32);
 DEFINE_PRIM(_I32, ndarray_read_u1, _QD_CONTEXT _QD_NDARRAY _I32);
@@ -1997,8 +2605,8 @@ DEFINE_PRIM(_VOID, ndarray_write_f16, _QD_CONTEXT _QD_NDARRAY _I32 _F64);
 DEFINE_PRIM(_VOID, ndarray_fill_f64, _QD_CONTEXT _QD_NDARRAY _F64);
 DEFINE_PRIM(_F64, ndarray_read_f64, _QD_CONTEXT _QD_NDARRAY _I32);
 DEFINE_PRIM(_VOID, ndarray_write_f64, _QD_CONTEXT _QD_NDARRAY _I32 _F64);
-
 DEFINE_PRIM(_I32, ndarray_supports_zero_copy, _QD_CONTEXT);
+DEFINE_PRIM(_I32, ndarray_supports_external_pointer_import, _QD_CONTEXT);
 DEFINE_PRIM(_I64, ndarray_export_device_pointer, _QD_CONTEXT _QD_NDARRAY);
 DEFINE_PRIM(_I64, ndarray_export_dlpack, _QD_CONTEXT _QD_NDARRAY);
 DEFINE_PRIM(_VOID, dlpack_release, _I64);
@@ -2042,7 +2650,20 @@ DEFINE_PRIM(_F64, snode_read_f16, _QD_CONTEXT _I32 _ARR);
 DEFINE_PRIM(_VOID, snode_write_f16, _QD_CONTEXT _I32 _ARR _F64);
 DEFINE_PRIM(_F64, snode_read_f64, _QD_CONTEXT _I32 _ARR);
 DEFINE_PRIM(_VOID, snode_write_f64, _QD_CONTEXT _I32 _ARR _F64);
-
+DEFINE_PRIM(_VOID, snode_fill_i8, _QD_CONTEXT _I32 _I32);
+DEFINE_PRIM(_VOID, snode_fill_i16, _QD_CONTEXT _I32 _I32);
+DEFINE_PRIM(_VOID, snode_fill_i32, _QD_CONTEXT _I32 _I32);
+DEFINE_PRIM(_VOID, snode_fill_i64, _QD_CONTEXT _I32 _I64);
+DEFINE_PRIM(_VOID, snode_fill_u8, _QD_CONTEXT _I32 _I32);
+DEFINE_PRIM(_VOID, snode_fill_u16, _QD_CONTEXT _I32 _I32);
+DEFINE_PRIM(_VOID, snode_fill_u32, _QD_CONTEXT _I32 _I64);
+DEFINE_PRIM(_VOID, snode_fill_u64, _QD_CONTEXT _I32 _I64);
+DEFINE_PRIM(_VOID, snode_fill_u1, _QD_CONTEXT _I32 _I32);
+DEFINE_PRIM(_VOID, snode_fill_f16, _QD_CONTEXT _I32 _F64);
+DEFINE_PRIM(_VOID, snode_fill_f32, _QD_CONTEXT _I32 _F64);
+DEFINE_PRIM(_VOID, snode_fill_f64, _QD_CONTEXT _I32 _F64);
+DEFINE_PRIM(_VOID, snode_copy_to_ndarray, _QD_CONTEXT _I32 _I32 _QD_NDARRAY);
+DEFINE_PRIM(_VOID, snode_copy_from_ndarray, _QD_CONTEXT _I32 _I32 _QD_NDARRAY);
 DEFINE_PRIM(_QD_KERNEL, kernel_compile, _QD_CONTEXT _BYTES _I32 _I32);
 DEFINE_PRIM(_VOID, kernel_launch, _QD_CONTEXT _QD_KERNEL _ARR);
 DEFINE_PRIM(_VOID, kernel_launch_on, _QD_CONTEXT _QD_KERNEL _QD_STREAM _ARR);

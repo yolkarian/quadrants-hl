@@ -1,5 +1,6 @@
 package quadrants;
 
+import quadrants.FieldsBuilder.FieldPlacementStep;
 import quadrants.Native.QNdarray;
 import quadrants.Types.DType;
 
@@ -17,6 +18,7 @@ class FieldRuntime implements TensorHandle {
   public var snodeTreeId(default, null):Int = -1;
   public var closed:Bool = false;
   final tensorFactory:TensorFactory;
+  var placementSteps:Array<FieldPlacementStep> = null;
 
   public function new(context:Context, dtype:DType, tensorFactory:TensorFactory, ?shape:Array<Int>) {
     this.context = context;
@@ -44,14 +46,27 @@ class FieldRuntime implements TensorHandle {
     FieldsBuilder.placeDense(context, this, shape);
   }
 
-  public function placeSNode(shape:Array<Int>, snodeId:Int, snodeTreeId:Int):Void {
+  public function placeSNode(shape:Array<Int>, snodeId:Int, snodeTreeId:Int, steps:Array<FieldPlacementStep>):Void {
     ensurePlaceable();
     this.shape = TensorStorage.validateShape(shape);
+    this.tensor = null;
     this.snodeId = snodeId;
     this.snodeTreeId = snodeTreeId;
+    this.placementSteps = [for (step in steps) {kind: step.kind, axis: step.axis, size: step.size, chunkSize: step.chunkSize}];
     gradField = null;
     dualField = null;
     ownsTensor = false;
+  }
+
+  public function copyPlacementSteps():Array<FieldPlacementStep> {
+    if (placementSteps == null) {
+      throw "Quadrants field has no placement steps";
+    }
+    return [for (step in placementSteps) {kind: step.kind, axis: step.axis, size: step.size, chunkSize: step.chunkSize}];
+  }
+
+  public function placeCloneOf(source:FieldRuntime):Void {
+    FieldsBuilder.placeWithSteps(context, this, quadrants.TensorStorage.copyIntArray(source.shape), source.copyPlacementSteps());
   }
 
   public function setTensor(source:TensorHandle, owns:Bool):Void {
@@ -63,12 +78,34 @@ class FieldRuntime implements TensorHandle {
       throw "Quadrants field source tensor dtype mismatch";
     }
     tensor = source;
-    shape = source.shape;
+    shape = quadrants.TensorStorage.copyIntArray(source.shape);
     gradField = null;
     dualField = null;
     ownsTensor = owns;
     snodeId = -1;
     snodeTreeId = -1;
+    placementSteps = null;
+  }
+
+  public function copyFromTensor(source:TensorHandle):Void {
+    ensureOpen();
+    if (source.context != context) {
+      throw "Quadrants field source tensor belongs to a different context";
+    }
+    if (source.dtype != dtype) {
+      throw "Quadrants field source tensor dtype mismatch";
+    }
+    if (hasSNode()) {
+      TensorStorage.requireSameShape(shape, source.shape, "field source tensor");
+      tensor = source;
+      ownsTensor = false;
+      syncTensorToSNode();
+      tensor = null;
+      gradField = null;
+      dualField = null;
+      return;
+    }
+    setTensor(source, false);
   }
 
   public function requireTensor():TensorHandle {
@@ -106,7 +143,7 @@ class FieldRuntime implements TensorHandle {
       if (shape == null) {
         throw "Quadrants field has not been placed";
       }
-      tensor = tensorFactory(shape.copy());
+      tensor = tensorFactory(quadrants.TensorStorage.copyIntArray(shape));
       ownsTensor = true;
     }
     return cast tensor;
@@ -117,11 +154,7 @@ class FieldRuntime implements TensorHandle {
       return;
     }
     var target = ensureTensorMirror();
-    var readField = Reflect.field(this, "read");
-    var writeTensor = Reflect.field(target, "write");
-    for (i in 0...elementCount()) {
-      Reflect.callMethod(target, writeTensor, [i, Reflect.callMethod(this, readField, [i])]);
-    }
+    Native.snode_copy_to_ndarray(context.nativeHandle(), snodeId, dtype, target.nativeHandle());
   }
 
   public function syncTensorToSNode():Void {
@@ -129,10 +162,38 @@ class FieldRuntime implements TensorHandle {
       return;
     }
     var source:TensorHandle = cast tensor;
-    var readTensor = Reflect.field(source, "read");
-    var writeField = Reflect.field(this, "write");
-    for (i in 0...elementCount()) {
-      Reflect.callMethod(this, writeField, [i, Reflect.callMethod(source, readTensor, [i])]);
+    Native.snode_copy_from_ndarray(context.nativeHandle(), snodeId, dtype, source.nativeHandle());
+  }
+
+  public function refreshAutodiffPeerHandles():Void {
+    ensureOpen();
+    var primal = nativeHandle();
+    if (gradField != null) {
+      Native.ndarray_set_grad_handle(primal, (cast gradField : FieldRuntime).nativeHandle());
+    }
+    if (dualField != null) {
+      Native.ndarray_set_dual_handle(primal, (cast dualField : FieldRuntime).nativeHandle());
+    }
+  }
+
+  public function syncAutodiffPeersToTensor():Void {
+    ensureOpen();
+    if (gradField != null) {
+      (cast gradField : FieldRuntime).syncSNodeToTensor();
+    }
+    if (dualField != null) {
+      (cast dualField : FieldRuntime).syncSNodeToTensor();
+    }
+    refreshAutodiffPeerHandles();
+  }
+
+  public function syncAutodiffPeersFromTensor():Void {
+    ensureOpen();
+    if (gradField != null) {
+      (cast gradField : FieldRuntime).syncTensorToSNode();
+    }
+    if (dualField != null) {
+      (cast dualField : FieldRuntime).syncTensorToSNode();
     }
   }
 
@@ -159,6 +220,7 @@ class FieldRuntime implements TensorHandle {
     shape = null;
     snodeId = -1;
     snodeTreeId = -1;
+    placementSteps = null;
     closed = true;
   }
 }

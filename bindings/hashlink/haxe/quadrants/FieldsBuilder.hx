@@ -1,5 +1,12 @@
 package quadrants;
 
+typedef FieldPlacementStep = {
+  var kind:Int;
+  var axis:Int;
+  var size:Int;
+  var chunkSize:Int;
+}
+
 class FieldsBuilder {
   static inline var SNODE_DENSE = 1;
   static inline var SNODE_DYNAMIC = 2;
@@ -8,7 +15,7 @@ class FieldsBuilder {
   static inline var DEFAULT_DYNAMIC_CHUNK_SIZE = 128;
 
   final context:Context;
-  var steps:Array<{kind:Int, axis:Int, size:Int, chunkSize:Int}> = [];
+  var steps:Array<FieldPlacementStep> = [];
   var shape:Array<Int> = [];
 
   public function new(context:Context) {
@@ -47,24 +54,46 @@ class FieldsBuilder {
     return dynamicNode(axis, size, chunkSize);
   }
 
+  static function copySteps(steps:Array<FieldPlacementStep>):Array<FieldPlacementStep> {
+    return [for (step in steps) {kind: step.kind, axis: step.axis, size: step.size, chunkSize: step.chunkSize}];
+  }
+
+  static function validateStepsMatchShape(shape:Array<Int>, steps:Array<FieldPlacementStep>):Void {
+    if (steps.length != shape.length) {
+      throw "Quadrants field placement step rank must match field shape rank";
+    }
+    for (axis in 0...shape.length) {
+      var step = steps[axis];
+      if (step.size != shape[axis]) {
+        throw "Quadrants field placement step size must match field shape";
+      }
+      if (step.chunkSize <= 0) {
+        throw "Quadrants dynamic field chunk size must be positive";
+      }
+    }
+  }
+
   public static function placeDense(context:Context, field:FieldRuntime, shape:Array<Int>):Void {
     var checkedShape = TensorStorage.validateShape(shape);
     var denseSteps = [
       for (axis in 0...checkedShape.length)
         {kind: SNODE_DENSE, axis: axis, size: checkedShape[axis], chunkSize: DEFAULT_DYNAMIC_CHUNK_SIZE}
     ];
-    placeSteps(context, field, checkedShape, denseSteps);
+    placeWithSteps(context, field, checkedShape, denseSteps);
   }
 
-  static function placeSteps(context:Context, field:FieldRuntime, shape:Array<Int>, steps:Array<{kind:Int, axis:Int, size:Int, chunkSize:Int}>):Void {
+  public static function placeWithSteps(context:Context, field:FieldRuntime, shape:Array<Int>, steps:Array<FieldPlacementStep>):Void {
     if (steps.length == 0) {
       throw "Quadrants field placement requires at least one SNode dimension";
     }
     field.ensurePlaceable();
     var tree = Native.snode_tree_create(context.nativeHandle());
     var parent = Native.snode_tree_root_id(tree);
+    var checkedShape = TensorStorage.validateShape(shape);
+    var checkedSteps = copySteps(steps);
+    validateStepsMatchShape(checkedShape, checkedSteps);
     try {
-      for (step in steps) {
+      for (step in checkedSteps) {
         parent = Native.snode_tree_child(
           tree,
           parent,
@@ -77,7 +106,7 @@ class FieldsBuilder {
       var name = @:privateAccess "".toUtf8();
       var snodeId = Native.snode_tree_place(tree, parent, field.dtype, name);
       var treeId = Native.snode_tree_commit(context.nativeHandle(), tree);
-      field.placeSNode(shape.copy(), snodeId, treeId);
+      field.placeSNode(quadrants.TensorStorage.copyIntArray(checkedShape), snodeId, treeId, checkedSteps);
     } catch (e:Dynamic) {
       Native.snode_tree_close(tree);
       throw e;
@@ -86,7 +115,7 @@ class FieldsBuilder {
   }
 
   public function place(field:FieldRuntime):Void {
-    placeSteps(context, field, shape.copy(), steps.copy());
+    placeWithSteps(context, field, quadrants.TensorStorage.copyIntArray(shape), copySteps(steps));
   }
 
   public function destroy():Void {

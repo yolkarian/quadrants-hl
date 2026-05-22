@@ -14,6 +14,12 @@ class DLPackTensor {
     }
   }
 
+  public function takeHandle():haxe.Int64 {
+    ensureOpen();
+    closed = true;
+    return handle;
+  }
+
   public function close():Void {
     if (!closed) {
       Native.dlpack_release(handle);

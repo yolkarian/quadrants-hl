@@ -2,6 +2,8 @@ package quadrants;
 
 typedef ProfilerRecord = {
   var count:Int;
+  var minTime:Float;
+  var maxTime:Float;
   var averageTime:Float;
 }
 
@@ -34,12 +36,26 @@ class Profiler {
     return Native.profiler_query_count(context.nativeHandle(), nameBytes);
   }
 
+  public function min(kernelName:String):Float {
+    var nameBytes = @:privateAccess kernelName.toUtf8();
+    return Native.profiler_query_min(context.nativeHandle(), nameBytes);
+  }
+
+  public function max(kernelName:String):Float {
+    var nameBytes = @:privateAccess kernelName.toUtf8();
+    return Native.profiler_query_max(context.nativeHandle(), nameBytes);
+  }
+
   public function avg(kernelName:String):Float {
     var nameBytes = @:privateAccess kernelName.toUtf8();
     return Native.profiler_query_avg(context.nativeHandle(), nameBytes);
   }
 
   public function record(kernelName:String):ProfilerRecord {
-    return {count: count(kernelName), averageTime: avg(kernelName)};
+    return {count: count(kernelName), minTime: min(kernelName), maxTime: max(kernelName), averageTime: avg(kernelName)};
+  }
+
+  public function recordKernel(kernel:Kernel):ProfilerRecord {
+    return record(kernel.kernelName());
   }
 }

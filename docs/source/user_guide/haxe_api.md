@@ -46,6 +46,7 @@ Use `new Field<I32>(ctx, shape)` or `new Field<I32>(ctx)` plus `ctx.root.place(f
 | --- | --- |
 | `new Context(Arch.Cpu, enableProfiler = false)` | Create a Quadrants runtime context for a backend. |
 | `Context.sync()` / `Context.close()` | Synchronize queued work and release the native context. |
+| `Context.supportsStreamEvents()` / `Context.clearOfflineCache()` | Query event support (`Cuda`/`Amdgpu`) and delete a previously configured offline-cache tree. |
 | `new Tensor<I32>(ctx, [n])`, `new Tensor<F32>(ctx, [m, k])` | Allocate a primitive ndarray whose dtype is fixed by the generic type parameter. |
 | `Tensor<T>.fill(value)`, `read(i)`, `write(i, value)` | Typed flat host access. `read()` returns `T`; `write()` only accepts `T`. |
 | `Tensor<T>.readAt(indices)`, `writeAt(indices, value)` | Typed multi-dimensional host indexing. |
@@ -53,14 +54,19 @@ Use `new Field<I32>(ctx, shape)` or `new Field<I32>(ctx)` plus `ctx.root.place(f
 | `Tensor<T>.readBytes(...)`, `writeBytes(...)`, `copyToBytes(...)`, `copyFromBytes(...)` | Raw byte transport for contiguous tensor ranges. |
 | `Tensor<T>.view(flatStart, length)` / `BufferView<T>` | Checked flat view over a tensor. `BufferView<T>` kernel parameters flatten to tensor handle + start + length. |
 | `Tensor<T>.grad`, `dual`, `enableGrad()` | Typed gradient/dual storage helpers. |
-| `new Field<T>(ctx, shape)` / `new Field<T>(ctx)` plus `ctx.root...place(field)` / `Field<T>.toTensor()` | Typed SNode-backed field allocation, placement, host access, and tensor conversion. |
-| `Tensor<T>.supportsZeroCopy()`, `supportsDLPack()`, `exportDLPack()`, `exportDevicePointer()` | Capability-probed zero-copy export helpers. DLPack exports must be closed by the caller. |
-| `Kernel.build(ctx, macro (...) -> { ... })` | Build and JIT-compile a kernel from a Haxe macro arrow function. |
-| `Kernel.descriptorBytes(macro (...) -> { ... })` | Return QDHL descriptor bytes for tests/tooling. |
-| `Kernel.launch(args...)` | Launch a compiled kernel. `Tensor<T>` and `Field<T>` arguments are passed through the non-generic runtime handle path. |
+| `Tensor<T>.fromDLPack(...)`, `importDLPack(...)`, `fromExternalPointer(...)`, `importExternalPointer(...)` | Import typed tensors from contiguous DLPack capsules or external pointers on LLVM-backed backends. |
+| `new Field<T>(ctx, shape)` / `new Field<T>(ctx)` plus `ctx.root...place(field)` / `Field<T>.toTensor()` / `Field<T>.fromTensor(...)` | Typed SNode-backed field allocation, placement, host access, tensor conversion, and tensor-to-field copies. |
+| `Tensor<T>.supportsZeroCopy()`, `supportsDLPack()`, `supportsExternalPointerImport()`, `exportDLPack()`, `exportDevicePointer()` | Capability-probed interop helpers. DLPack exports must be closed by the caller. |
+| `Kernel.build(ctx, macro (...) -> { ... })` / `Template.build(DType.I32, ctx, macro (...:Tensor<TemplateDType>, ...) -> { ... })` | Build and JIT-compile a concrete kernel directly, or specialize one typed kernel template across dtypes. |
+| `Kernel.descriptorBytes(...)` / `Template.descriptorBytes(...)` | Return QDHL descriptor bytes for tests/tooling. |
+| `Kernel.launch(args...)`, `launchGraph(...)`, `launchGraphWhile(...)`, `launchGraphDoWhile(...)` | Launch a compiled kernel directly or through graph execution helpers. |
 | `Kernel.launchRet(...)` / `launchRets(...)` | Launch kernels with primitive scalar or fixed tuple returns. |
 | `Kernel.grad()`, `forwardGrad()`, `validationKernel()` | Recompile the stored descriptor in reverse, forward, or validation autodiff mode. |
-| `Context.stream()`, `Context.profiler()`, `Context.setOfflineCache(...)`, `Context.setDebugDump(...)` | Runtime stream, profiler, cache, and debug configuration helpers. |
+| `Context.stream()`, `Context.setOfflineCache(...)`, `Context.setDebugDump(...)` | Create execution streams and configure cache / debug-dump behavior for the context. |
+| `Stream.createEvent()` / `Stream.recordEvent(...)` / `Stream.waitEvent(...)` / `StreamEvent.sync()` | CUDA/AMDGPU stream-event coordination helpers. |
+| `Context.profiler()`, `Profiler.recordKernel(...)`, `Profiler.min/max/avg/count(...)` | Runtime profiler queries by kernel name or kernel instance. |
+| `Struct.decodeSchema({field: 0, nested: {value: 0}}, kernel.launchRets(...))` | Decode flattened struct returns back into nested Haxe object literals. |
+| `Shared.array(DType.I32, size)` / `Shared.tile16(DType.F32)` | Generic shared-memory factories inside kernel bodies, alongside the dtype-specific `Shared.arrayI32(...)` / `Shared.tile16F32()` forms. |
 | `Vector<T>`, `Matrix<T>`, `SparseMatrix<T>`, `Mesh` | Host-side containers and helpers. |
 
 ## Backend and dtype enums
@@ -102,28 +108,33 @@ var asTensor:Tensor<U1> = flags.toTensor();
 
 Host `read`, `write`, `fill`, `toArray`, `fromArray`, `grad`, `dual`, and `toTensor()` remain typed by `T`.
 
-## Zero-copy and DLPack export
+## Interop import/export
 
-Use capability probes before exporting raw interop handles:
+Use capability probes before exporting raw interop handles or importing external storage:
 
 ```haxe
 var t = new Tensor<F32>(ctx, [2, 3]);
 if (t.supportsZeroCopy()) {
   var ptr:haxe.Int64 = t.exportDevicePointer();
+  var alias = Tensor<F32>.fromExternalPointer(ctx, ptr, [2, 3]);
 }
 if (t.supportsDLPack()) {
   var dlpack = t.exportDLPack();
   try {
     var ndim = dlpack.ndim();
     var data = dlpack.dataPointer();
+    var imported = Tensor<F32>.fromDLPack(ctx, dlpack);
+    imported.write(0, 7.0);
   } finally {
-    dlpack.close();
+    // `fromDLPack` / `importDLPack` consume the handle on success.
+    if (dlpack != null) dlpack.close();
   }
 }
 ```
 
-`DLPackTensor` exposes device, dtype, shape, stride, and data-pointer metadata for the exported tensor. Keep the source tensor alive until the consumer is done. External pointer and DLPack import are still guarded by `supportsExternalPointerImport()`, which currently returns `false`.
+`DLPackTensor` exposes device, dtype, shape, stride, and data-pointer metadata for exported tensors. `Tensor<T>.fromDLPack(...)` and `importDLPack(...)` accept contiguous row-major primitive tensors whose DLPack dtype exactly matches `T`. `Tensor<T>.fromExternalPointer(...)` and `importExternalPointer(...)` wrap an existing device/host pointer with the current context and shape. Exported DLPack tensors and device pointers alias storage owned by the source tensor, so keep the source tensor and context alive until every consumer of that alias is finished.
 
+`supportsExternalPointerImport()` is currently true only for LLVM-backed contexts (`Cpu`, `Cuda`, and `Amdgpu`). Vulkan and Metal still do not expose external-pointer or DLPack-import paths through the HashLink bridge.
 ## Python binding migration map
 
 | Former Python binding | Haxe/HL equivalent |
@@ -139,8 +150,8 @@ if (t.supportsDLPack()) {
 
 ## Current feature boundary
 
-The Haxe/HashLink binding supports primitive typed ndarrays, typed SNode-backed fields and placement, scalar kernel arguments, basic control flow, n-dimensional range loops, static mesh-for over `Mesh.forVertices/forEdges/forFaces/forCells(literalCount)`, inline `@:qdFunc` helpers, struct/vector/matrix kernel locals, math operations, native backend selection, primitive scalar and tuple return values, streams, graph launches, profiler queries, offline-cache toggles, IR/debug-dump configuration, native autodiff kernel build modes, and zero-copy/DLPack export probes.
+The Haxe/HashLink binding supports primitive typed ndarrays, typed SNode-backed fields and placement, scalar kernel arguments, basic control flow, n-dimensional range loops, static mesh-for over `Mesh.forVertices/forEdges/forFaces/forCells(literalCount)`, inline `@:qdFunc` helpers, template-specialized kernels via `Template.build(...)`, struct/vector/matrix kernel locals, flattened struct returns decoded with `Struct.decodeSchema(...)`, generic or dtype-specific shared-memory factories, native backend selection, primitive scalar and tuple return values, streams, stream events on CUDA/AMDGPU, graph launches including `launchGraphWhile(...)`, profiler queries, offline-cache toggles and clearing, IR/debug-dump configuration, native autodiff kernel build modes, and zero-copy / external-pointer / DLPack interop on LLVM-backed backends.
 
-Not yet exposed through the Haxe API: Python package modules, mesh relation access, NumPy/PyTorch import, GUI/window interop, and Python decorators.
+Not yet exposed through the Haxe API: Python package modules, mesh relation access inside kernels, NumPy/PyTorch import, GUI/window interop, and Python decorators.
 
 Use [Haxe kernel language](kernel_language.md) for the exact macro-supported syntax and [Haxe/HashLink integration](hashlink.md) for build and packaging details.

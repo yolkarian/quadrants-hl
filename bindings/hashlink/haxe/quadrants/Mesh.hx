@@ -53,13 +53,13 @@ class Mesh {
     for (target in targets) {
       checkElement(to, target);
     }
-    ensureRelation(from, to)[fromIndex] = targets.copy();
+    ensureRelation(from, to)[fromIndex] = [for (target in targets) target];
   }
 
   public function neighbors(from:MeshElementType, fromIndex:Int, to:MeshElementType):Array<Int> {
     checkElement(from, fromIndex);
     var relation = relations[relationId(from, to)];
-    return relation == null ? [] : relation[fromIndex].copy();
+    return relation == null ? [] : [for (target in relation[fromIndex]) target];
   }
 
   public function relationSize(from:MeshElementType, fromIndex:Int, to:MeshElementType):Int {

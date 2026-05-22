@@ -1,0 +1,3 @@
+-cp bindings/hashlink/haxe
+-cp tests/hashlink
+-main RuntimeSuiteAlphaMain

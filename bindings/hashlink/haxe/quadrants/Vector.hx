@@ -10,7 +10,7 @@ private class VectorData<T> {
 
 abstract Vector<T>(VectorData<T>) {
   public inline function new(values:Array<T>) {
-    this = new VectorData(values.copy());
+    this = new VectorData([for (value in values) value]);
   }
 
   public static inline function ofArray<T>(values:Array<T>):Vector<T> {
@@ -30,7 +30,7 @@ abstract Vector<T>(VectorData<T>) {
   }
 
   public inline function toArray():Array<T> {
-    return this.values.copy();
+    return [for (value in this.values) value];
   }
 
   public function map(f:T->T):Vector<T> {

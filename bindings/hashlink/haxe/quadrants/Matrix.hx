@@ -14,7 +14,7 @@ class Matrix<T> {
     }
     this.rows = rows;
     this.cols = cols;
-    this.values = values.copy();
+    this.values = [for (value in values) value];
   }
 
 
@@ -42,7 +42,7 @@ class Matrix<T> {
   }
 
   public function toArray():Array<T> {
-    return values.copy();
+    return [for (value in values) value];
   }
 
   public function zip(other:Matrix<T>, f:T->T->T):Matrix<T> {
