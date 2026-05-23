@@ -84,7 +84,7 @@ scripts/package_hashlink_haxelib.sh \
 haxelib --global install build/quadrants-haxelib.zip --always
 ```
 
-The package script stages `quadrants.hdll`, Haxe sources, and top-level files from `runtime/`. If `runtime_cuda.bc` is present but `slim_libdevice.10.bc` is missing, it copies `external/cuda_libdevice/slim_libdevice.10.bc` into the package.
+The package script stages `quadrants.hdll`, Haxe sources, the top-level `LICENSE`, and top-level files from `runtime/`. It also validates that the selected `quadrants.hdll` exports the `@:hlNative` functions used by the current Haxe sources and that `runtime/` contains host `runtime_*.bc` bitcode. If `runtime_cuda.bc` is present but `slim_libdevice.10.bc` is missing, it copies `external/cuda_libdevice/slim_libdevice.10.bc` into the package. Use `--skip-native-symbol-check` only when deliberately packaging a different Haxe/native pair; use `--allow-no-runtime` for Vulkan/Metal-only packages without LLVM bitcode.
 
 The Haxe macros discover `quadrants.hdll` and the package-local `runtime` directory from that haxelib root. If a build tree or moved install tree is used, set `QUADRANTS_HDLL` and `QUADRANTS_RUNTIME_DIR` while compiling the `.hl` file. The same values can be supplied as Haxe defines: `-D quadrants_hdll_path=/path/to/quadrants.hdll` and `-D quadrants_runtime_dir=/path/to/runtime`.
 

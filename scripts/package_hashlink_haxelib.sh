@@ -9,10 +9,12 @@ The package layout keeps Haxe sources under haxe/ and points haxelib's
 classPath there, so native artifacts can sit next to that source root:
 
   haxelib.json              # classPath: "haxe"
+  LICENSE
   haxe/quadrants/*.hx
   quadrants.hdll
-  runtime/*.bc
-  runtime_rocm70/*.bc       # when packaging an AMDGPU build
+  runtime/runtime_*.bc
+  runtime/slim_libdevice.10.bc  # when packaging a CUDA build
+  runtime_rocm70/*.bc           # when packaging an AMDGPU build
 
 Usage:
   scripts/package_hashlink_haxelib.sh [options]
@@ -25,7 +27,9 @@ Options:
   --out FILE               Output zip path. Default: build/quadrants-haxelib.zip
   --stage-dir DIR          Staging directory. Default: a temporary dir under build/.
   --keep-stage             Do not remove the staging directory after zipping.
-  --allow-no-runtime       Allow packaging without runtime/*.bc files.
+  --allow-no-runtime       Allow packaging without runtime/runtime_*.bc files.
+  --skip-native-symbol-check
+                            Do not verify that Native.hx @:hlNative functions are exported by the hdll.
   --install                Run haxelib install on the produced zip after packaging.
   -h, --help               Show this help.
 
@@ -55,6 +59,7 @@ out="$repo_root/build/quadrants-haxelib.zip"
 stage_dir=""
 keep_stage=0
 allow_no_runtime=0
+skip_native_symbol_check=0
 install_after=0
 
 while (($#)); do
@@ -97,6 +102,10 @@ while (($#)); do
       allow_no_runtime=1
       shift
       ;;
+    --skip-native-symbol-check)
+      skip_native_symbol_check=1
+      shift
+      ;;
     --install)
       install_after=1
       shift
@@ -129,6 +138,16 @@ abs_path() {
   fi
 }
 
+existing_abs_path() {
+  local path=$1
+  [[ -e "$path" ]] || return 1
+  local dir base
+  dir=$(dirname -- "$path")
+  base=$(basename -- "$path")
+  dir=$(CDPATH= cd -- "$dir" && pwd -P)
+  printf '%s/%s\n' "$dir" "$base"
+}
+
 file_mtime() {
   if stat -c '%Y' "$1" >/dev/null 2>&1; then
     stat -c '%Y' "$1"
@@ -153,14 +172,33 @@ runtime_has_files() {
   return 1
 }
 
-runtime_has_bc() {
+runtime_has_quadrants_bc() {
   local dir=$1
   [[ -d "$dir" ]] || return 1
   local file
   while IFS= read -r -d '' file; do
     return 0
-  done < <(find "$dir" -maxdepth 1 -type f -name '*.bc' -print0)
+  done < <(find "$dir" -maxdepth 1 -type f -name 'runtime_*.bc' -print0)
   return 1
+}
+
+runtime_has_host_bc() {
+  local dir=$1
+  [[ -d "$dir" ]] || return 1
+  [[ -f "$dir/runtime_x64.bc" || -f "$dir/runtime_arm64.bc" || -f "$dir/runtime_x86.bc" ]]
+}
+
+validate_runtime_dir() {
+  local dir=$1
+  [[ -d "$dir" ]] || fail "runtime directory does not exist: $dir"
+
+  if ! runtime_has_quadrants_bc "$dir"; then
+    fail "runtime directory has no Quadrants runtime_*.bc files: $dir"
+  fi
+
+  if ! runtime_has_host_bc "$dir"; then
+    fail "runtime directory is missing host runtime bitcode (runtime_x64.bc, runtime_arm64.bc, or runtime_x86.bc): $dir"
+  fi
 }
 
 readonly ROCM_REQUIRED_BC_FILES=(
@@ -212,6 +250,84 @@ copy_top_level_files() {
   find "$src" -maxdepth 1 -type f -exec cp -p -- {} "$dst/" \;
 }
 
+native_prim_names() {
+  local native_hx=$1
+  sed -n 's/.*@:hlNative([[:space:]]*"[^"]*"[[:space:]]*,[[:space:]]*"\([^"]*\)".*/\1/p' "$native_hx" | sort -u
+}
+
+dynamic_symbol_names() {
+  local binary=$1
+
+  if command -v nm >/dev/null 2>&1; then
+    if nm -D --defined-only "$binary" >/dev/null 2>&1; then
+      nm -D --defined-only "$binary" | awk 'NF {print $NF}' | sed 's/^_//; s/@.*//' | sort -u
+      return 0
+    fi
+    if nm -gU "$binary" >/dev/null 2>&1; then
+      nm -gU "$binary" | awk 'NF {print $NF}' | sed 's/^_//; s/@.*//' | sort -u
+      return 0
+    fi
+  fi
+
+  if command -v objdump >/dev/null 2>&1 && objdump -T "$binary" >/dev/null 2>&1; then
+    objdump -T "$binary" | awk 'NF {print $NF}' | sed 's/^_//; s/@.*//' | sort -u
+    return 0
+  fi
+
+  return 1
+}
+
+validate_native_symbols() {
+  local hdll_file=$1
+  local native_hx=$2
+
+  if [[ "$skip_native_symbol_check" -eq 1 ]]; then
+    log "Native symbols: skipped"
+    return 0
+  fi
+
+  local symbol_names
+  symbol_names=$(mktemp)
+  if ! dynamic_symbol_names "$hdll_file" > "$symbol_names"; then
+    rm -f -- "$symbol_names"
+    log "Native symbols: skipped (could not inspect exported symbols; install nm or objdump to enable this check)"
+    return 0
+  fi
+
+  local missing=()
+  local prim_count=0
+  local prim
+  while IFS= read -r prim; do
+    [[ -n "$prim" ]] || continue
+    ((prim_count += 1))
+    if ! grep -Fxq "hlp_$prim" "$symbol_names" && ! grep -Fxq "quadrants_$prim" "$symbol_names"; then
+      missing+=("$prim")
+    fi
+  done < <(native_prim_names "$native_hx")
+  rm -f -- "$symbol_names"
+
+  if (( prim_count == 0 )); then
+    fail "could not find @:hlNative declarations in $native_hx"
+  fi
+
+  if (( ${#missing[@]} > 0 )); then
+    local shown=""
+    local i
+    for ((i = 0; i < ${#missing[@]} && i < 12; i++)); do
+      if [[ -n "$shown" ]]; then
+        shown+=", "
+      fi
+      shown+="${missing[$i]}"
+    done
+    if (( ${#missing[@]} > 12 )); then
+      shown+=", ..."
+    fi
+    fail "selected hdll is missing ${#missing[@]} native symbol(s) required by current Haxe sources: $shown. Rebuild quadrants.hdll or pass --skip-native-symbol-check to bypass."
+  fi
+
+  log "Native symbols: ok"
+}
+
 find_newest_hdll_under() {
   local root=$1
   [[ -d "$root" ]] || return 1
@@ -261,20 +377,21 @@ find_runtime_dir() {
   local hdll_dir
   hdll_dir=$(dirname -- "$hdll_file")
 
-  local candidates=()
-  if [[ -n "$maybe_build_dir" ]]; then
-    candidates+=(
-      "$maybe_build_dir/runtime"
-      "$maybe_build_dir/share/quadrants/runtime"
-      "$maybe_build_dir/install/share/quadrants/runtime"
-    )
-  fi
-  candidates+=(
+  local candidates=(
     "$hdll_dir/runtime"
     "$hdll_dir/../runtime"
     "$hdll_dir/../../runtime"
-    "$repo_root/build/runtime"
   )
+  if [[ -n "$maybe_build_dir" ]]; then
+    candidates+=(
+      "$maybe_build_dir/runtime"
+      "$maybe_build_dir/share/quadrants/hashlink/runtime"
+      "$maybe_build_dir/share/quadrants/runtime"
+      "$maybe_build_dir/install/share/quadrants/hashlink/runtime"
+      "$maybe_build_dir/install/share/quadrants/runtime"
+    )
+  fi
+  candidates+=("$repo_root/build/runtime")
 
   local candidate
   for candidate in "${candidates[@]}"; do
@@ -294,14 +411,16 @@ find_rocm_runtime_dir() {
 
   if [[ -n "$base_runtime_dir" ]]; then
     candidates+=(
-      "${base_runtime_dir}_rocm70"
       "$(dirname -- "$base_runtime_dir")/runtime_rocm70"
+      "${base_runtime_dir}_rocm70"
     )
   fi
   if [[ -n "$maybe_build_dir" ]]; then
     candidates+=(
       "$maybe_build_dir/runtime_rocm70"
+      "$maybe_build_dir/share/quadrants/hashlink/runtime_rocm70"
       "$maybe_build_dir/share/quadrants/runtime_rocm70"
+      "$maybe_build_dir/install/share/quadrants/hashlink/runtime_rocm70"
       "$maybe_build_dir/install/share/quadrants/runtime_rocm70"
     )
   fi
@@ -325,13 +444,13 @@ grep -q '"classPath"[[:space:]]*:[[:space:]]*"haxe"' "$package_src/haxelib.json"
 [[ -f "$haxe_src/quadrants/Native.hx" ]] || fail "missing Haxe package source: $haxe_src/quadrants/Native.hx"
 
 if [[ -n "$build_dir" ]]; then
-  build_dir=$(abs_path "$build_dir")
   [[ -d "$build_dir" ]] || fail "build directory does not exist: $build_dir"
+  build_dir=$(existing_abs_path "$build_dir")
 fi
 
 if [[ -n "$hdll" ]]; then
-  hdll=$(abs_path "$hdll")
   [[ -f "$hdll" ]] || fail "hdll does not exist: $hdll"
+  hdll=$(existing_abs_path "$hdll")
   is_hdll_name "$hdll" || fail "--hdll must point to quadrants.hdll or quadrants64.hdll: $hdll"
 elif [[ -n "$build_dir" ]]; then
   hdll=$(find_hdll_in_build_dir "$build_dir") || fail "could not find quadrants.hdll in build dir: $build_dir"
@@ -354,8 +473,8 @@ if [[ -z "$build_dir" ]]; then
 fi
 
 if [[ -n "$runtime_dir" ]]; then
-  runtime_dir=$(abs_path "$runtime_dir")
   [[ -d "$runtime_dir" ]] || fail "runtime directory does not exist: $runtime_dir"
+  runtime_dir=$(existing_abs_path "$runtime_dir")
 elif runtime_dir_found=$(find_runtime_dir "$hdll" "$build_dir"); then
   runtime_dir=$runtime_dir_found
 else
@@ -367,10 +486,10 @@ if [[ -z "$runtime_dir" && "$allow_no_runtime" -ne 1 ]]; then
 fi
 
 if [[ -n "$runtime_dir" && "$allow_no_runtime" -ne 1 ]]; then
-  if ! runtime_has_bc "$runtime_dir"; then
-    fail "runtime directory has no .bc files: $runtime_dir"
-  fi
+  validate_runtime_dir "$runtime_dir"
 fi
+
+validate_native_symbols "$hdll" "$haxe_src/quadrants/Native.hx"
 
 out=$(abs_path "$out")
 mkdir -p -- "$(dirname -- "$out")"
@@ -408,6 +527,9 @@ cp -p -- "$package_src/haxelib.json" "$stage_dir/haxelib.json"
 if [[ -f "$package_src/README.md" ]]; then
   cp -p -- "$package_src/README.md" "$stage_dir/README.md"
 fi
+if [[ -f "$repo_root/LICENSE" ]]; then
+  cp -p -- "$repo_root/LICENSE" "$stage_dir/LICENSE"
+fi
 mkdir -p -- "$stage_dir/haxe"
 cp -R -- "$haxe_src/." "$stage_dir/haxe/"
 cp -p -- "$hdll" "$stage_dir/$(basename -- "$hdll")"
@@ -427,7 +549,8 @@ if [[ -n "$runtime_dir" ]]; then
 
   if [[ -f "$stage_dir/runtime/runtime_amdgpu.bc" ]]; then
     if [[ -n "$rocm_runtime_dir" ]]; then
-      rocm_runtime_dir=$(abs_path "$rocm_runtime_dir")
+      [[ -d "$rocm_runtime_dir" ]] || fail "ROCm runtime directory does not exist: $rocm_runtime_dir"
+      rocm_runtime_dir=$(existing_abs_path "$rocm_runtime_dir")
     elif rocm_dir_found=$(find_rocm_runtime_dir "$runtime_dir" "$build_dir"); then
       rocm_runtime_dir=$rocm_dir_found
     else

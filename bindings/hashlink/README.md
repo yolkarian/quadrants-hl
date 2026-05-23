@@ -39,6 +39,8 @@ scripts/package_hashlink_haxelib.sh \
 haxelib --global install build/quadrants-haxelib.zip --always
 ```
 
+The package script validates that the selected `quadrants.hdll` exports the `@:hlNative` functions used by the current Haxe sources and that `runtime/` contains host `runtime_*.bc` bitcode. If the native-symbol check fails, rebuild `quadrants.hdll`; use `--skip-native-symbol-check` only when deliberately packaging against a different Haxe/native pair. Vulkan/Metal-only packages without LLVM bitcode should pass `--allow-no-runtime`.
+
 For development from a CMake install tree, use `haxelib dev` instead:
 
 ```bash
