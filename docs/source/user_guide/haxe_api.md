@@ -67,7 +67,8 @@ Use `new Field<I32>(ctx, shape)` or `new Field<I32>(ctx)` plus `ctx.root.place(f
 | `Context.profiler()`, `Profiler.recordKernel(...)`, `Profiler.min/max/avg/count(...)` | Runtime profiler queries by kernel name or kernel instance. |
 | `Struct.decodeSchema({field: 0, nested: {value: 0}}, kernel.launchRets(...))` | Decode flattened struct returns back into nested Haxe object literals. |
 | `Shared.array(DType.I32, size)` / `Shared.tile16(DType.F32)` | Generic shared-memory factories inside kernel bodies, alongside the dtype-specific `Shared.arrayI32(...)` / `Shared.tile16F32()` forms. |
-| `Vector<T>`, `Matrix<T>`, `SparseMatrix<T>`, `Mesh` | Host-side containers and helpers. |
+| `CudaGlInterop.available(ctx)` / `CudaGlInterop.registerBuffer(ctx, glBuffer, byteSize)` | Query CUDA/OpenGL interop availability and register an OpenGL buffer with CUDA. |
+| `CudaGlResource.map()` / `unmap()` / `dispose()` / `close()` | Map a registered OpenGL buffer to a CUDA device pointer, unmap after device writes, and unregister on cleanup. |
 
 ## Backend and dtype enums
 
@@ -135,6 +136,40 @@ if (t.supportsDLPack()) {
 `DLPackTensor` exposes device, dtype, shape, stride, and data-pointer metadata for exported tensors. `Tensor<T>.fromDLPack(...)` and `importDLPack(...)` accept contiguous row-major primitive tensors whose DLPack dtype exactly matches `T`. `Tensor<T>.fromExternalPointer(...)` and `importExternalPointer(...)` wrap an existing device/host pointer with the current context and shape. Exported DLPack tensors and device pointers alias storage owned by the source tensor, so keep the source tensor and context alive until every consumer of that alias is finished.
 
 `supportsExternalPointerImport()` is currently true only for LLVM-backed contexts (`Cpu`, `Cuda`, and `Amdgpu`). Vulkan and Metal still do not expose external-pointer or DLPack-import paths through the HashLink bridge.
+
+## CUDA/OpenGL interop
+
+The `CudaGlInterop` and `CudaGlResource` classes allow a HashLink renderer to share OpenGL buffers with CUDA kernels without a host-side copy. This requires `Arch.Cuda` and a `quadrants.hdll` built with `QD_WITH_CUDA=ON` and the CUDA toolkit found by CMake.
+
+```haxe
+import quadrants.Context;
+import quadrants.CudaGlInterop;
+import quadrants.CudaGlResource;
+import quadrants.Types.Arch;
+
+var ctx = new Context(Arch.Cuda);
+if (!CudaGlInterop.available(ctx)) {
+  throw "CUDA/GL interop is not available on this context";
+}
+
+// Register an OpenGL buffer (e.g. hlsdl's sdl.GL.Buffer) with CUDA.
+var resource = CudaGlInterop.registerBuffer(ctx, glBuffer, byteSize);
+
+// Map for device writes, write via a Tensor obtained from the pointer, then unmap.
+var devicePtr:haxe.Int64 = resource.map();
+// ... launch a kernel that writes to devicePtr ...
+resource.unmap();
+
+// Release the registration when the OpenGL buffer is no longer needed.
+resource.dispose();
+```
+
+`CudaGlInterop.available(ctx)` returns `true` only when the native bridge was built with CUDA and the context backend is `Cuda`. On non-CUDA builds it returns `false` and does not throw.
+
+`CudaGlInterop.registerBuffer(ctx, glBuffer, byteSize)` registers an OpenGL buffer object with CUDA. The `glBuffer` parameter is typed `Dynamic` so Quadrants does not depend on hlsdl; hlsdl's `sdl.GL.Buffer` can be passed directly. `byteSize` must be positive.
+
+`CudaGlResource` holds the registration and must stay alive for as long as the mapped device pointer is in use. `map()` returns a `haxe.Int64` CUDA device pointer; `unmap()` releases it after device writes are finished and is safe to call when already unmapped; `dispose()` unregisters the resource and cleans up. `close()` is an alias for `dispose()`. Calling `dispose()` or `close()` on a mapped resource implicitly unmaps it first in the native bridge.
+
 ## Python binding migration map
 
 | Former Python binding | Haxe/HL equivalent |
@@ -150,7 +185,7 @@ if (t.supportsDLPack()) {
 
 ## Current feature boundary
 
-The Haxe/HashLink binding supports primitive typed ndarrays, typed SNode-backed fields and placement, scalar kernel arguments, basic control flow, n-dimensional range loops, static mesh-for over `Mesh.forVertices/forEdges/forFaces/forCells(literalCount)`, inline `@:qdFunc` helpers, template-specialized kernels via `Template.build(...)`, struct/vector/matrix kernel locals, flattened struct returns decoded with `Struct.decodeSchema(...)`, generic or dtype-specific shared-memory factories, native backend selection, primitive scalar and tuple return values, streams, stream events on CUDA/AMDGPU, graph launches including `launchGraphWhile(...)`, profiler queries, offline-cache toggles and clearing, IR/debug-dump configuration, native autodiff kernel build modes, and zero-copy / external-pointer / DLPack interop on LLVM-backed backends.
+The Haxe/HashLink binding supports primitive typed ndarrays, typed SNode-backed fields and placement, scalar kernel arguments, basic control flow, n-dimensional range loops, static mesh-for over `Mesh.forVertices/forEdges/forFaces/forCells(literalCount)`, inline `@:qdFunc` helpers, template-specialized kernels via `Template.build(...)`, struct/vector/matrix kernel locals, flattened struct returns decoded with `Struct.decodeSchema(...)`, generic or dtype-specific shared-memory factories, native backend selection, primitive scalar and tuple return values, streams, stream events on CUDA/AMDGPU, graph launches including `launchGraphWhile(...)`, profiler queries, offline-cache toggles and clearing, IR/debug-dump configuration, native autodiff kernel build modes, CUDA/OpenGL interop via `CudaGlInterop` and `CudaGlResource`, and zero-copy / external-pointer / DLPack interop on LLVM-backed backends.
 
 Not yet exposed through the Haxe API: Python package modules, mesh relation access inside kernels, NumPy/PyTorch import, GUI/window interop, and Python decorators.
 

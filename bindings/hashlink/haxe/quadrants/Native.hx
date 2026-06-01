@@ -6,6 +6,7 @@ abstract QNdarray(hl.Abstract<"qd_ndarray">) {}
 abstract QStream(hl.Abstract<"qd_stream">) {}
 abstract QStreamEvent(hl.Abstract<"qd_event">) {}
 abstract QSNodeTree(hl.Abstract<"qd_snode_tree">) {}
+abstract QCudaGlResource(hl.Abstract<"qd_cuda_gl_resource">) {}
 
 @:build(quadrants.macro.NativeLibrary.build())
 class Native {
@@ -187,6 +188,31 @@ class Native {
 
   @:hlNative("quadrants", "ndarray_import_external_pointer")
   public static function ndarray_import_external_pointer(ctx:QContext, pointer:haxe.Int64, dtype:Int, shape:hl.NativeArray<Int>):QNdarray {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "cuda_gl_interop_available")
+  public static function cuda_gl_interop_available(ctx:QContext):Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "cuda_gl_register_buffer")
+  public static function cuda_gl_register_buffer(ctx:QContext, buffer:Dynamic, byteSize:Int):QCudaGlResource {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "cuda_gl_map")
+  public static function cuda_gl_map(ctx:QContext, resource:QCudaGlResource):haxe.Int64 {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "cuda_gl_unmap")
+  public static function cuda_gl_unmap(ctx:QContext, resource:QCudaGlResource):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "cuda_gl_unregister")
+  public static function cuda_gl_unregister(resource:QCudaGlResource):Void {
     throw "Quadrants HashLink native bridge is not loaded";
   }
 

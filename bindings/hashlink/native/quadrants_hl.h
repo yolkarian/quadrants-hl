@@ -9,6 +9,7 @@
 #define _QD_STREAM _ABSTRACT(qd_stream)
 #define _QD_EVENT _ABSTRACT(qd_event)
 #define _QD_SNODE_TREE _ABSTRACT(qd_snode_tree)
+#define _QD_CUDA_GL_RESOURCE _ABSTRACT(qd_cuda_gl_resource)
 
 struct qd_context;
 struct qd_kernel;
@@ -16,6 +17,7 @@ struct qd_ndarray;
 struct qd_stream;
 struct qd_event;
 struct qd_snode_tree;
+struct qd_cuda_gl_resource;
 
 HL_PRIM void HL_NAME(runtime_set_lib_dir)(vbyte *path);
 HL_PRIM qd_context *HL_NAME(context_create)(int arch);
@@ -50,6 +52,11 @@ HL_PRIM double HL_NAME(profiler_query_avg)(qd_context *ctx, vbyte *kernel_name);
 HL_PRIM qd_ndarray *HL_NAME(ndarray_create)(qd_context *ctx, int dtype, varray *shape);
 HL_PRIM qd_ndarray *HL_NAME(ndarray_import_dlpack)(qd_context *ctx, int dtype, int64 handle);
 HL_PRIM qd_ndarray *HL_NAME(ndarray_import_external_pointer)(qd_context *ctx, int64 pointer, int dtype, varray *shape);
+HL_PRIM int HL_NAME(cuda_gl_interop_available)(qd_context *ctx);
+HL_PRIM qd_cuda_gl_resource *HL_NAME(cuda_gl_register_buffer)(qd_context *ctx, vdynamic *buffer, int byte_size);
+HL_PRIM int64 HL_NAME(cuda_gl_map)(qd_context *ctx, qd_cuda_gl_resource *resource);
+HL_PRIM void HL_NAME(cuda_gl_unmap)(qd_context *ctx, qd_cuda_gl_resource *resource);
+HL_PRIM void HL_NAME(cuda_gl_unregister)(qd_cuda_gl_resource *resource);
 HL_PRIM void HL_NAME(ndarray_close)(qd_ndarray *arr);
 HL_PRIM void HL_NAME(ndarray_fill_i8)(qd_context *ctx, qd_ndarray *arr, int value);
 HL_PRIM int HL_NAME(ndarray_read_i8)(qd_context *ctx, qd_ndarray *arr, int flat_index);

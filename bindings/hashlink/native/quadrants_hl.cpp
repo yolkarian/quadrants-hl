@@ -25,6 +25,12 @@
 #include "quadrants/util/lang_util.h"
 #include "dlpack/dlpack.h"
 
+#if defined(QD_HASHLINK_CUDA_GL_INTEROP)
+#include <cuda_gl_interop.h>
+#include <cuda_runtime_api.h>
+#include "quadrants/rhi/cuda/cuda_context.h"
+#endif
+
 namespace {
 
 using quadrants::Arch;
@@ -380,6 +386,16 @@ struct qd_snode_tree {
   bool released{false};
 };
 
+struct qd_cuda_gl_resource {
+  void (*finalize)(qd_cuda_gl_resource *self){nullptr};
+  QdContextState *state{nullptr};
+  void *resource{nullptr};
+  unsigned int gl_buffer{0};
+  int byte_size{0};
+  bool mapped{false};
+  bool released{false};
+};
+
 
 namespace {
 void release_context_handle(qd_context *ctx) noexcept {
@@ -486,6 +502,29 @@ void release_snode_tree_handle(qd_snode_tree *tree) noexcept {
   tree->released = true;
 }
 
+void release_cuda_gl_resource_handle(qd_cuda_gl_resource *resource) noexcept {
+  if (resource == nullptr || resource->released) {
+    return;
+  }
+#if defined(QD_HASHLINK_CUDA_GL_INTEROP)
+  if (resource->resource != nullptr) {
+    if (resource->state != nullptr && quadrants::arch_is_cuda(resource->state->arch)) {
+      quadrants::lang::CUDAContext::get_instance().make_current();
+    }
+    auto *cuda_resource = static_cast<cudaGraphicsResource *>(resource->resource);
+    if (resource->mapped) {
+      cudaGraphicsUnmapResources(1, &cuda_resource, 0);
+      resource->mapped = false;
+    }
+    cudaGraphicsUnregisterResource(cuda_resource);
+    resource->resource = nullptr;
+  }
+#endif
+  release_state(resource->state);
+  resource->state = nullptr;
+  resource->released = true;
+}
+
 void finalize_context(qd_context *ctx) {
   release_context_handle(ctx);
   ctx->~qd_context();
@@ -515,6 +554,12 @@ void finalize_snode_tree(qd_snode_tree *tree) {
   release_snode_tree_handle(tree);
   tree->~qd_snode_tree();
 }
+
+void finalize_cuda_gl_resource(qd_cuda_gl_resource *resource) {
+  release_cuda_gl_resource_handle(resource);
+  resource->~qd_cuda_gl_resource();
+}
+
 qd_ndarray *make_ndarray_handle(QdContextState &state,
                                Ndarray *array,
                                bool managed_by_program,
@@ -1100,6 +1145,51 @@ std::size_t checked_import_byte_size(const std::vector<int> &shape, int bridge_d
   }
   return count * element_size;
 }
+
+unsigned int checked_gl_buffer_id(vdynamic *buffer) {
+  if (buffer == nullptr) {
+    throw std::runtime_error("Quadrants CUDA/GL interop received a null OpenGL buffer handle");
+  }
+  if (buffer->t == nullptr) {
+    throw std::runtime_error("Quadrants CUDA/GL interop received an invalid OpenGL buffer handle");
+  }
+  const hl_type_kind kind = buffer->t->kind;
+  if (kind != HI32 &&
+      !(kind == HNULL && buffer->t->tparam != nullptr && buffer->t->tparam->kind == HI32)) {
+    throw std::runtime_error("Quadrants CUDA/GL interop OpenGL buffer handle must be an Int");
+  }
+  if (buffer->v.i == 0) {
+    throw std::runtime_error("Quadrants CUDA/GL interop OpenGL buffer handle must be a non-zero buffer object name");
+  }
+  return static_cast<unsigned int>(buffer->v.i);
+}
+
+void require_cuda_gl_interop_context(QdContextState &state) {
+  if (!quadrants::arch_is_cuda(state.arch)) {
+    throw std::runtime_error("Quadrants CUDA/GL interop requires a CUDA context");
+  }
+#if defined(QD_HASHLINK_CUDA_GL_INTEROP)
+  quadrants::lang::CUDAContext::get_instance().make_current();
+#else
+  throw std::runtime_error("Quadrants CUDA/GL interop was not built with CUDA toolkit support");
+#endif
+}
+
+#if defined(QD_HASHLINK_CUDA_GL_INTEROP)
+void check_cuda_gl(cudaError_t err, const char *what) {
+  if (err == cudaSuccess) {
+    return;
+  }
+  throw std::runtime_error(std::string("Quadrants ") + what + ": " + cudaGetErrorString(err));
+}
+
+cudaGraphicsResource *checked_cuda_gl_resource(qd_cuda_gl_resource *resource) {
+  if (resource == nullptr || resource->released || resource->resource == nullptr) {
+    throw std::runtime_error("Quadrants CUDA/GL resource is closed");
+  }
+  return static_cast<cudaGraphicsResource *>(resource->resource);
+}
+#endif
 
 
 void require_flat_fill_supported(const Ndarray &array) {
@@ -1722,6 +1812,111 @@ HL_PRIM qd_ndarray *HL_NAME(ndarray_import_external_pointer)(qd_context *ctx, in
     auto *array = new Ndarray(imported, dtype_from_bridge_id(dtype), dims, ExternalArrayLayout::kNull, DebugInfo(), state.program.get());
     return make_ndarray_handle(state, array, false);
   });
+}
+
+HL_PRIM int HL_NAME(cuda_gl_interop_available)(qd_context *ctx) {
+  return guard([&]() -> int {
+#if defined(QD_HASHLINK_CUDA_GL_INTEROP)
+    QdContextState &state = require_context(ctx);
+    if (!quadrants::arch_is_cuda(state.arch)) {
+      return 0;
+    }
+    quadrants::lang::CUDAContext::get_instance().make_current();
+    int count = 0;
+    const cudaError_t err = cudaGetDeviceCount(&count);
+    return err == cudaSuccess && count > 0 ? 1 : 0;
+#else
+    (void)ctx;
+    return 0;
+#endif
+  });
+}
+
+HL_PRIM qd_cuda_gl_resource *HL_NAME(cuda_gl_register_buffer)(qd_context *ctx, vdynamic *buffer, int byte_size) {
+  return guard([&]() -> qd_cuda_gl_resource * {
+    QdContextState &state = require_context(ctx);
+    if (byte_size <= 0) {
+      throw std::runtime_error("Quadrants CUDA/GL registration byte size must be positive");
+    }
+    require_cuda_gl_interop_context(state);
+#if defined(QD_HASHLINK_CUDA_GL_INTEROP)
+    const unsigned int gl_buffer = checked_gl_buffer_id(buffer);
+    auto *handle = static_cast<qd_cuda_gl_resource *>(hl_gc_alloc_finalizer(sizeof(qd_cuda_gl_resource)));
+    new (handle) qd_cuda_gl_resource();
+    handle->finalize = finalize_cuda_gl_resource;
+    handle->gl_buffer = gl_buffer;
+    handle->byte_size = byte_size;
+    cudaGraphicsResource *cuda_resource = nullptr;
+    check_cuda_gl(cudaGraphicsGLRegisterBuffer(&cuda_resource, gl_buffer, cudaGraphicsRegisterFlagsWriteDiscard), "cudaGraphicsGLRegisterBuffer");
+    handle->state = &state;
+    handle->resource = cuda_resource;
+    retain_state(&state);
+    return handle;
+#else
+    (void)buffer;
+    throw std::runtime_error("Quadrants CUDA/GL interop was not built with CUDA toolkit support");
+#endif
+  });
+}
+
+HL_PRIM int64 HL_NAME(cuda_gl_map)(qd_context *ctx, qd_cuda_gl_resource *resource) {
+  return guard([&]() -> int64 {
+    QdContextState &state = require_context(ctx);
+    require_cuda_gl_interop_context(state);
+#if defined(QD_HASHLINK_CUDA_GL_INTEROP)
+    if (resource == nullptr || resource->state != &state) {
+      throw std::runtime_error("Quadrants CUDA/GL resource belongs to a different context");
+    }
+    cudaGraphicsResource *cuda_resource = checked_cuda_gl_resource(resource);
+    bool mapped_here = false;
+    if (!resource->mapped) {
+      check_cuda_gl(cudaGraphicsMapResources(1, &cuda_resource, 0), "cudaGraphicsMapResources");
+      resource->mapped = true;
+      mapped_here = true;
+    }
+    try {
+      void *ptr = nullptr;
+      std::size_t size = 0;
+      check_cuda_gl(cudaGraphicsResourceGetMappedPointer(&ptr, &size, cuda_resource), "cudaGraphicsResourceGetMappedPointer");
+      if (ptr == nullptr || size < static_cast<std::size_t>(resource->byte_size)) {
+        throw std::runtime_error("Quadrants mapped CUDA/GL pointer is null or smaller than the registered buffer");
+      }
+      return static_cast<int64>(reinterpret_cast<intptr_t>(ptr));
+    } catch (...) {
+      if (mapped_here && cudaGraphicsUnmapResources(1, &cuda_resource, 0) == cudaSuccess) {
+        resource->mapped = false;
+      }
+      throw;
+    }
+#else
+    (void)resource;
+    throw std::runtime_error("Quadrants CUDA/GL interop was not built with CUDA toolkit support");
+#endif
+  });
+}
+
+HL_PRIM void HL_NAME(cuda_gl_unmap)(qd_context *ctx, qd_cuda_gl_resource *resource) {
+  guard([&]() {
+    QdContextState &state = require_context(ctx);
+    require_cuda_gl_interop_context(state);
+#if defined(QD_HASHLINK_CUDA_GL_INTEROP)
+    if (resource == nullptr || resource->state != &state) {
+      throw std::runtime_error("Quadrants CUDA/GL resource belongs to a different context");
+    }
+    cudaGraphicsResource *cuda_resource = checked_cuda_gl_resource(resource);
+    if (resource->mapped) {
+      check_cuda_gl(cudaGraphicsUnmapResources(1, &cuda_resource, 0), "cudaGraphicsUnmapResources");
+      resource->mapped = false;
+    }
+#else
+    (void)resource;
+    throw std::runtime_error("Quadrants CUDA/GL interop was not built with CUDA toolkit support");
+#endif
+  });
+}
+
+HL_PRIM void HL_NAME(cuda_gl_unregister)(qd_cuda_gl_resource *resource) {
+  guard([&]() { release_cuda_gl_resource_handle(resource); });
 }
 
 HL_PRIM void HL_NAME(ndarray_close)(qd_ndarray *arr) {
@@ -2609,6 +2804,11 @@ DEFINE_PRIM(_I32, ndarray_supports_zero_copy, _QD_CONTEXT);
 DEFINE_PRIM(_I32, ndarray_supports_external_pointer_import, _QD_CONTEXT);
 DEFINE_PRIM(_I64, ndarray_export_device_pointer, _QD_CONTEXT _QD_NDARRAY);
 DEFINE_PRIM(_I64, ndarray_export_dlpack, _QD_CONTEXT _QD_NDARRAY);
+DEFINE_PRIM(_I32, cuda_gl_interop_available, _QD_CONTEXT);
+DEFINE_PRIM(_QD_CUDA_GL_RESOURCE, cuda_gl_register_buffer, _QD_CONTEXT _DYN _I32);
+DEFINE_PRIM(_I64, cuda_gl_map, _QD_CONTEXT _QD_CUDA_GL_RESOURCE);
+DEFINE_PRIM(_VOID, cuda_gl_unmap, _QD_CONTEXT _QD_CUDA_GL_RESOURCE);
+DEFINE_PRIM(_VOID, cuda_gl_unregister, _QD_CUDA_GL_RESOURCE);
 DEFINE_PRIM(_VOID, dlpack_release, _I64);
 DEFINE_PRIM(_I32, dlpack_device_type, _I64);
 DEFINE_PRIM(_I32, dlpack_device_id, _I64);

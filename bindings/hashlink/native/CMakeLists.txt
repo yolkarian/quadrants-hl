@@ -75,6 +75,15 @@ target_include_directories(quadrants.hdll SYSTEM
 
 target_link_libraries(quadrants.hdll PRIVATE quadrants_core "${QD_HASHLINK_LIBRARY}")
 
+if(QD_WITH_CUDA)
+  find_package(CUDAToolkit QUIET)
+  if(CUDAToolkit_FOUND)
+    target_compile_definitions(quadrants.hdll PRIVATE QD_HASHLINK_CUDA_GL_INTEROP)
+    target_include_directories(quadrants.hdll PRIVATE ${CUDAToolkit_INCLUDE_DIRS})
+    target_link_libraries(quadrants.hdll PRIVATE CUDA::cudart CUDA::cuda_driver)
+  endif()
+endif()
+
 if(QD_WITH_LLVM)
   add_dependencies(quadrants.hdll "generate_llvm_runtime_${HOST_ARCH}")
   if(QD_WITH_CUDA)

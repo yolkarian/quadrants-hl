@@ -49,4 +49,4 @@ The installed haxelib package is rooted at `share/quadrants/hashlink` and contai
 
 ## Origin
 
-Quadrants was originally forked from [Taichi](https://github.com/taichi-dev/taichi) in June 2025 and is now an independent compiler project.
+The original Python version of Quadrants was forked from [Taichi](https://github.com/taichi-dev/taichi) in June 2025. This branch is derived from the Python Quadrants repository at [Genesis-Embodied-AI/quadrants](https://github.com/Genesis-Embodied-AI/quadrants) and continues its evolution toward an independent Haxe/HashLink compiler project.

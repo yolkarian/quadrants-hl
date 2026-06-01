@@ -15,6 +15,7 @@ Quadrants is distributed for Haxe through a haxelib-compatible source package an
 | --- | --- | --- | --- |
 | `Arch.Cpu` | Host LLVM backend (`x64`/`arm64`) | `QD_WITH_LLVM=ON` | host runtime bitcode, e.g. `runtime_x64.bc` |
 | `Arch.Cuda` | CUDA | `QD_WITH_LLVM=ON`, `QD_WITH_CUDA=ON` | CUDA driver libraries, `runtime_cuda.bc`, `slim_libdevice.10.bc` |
+CUDA/OpenGL interop additionally requires `QD_WITH_CUDA=ON` with the CUDA toolkit found by CMake (sets `QD_HASHLINK_CUDA_GL_INTEROP`).
 | `Arch.Vulkan` | Vulkan/SPIR-V | `QD_WITH_VULKAN=ON` | Vulkan loader/driver libraries visible to `hl` |
 | `Arch.Metal` | Metal | macOS, `QD_WITH_METAL=ON` | Metal runtime on macOS |
 | `Arch.Amdgpu` | AMDGPU/ROCm | Linux x64, `QD_WITH_LLVM=ON`, `QD_WITH_AMDGPU=ON` | ROCm/HIP libraries and ROCm device bitcode |
@@ -224,3 +225,4 @@ Unsupported constructs are rejected by the Haxe macro with `Unsupported Quadrant
 | A moved install tree no longer works | Re-run `haxe`; `QUADRANTS_HDLL` and the discovered runtime path are compile-time macro inputs. |
 | Kernel launch reports argument count, dtype, rank, or context mismatch | Launch with the same parameter count and tensor ranks/dtypes used by `Kernel.build`; do not mix tensors from different `Context` objects. |
 | Shutdown crashes or use-after-close errors | Close kernels before closing their context. Native finalizers are only a safety net. |
+| `CudaGlInterop.available(ctx)` returns `false` on a CUDA context | Build `quadrants.hdll` with `QD_WITH_CUDA=ON` and ensure CMake finds the CUDA toolkit (sets `QD_HASHLINK_CUDA_GL_INTEROP`). |
