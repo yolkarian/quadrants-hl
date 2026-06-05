@@ -160,10 +160,12 @@ var k = Kernel.build(ctx, macro (input:Tensor<I32>, out:Tensor<I32>) -> {
 
 `bindings/hashlink/haxe/quadrants/DYNAMIC_BOUNDARIES.md` records every retained public `Dynamic` boundary and whether it is a permanent interop boundary or a compatibility shim.
 
+Release-readiness status, API classification, backend support tables, and performance-baseline guidance are summarized in `docs/source/user_guide/haxe_release_readiness.md`.
+
 
 ## API surface
 
-The supported public API includes `Context`, `quadrants.runtime.Runtime` / `Session`, `Kernel`, primitive `Tensor` ndarrays, streams/events, profiler queries, `quadrants.simt` helpers, `quadrants.algorithms`, `quadrants.ad` workflow utilities, `quadrants.coverage.Coverage`, `quadrants.compat.Diagnostics`, first-class `VectorNdarray` / `MatrixNdarray` / `VectorField` / `MatrixField` / `StructField` compound containers, `CompilerHints.assumeInRange`, `quadrants.packed` workaround containers, `quadrants.snode` builder helpers, `quadrants.linalg` sparse bridge APIs, `quadrants.profiler` bridge helpers, `Arch`, and `DType`. Python decorators, NumPy/Torch interop, and Python environment integrations are not part of this HashLink package.
+The supported public API includes `Context`, `quadrants.runtime.Runtime` / `Session`, `Kernel`, primitive `Tensor` ndarrays, streams/events, profiler queries, `quadrants.simt` helpers, `quadrants.algorithms`, `quadrants.ad` workflow utilities, `quadrants.coverage.Coverage`, `quadrants.compat.Diagnostics` / `PerfBaseline`, first-class `VectorNdarray` / `MatrixNdarray` / `VectorField` / `MatrixField` / `StructField` compound containers, `StructMember<T>`, `CompilerHints.assumeInRange`, `quadrants.packed` workaround containers, `quadrants.snode` builder helpers, `quadrants.mesh` host-side typed mesh handles, `quadrants.quant` descriptors/reference storage, `quadrants.linalg` sparse bridge APIs, `quadrants.profiler` bridge helpers, `Arch`, and `DType`. Python decorators, NumPy/Torch interop, and Python environment integrations are not part of this HashLink package.
 
 ## Troubleshooting
 

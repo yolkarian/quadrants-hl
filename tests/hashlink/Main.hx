@@ -45,6 +45,7 @@ class Main {
     TestSparseProfilerBridgeRuntime.run();
     TestCompoundParityRuntime.run();
     TestTypedDeepParityRuntime.run();
+    TestReleaseReadinessRuntime.run();
 
     TestRuntimeSupport.closeSharedContexts();
     Sys.println("hashlink tests ok");

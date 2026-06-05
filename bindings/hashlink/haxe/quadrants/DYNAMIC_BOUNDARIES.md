@@ -24,3 +24,11 @@ Removed Phase 10 public `Dynamic` surfaces:
 - Packed vector/matrix wrappers now store `Tensor<T>` or `Field<T>` instead of `Dynamic`.
 - `PackedHelpers.writeMat2I32/F32` now accept typed `Matrix<I32/F32>` values.
 - `TensorRuntime` and `FieldRuntime` peer storage fields now use `TensorHandle`, `FieldRuntime`, or `TensorHandle` instead of public `Dynamic`.
+
+
+Phase 12 compatibility policy:
+
+- Permanent necessary boundaries are allowed to stay public and must not be used as precedent for new ordinary APIs.
+- Compatibility shims may stay for migration, but new docs and examples should show the typed alternative first.
+- A compatibility shim can be deprecated only when the typed replacement has runtime coverage, compile-fail coverage for the static guarantee, and a migration example.
+- Any new public `Dynamic` must add a row to this ledger in the same change.

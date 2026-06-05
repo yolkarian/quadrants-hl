@@ -11,6 +11,7 @@ class RuntimeSuiteGammaMain {
     TestSparseProfilerBridgeRuntime.run();
     TestCompoundParityRuntime.run();
     TestTypedDeepParityRuntime.run();
+    TestReleaseReadinessRuntime.run();
     TestRuntimeSupport.closeSharedContexts();
     Sys.println("hashlink runtime gamma ok");
   }
