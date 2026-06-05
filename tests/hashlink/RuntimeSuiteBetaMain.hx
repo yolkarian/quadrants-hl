@@ -17,6 +17,7 @@ class RuntimeSuiteBetaMain {
     TestAtomic.run();
     TestFunction.run();
     TestQdFunc.run();
+    TestKernelHelperRegistry.run();
     TestNdrange.run();
     TestGraphRuntime.run();
     TestAutodiffRuntime.run();

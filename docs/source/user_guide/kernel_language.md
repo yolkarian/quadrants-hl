@@ -52,7 +52,7 @@ A `BufferView<T>` kernel parameter is flattened at launch to the underlying tens
 - `if` / `else` statements. Literal `if (true)` / `if (false)` and `if (Static.value(trueOrFalse))` conditions are expanded at macro time.
 - Ndarray element assignment, vector/matrix component assignment, and struct-field assignment for kernel locals.
 - Atomic compound assignment (`+=`, `-=`, `*=`, `&=`, `|=`, `^=`) on ndarray elements. Use `atomicAdd(a[i], value)` and related atomic calls when the old value is needed.
-- Loop scheduling hints before the loop they decorate: `blockDim(n)`, `parallelize(n)`, and `serialize()`.
+- Loop scheduling hints before the loop they decorate: `blockDim(n)`, `parallelize(n)`, and `serialize()`. The same lowered hints are available through `quadrants.runtime.LoopConfig.blockDim(...)`, `parallelize(...)`, and `serialize()`.
 - `print(valueOrLiteral)` and `assert(condition, "message")` frontend statements.
 - `return;` with no value, primitive scalar `return value;` launched through `Kernel.launchRet(...)`, fixed primitive tuple returns written as `return [a, b, ...];`, and flattened vector/matrix/struct local returns launched through `Kernel.launchRets(...)`. Struct locals may contain previously declared struct locals; nested field access uses `outer.inner.field`.
 
@@ -95,6 +95,7 @@ Kernel parameters may not be shadowed by locals. Re-declaring the same local nam
 - Struct locals from `Struct.ofN("field", value, ...)` or object literals such as `{mass: value, velocity: value + 1}`, with scalar/nested struct fields, field reads, and field assignment/compound assignment.
 - `Grid.threadIdx()` returns the backend linear thread index for the current lowered loop.
 - SIMT helpers: `Block.threadIdx()`, `Block.barrierAnd(value)`, `Block.barrierOr(value)`, `Block.barrierCount(value)`, `Subgroup.size()`, `Subgroup.invocationId()`, `Subgroup.elect()`, `Subgroup.shuffle(value, lane)`, `Subgroup.shuffleUp(value, delta)`, `Subgroup.shuffleDown(value, delta)`, `Subgroup.broadcast(value, lane)`, `Workgroup.localInvocationId()`, `Workgroup.globalInvocationId()`, `Grid.activeMask()`, and `Grid.vkGlobalThreadIdx()`.
+- Packed workaround helper calls from `quadrants.packed.PackedHelpers` for flat primitive storage: `readVec2/3/4I32/F32`, `writeVec2/3/4I32/F32`, `readMat2I32/F32`, `readMat3I32`, `readMat4I32`, and `readMember*/writeMember*` lower to scalar tensor loads/stores and produce normal vector/matrix/scalar kernel locals.
 
 ## Dtypes in annotations and casts
 
@@ -123,6 +124,8 @@ var k = Kernel.build(ctx, macro (a, out) -> {
 
 Static methods marked `@:qdFunc` can be called from kernels. Single-return-expression helpers can appear inside expressions. Statement-bodied helpers with locals, `if`, `for`, and final `return` are inlined when the call is the direct initializer, assignment RHS, or returned value; recursion is rejected.
 
+Helpers declared on the local class are collected automatically:
+
 ```haxe
 @:qdFunc
 static function square(x:Int):Int {
@@ -136,6 +139,40 @@ var k = Kernel.build(ctx, macro (a:Tensor<I32>, out:Tensor<I32>, n:Int) -> {
 });
 ```
 
+Reusable helper libraries are explicit. Pass classes containing `@:qdFunc` static methods through the `helpers` option; no global classpath scan is performed.
+
+```haxe
+class MyKernelHelpers {
+  @:qdFunc
+  public static function squarePlusOne(x:Int):Int {
+    return x * x + 1;
+  }
+}
+
+var k = Kernel.build(ctx, macro (a:Tensor<I32>, out:Tensor<I32>, n:Int) -> {
+  for (i in 0...n) {
+    out[i] = MyKernelHelpers.squarePlusOne(a[i]);
+  }
+}, {helpers: [MyKernelHelpers]});
+```
+
+Helper names are resolved by method name inside the kernel DSL. Names must be unique across all helper classes listed in one build and across the local class; duplicate names fail compilation instead of using precedence. Helper functions may call other listed helper functions, but direct or mutual recursion fails compilation with the recursive call's source position.
+
+Helper functions that need to access `Shared.array*` or `Shared.tile16*` storage should use `kernelRead(index)` and `kernelWrite(index, value)` inside the helper body. These methods exist so helper classes type-check as ordinary Haxe while the kernel builder lowers them back to device array loads/stores.
+
+```haxe
+@:qdFunc
+public static function tilePrefix(value:Int):Int {
+  var scratch = Shared.tile16I32();
+  var lane = Block.threadIdx();
+  scratch.kernelWrite(lane, value);
+  Block.sync();
+  return scratch.kernelRead(0);
+}
+```
+
+The built-in `quadrants.simt` helper package follows this pattern for block reductions/scans, subgroup wrappers, and tile sorting helpers.
+
 ## Unsupported constructs
 
 Unsupported syntax fails during Haxe compilation with an `Unsupported Quadrants HashLink ...` diagnostic. Current compile-fail coverage lives in `tests/hashlink/compile_fail/`.
@@ -143,7 +180,7 @@ Unsupported syntax fails during Haxe compilation with an `Unsupported Quadrants 
 Common unsupported constructs include:
 
 - General Haxe arrays, classes, strings, and dynamic objects inside kernel bodies. `return [a, b, ...]`, `Vector.ofArray([...])`, `Struct.ofN(...)`, and struct-style object literals are the supported structured-value constructs; arbitrary objects remain unsupported.
-- Function calls other than the supported math, atomic, `shape`, `bitCast`, loop-hint, SIMT, `Grid.threadIdx`, `Mesh.for*`, `Shared.array(...)`, `Shared.tile16(...)`, and `@:qdFunc` calls.
+- Function calls other than the supported math, atomic, `shape`, `bitCast`, loop-hint / `LoopConfig`, SIMT, packed-helper, `Grid.threadIdx`, `Mesh.for*`, `Shared.array(...)`, `Shared.tile16(...)`, tensor `kernelRead`/`kernelWrite` inside helper bodies, and local or explicitly listed `@:qdFunc` helper calls.
 - `switch`, `try`/`catch`, `throw`, `do while`, and `for` over arbitrary iterables.
 - Assigning to anything except a local variable, ndarray element, vector/matrix component, or struct field.
 - Re-declaring a local variable in the same scope or shadowing a kernel parameter.

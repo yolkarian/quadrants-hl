@@ -9,6 +9,16 @@ share/quadrants/hashlink/haxelib.json
 share/quadrants/hashlink/quadrants.hdll
 share/quadrants/hashlink/README.md
 share/quadrants/hashlink/haxe/quadrants/*.hx
+share/quadrants/hashlink/haxe/quadrants/runtime/*.hx
+share/quadrants/hashlink/haxe/quadrants/simt/*.hx
+share/quadrants/hashlink/haxe/quadrants/algorithms/*.hx
+share/quadrants/hashlink/haxe/quadrants/ad/*.hx
+share/quadrants/hashlink/haxe/quadrants/coverage/*.hx
+share/quadrants/hashlink/haxe/quadrants/compat/*.hx
+share/quadrants/hashlink/haxe/quadrants/packed/*.hx
+share/quadrants/hashlink/haxe/quadrants/snode/*.hx
+share/quadrants/hashlink/haxe/quadrants/linalg/*.hx
+share/quadrants/hashlink/haxe/quadrants/profiler/*.hx
 share/quadrants/hashlink/haxe/quadrants/macro/*.hx
 share/quadrants/hashlink/runtime/runtime_x64.bc        # or runtime_arm64.bc
 share/quadrants/hashlink/runtime/runtime_cuda.bc       # CUDA builds
@@ -78,9 +88,72 @@ hl build/hashlink-smoke-buildtree.hl
 
 The same paths can also be passed as Haxe defines: `-D quadrants_hdll_path=/path/to/quadrants.hdll` and `-D quadrants_runtime_dir=/path/to/runtime`.
 
+## Runtime facade
+
+User code can keep the explicit context model:
+
+```haxe
+var ctx = new quadrants.Context(Arch.Cpu);
+```
+
+For small programs, `quadrants.runtime.Runtime` manages one default `Session`:
+
+```haxe
+Runtime.init(Arch.Cpu);
+var ctx = Runtime.context();
+Runtime.sync();
+Runtime.reset();
+```
+
+`Runtime.reset()` closes the default session's context. A `Session` returned by an earlier `Runtime.init(...)` is invalid after `reset()` or a later `init(...)`; use explicit `Context` objects when ownership must be independent of the process default.
+
+## Kernel helper libraries
+
+Reusable kernel helper classes can be passed explicitly to `Kernel.build`:
+
+```haxe
+var k = Kernel.build(ctx, macro (a:Tensor<I32>, out:Tensor<I32>, n:I32) -> {
+  for (i in 0...n) {
+    out[i] = MyKernelHelpers.square(a[i]);
+  }
+}, {helpers: [MyKernelHelpers]});
+```
+
+Helper classes expose `static` methods marked `@:qdFunc`. Helper names must be unique across every listed class and the local class; recursive helper calls are rejected at compile time.
+
+## SIMT helpers and algorithms
+
+`quadrants.simt` provides explicit helper classes for kernels built with helper options:
+
+```haxe
+var k = Kernel.build(ctx, macro (input:Tensor<I32>, out:Tensor<I32>) -> {
+  blockDim(16);
+  var lane = Block.threadIdx();
+  var sum = BlockReduce.reduceAddI32Tile16(input[lane]);
+  if (lane == 0) out[0] = sum;
+}, {helpers: [BlockReduce]});
+```
+
+`quadrants.algorithms` adds Haxe-only host orchestration for scalar `I32`/`F32` tensors: reductions, exclusive add/min/max scans, select/compaction, simple sort/radix-sort entrypoints, `PrefixSumExecutor`, reduce-by-key add, and a reusable `Scratch` manager. The current implementations prioritize deterministic correctness and small/medium tensor usability; backend behavior is documented in `docs/source/user_guide/haxe_api.md`.
+
+## Autodiff, coverage, and diagnostics
+
+`Tape.run(...)`, `Tape.runBackward(...)`, `Tape.runForward(...)`, and `Tape.runValidate(...)` provide lifecycle helpers over the existing explicit tape model. `quadrants.ad.Grad`, `GradCheck`, and `CustomGradient` add gradient zeroing, finite-difference checking for F32 tensor-to-scalar kernels, and explicit custom forward/backward kernel pairing.
+
+`quadrants.coverage.Coverage` records kernel builds, launches, and descriptor source-span probe counts, then writes JSON artifacts with `Coverage.flush(path)`. `quadrants.compat.Diagnostics` exposes descriptor dumps, descriptor hashes, value info, and runtime health checks.
+
+## Packed data, SNode helpers, sparse, and profiler bridge
+
+`quadrants.packed` provides workaround storage for non-scalar data without claiming final native compound-field parity. `PackedVectorTensor` / `PackedVectorField` and `PackedMatrixTensor` / `PackedMatrixField` store logical vectors or matrices in flat primitive storage, while `PackedStructTensor` and `StructOfArraysField` keep named primitive members in separate tensors/fields. Kernel helper calls such as `PackedHelpers.readVec2I32(...)` and `PackedHelpers.writeVec2I32(...)` lower to scalar tensor loads/stores.
+
+`FieldsBuilder.placeMany(...)`, `FieldsBuilder.finalize()`, `quadrants.snode.FieldPlacementPath`, `quadrants.snode.FieldTree`, and `quadrants.runtime.LoopConfig` centralize placement and loop-control ergonomics while keeping explicit `Context` ownership.
+
+`quadrants.linalg` exposes the first native sparse bridge: `SparseMatrix`, `SparseMatrixBuilder`, `SparseSolver`, and `SparseCG` for F32 sparse CPU/runtime smoke usage. `quadrants.profiler.ProfilerBridge` reports profiler feature availability and `ScopedProfiler.run(...)` wraps named profiler scopes.
+
+
 ## API surface
 
-The supported public API is `Context`, `Kernel`, primitive `Tensor` ndarrays, `Arch`, and `DType`. The old Python modules (`quadrants.ad`, `quadrants.linalg`, `quadrants.sparse`, Python decorators, NumPy/Torch interop, and Python fields/SNode helpers) are not part of this HashLink package.
+The supported public API includes `Context`, `quadrants.runtime.Runtime` / `Session`, `Kernel`, primitive `Tensor` ndarrays, streams/events, profiler queries, `quadrants.simt` helpers, `quadrants.algorithms`, `quadrants.ad` workflow utilities, `quadrants.coverage.Coverage`, `quadrants.compat.Diagnostics`, `quadrants.packed` workaround containers, `quadrants.snode` builder helpers, `quadrants.linalg` sparse bridge APIs, `quadrants.profiler` bridge helpers, `Arch`, and `DType`. Python decorators, NumPy/Torch interop, and Python environment integrations are not part of this HashLink package.
 
 ## Troubleshooting
 

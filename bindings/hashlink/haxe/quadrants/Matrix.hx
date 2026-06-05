@@ -32,6 +32,21 @@ class Matrix<T> {
     return row * cols + col;
   }
 
+  @:arrayAccess public inline function getFlat(index:Int):T {
+    if (index < 0 || index >= values.length) {
+      throw "Quadrants matrix index out of bounds";
+    }
+    return values[index];
+  }
+
+  @:arrayAccess public inline function setFlat(index:Int, value:T):T {
+    if (index < 0 || index >= values.length) {
+      throw "Quadrants matrix index out of bounds";
+    }
+    values[index] = value;
+    return value;
+  }
+
   public inline function get(row:Int, col:Int):T {
     return values[flatIndex(row, col)];
   }

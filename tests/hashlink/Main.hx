@@ -11,6 +11,7 @@ class Main {
     TestTemplateRuntime.run();
     TestStructRuntime.run();
     TestStreamEventRuntime.run();
+    TestRuntimeFacade.run();
 
     TestArchApi.run();
     TestBasics.run();
@@ -29,12 +30,19 @@ class Main {
     TestAtomic.run();
     TestFunction.run();
     TestQdFunc.run();
+    TestKernelHelperRegistry.run();
     TestNdrange.run();
     TestGraphRuntime.run();
     TestAutodiffRuntime.run();
     TestSharedSimtRuntime.run();
+    TestSimtHelpers.run();
     TestKernelFeatureRuntime.run();
     TestProfilerRuntime.run();
+    TestAlgorithmsRuntime.run();
+    TestAdCoverageDiagnosticsRuntime.run();
+    TestPackedCompoundRuntime.run();
+    TestBuilderControlDslRuntime.run();
+    TestSparseProfilerBridgeRuntime.run();
 
     TestRuntimeSupport.closeSharedContexts();
     Sys.println("hashlink tests ok");

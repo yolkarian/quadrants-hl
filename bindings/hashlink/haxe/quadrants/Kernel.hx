@@ -4,6 +4,7 @@ package quadrants;
 import quadrants.Native.QKernel;
 import quadrants.Types.AutodiffMode;
 import quadrants.Types.DType;
+import quadrants.coverage.Coverage;
 #end
 
 class Kernel {
@@ -17,6 +18,7 @@ class Kernel {
   final name:String;
   final reverseAutodiffBlockedReason:Null<String>;
   var closed:Bool = false;
+  var descriptorHashCache:Null<String> = null;
 
   function new(context:Context,
       handle:QKernel,
@@ -49,7 +51,7 @@ class Kernel {
     if (descriptorLength == null) {
       throw "Quadrants descriptor length is required for raw hl.Bytes descriptors";
     }
-    return new Kernel(context,
+    var kernel = new Kernel(context,
       Native.kernel_compile(context.nativeHandle(), descriptor, descriptorLength, autodiffMode),
       descriptor,
       descriptorLength,
@@ -57,10 +59,41 @@ class Kernel {
       graphLaunchByDefault,
       kernelName,
       reverseAutodiffBlockedReason);
+    if (Coverage.enabled) {
+      Coverage.registerKernelBuild(kernel);
+    }
+    return kernel;
   }
 
   public function kernelName():String {
     return name;
+  }
+
+  public function descriptorLengthBytes():Int {
+    return descriptorLength;
+  }
+
+  public function descriptorByteAt(index:Int):Int {
+    if (index < 0 || index >= descriptorLength) {
+      throw "Quadrants descriptor byte index is out of range";
+    }
+    return descriptor.getUI8(index);
+  }
+
+  public function autodiffModeValue():AutodiffMode {
+    return autodiffMode;
+  }
+
+  public function graphLaunchByDefaultEnabled():Bool {
+    return graphLaunchByDefault;
+  }
+
+  public function reverseAutodiffReason():Null<String> {
+    return reverseAutodiffBlockedReason;
+  }
+
+  public function isClosed():Bool {
+    return closed;
   }
   #end
 
@@ -68,8 +101,8 @@ class Kernel {
     return quadrants.macro.KernelBuilder.build(ctx, fn, options);
   }
 
-  public static macro function descriptorBytes(fn:haxe.macro.Expr):haxe.macro.Expr {
-    return quadrants.macro.KernelBuilder.descriptorBytes(fn);
+  public static macro function descriptorBytes(fn:haxe.macro.Expr, ?options:haxe.macro.Expr):haxe.macro.Expr {
+    return quadrants.macro.KernelBuilder.descriptorBytes(fn, options);
   }
 
   #if !macro
@@ -151,6 +184,12 @@ class Kernel {
     return Reflect.callMethod(control, readMethod, [0]);
   }
 
+  function recordCoverageLaunch(kind:String):Void {
+    if (Coverage.enabled) {
+      Coverage.registerKernelLaunch(this, kind);
+    }
+  }
+
   public function launch(...values:Dynamic):Void {
     requireOpen();
     syncFieldArgsToTensor(values);
@@ -160,6 +199,7 @@ class Kernel {
       Native.kernel_launch(context.nativeHandle(), handle, nativeArgs(values));
     }
     syncFieldArgsFromTensor(values);
+    recordCoverageLaunch(graphLaunchByDefault ? "launchGraphDefault" : "launch");
   }
 
   public function launchRet(...values:Dynamic):Dynamic {
@@ -167,6 +207,7 @@ class Kernel {
     syncFieldArgsToTensor(values);
     var result = Native.kernel_launch_ret(context.nativeHandle(), handle, nativeArgs(values));
     syncFieldArgsFromTensor(values);
+    recordCoverageLaunch("launchRet");
     return result;
   }
 
@@ -175,6 +216,7 @@ class Kernel {
     syncFieldArgsToTensor(values);
     var result = Native.kernel_launch_rets(context.nativeHandle(), handle, nativeArgs(values));
     syncFieldArgsFromTensor(values);
+    recordCoverageLaunch("launchRets");
     return result;
   }
 
@@ -183,6 +225,7 @@ class Kernel {
     syncFieldArgsToTensor(values);
     Native.kernel_launch_on(context.nativeHandle(), handle, stream.nativeHandle(), nativeArgs(values));
     syncFieldArgsFromTensor(values);
+    recordCoverageLaunch("launchOn");
   }
 
   public function launchGraph(...values:Dynamic):Void {
@@ -190,6 +233,7 @@ class Kernel {
     syncFieldArgsToTensor(values);
     Native.kernel_launch_graph(context.nativeHandle(), handle, nativeArgs(values));
     syncFieldArgsFromTensor(values);
+    recordCoverageLaunch("launchGraph");
   }
 
   public function launchGraphWhile(controlArgId:Int, ...values:Dynamic):Void {
@@ -200,6 +244,7 @@ class Kernel {
       Native.kernel_launch_graph(context.nativeHandle(), handle, nativeArgs(values));
       syncFieldArgsFromTensor(values);
       context.sync();
+      recordCoverageLaunch("launchGraphWhile");
     }
   }
 
@@ -208,14 +253,18 @@ class Kernel {
     syncFieldArgsToTensor(values);
     Native.kernel_launch_graph_do_while(context.nativeHandle(), handle, controlArgId, nativeArgs(values));
     syncFieldArgsFromTensor(values);
+    recordCoverageLaunch("launchGraphDoWhile");
   }
 
   public function descriptorHash():String {
-    var hash = 0x811c9dc5;
-    for (i in 0...descriptorLength) {
-      hash = (hash ^ descriptor.getUI8(i)) * 0x01000193;
+    if (descriptorHashCache == null) {
+      var hash = 0x811c9dc5;
+      for (i in 0...descriptorLength) {
+        hash = (hash ^ descriptor.getUI8(i)) * 0x01000193;
+      }
+      descriptorHashCache = StringTools.hex(hash, 8);
     }
-    return StringTools.hex(hash, 8);
+    return descriptorHashCache;
   }
 
   public function grad():Kernel {

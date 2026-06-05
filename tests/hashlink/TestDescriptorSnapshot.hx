@@ -1,4 +1,5 @@
 import quadrants.Kernel;
+import quadrants.Block;
 import quadrants.Vec3;
 import quadrants.Vector;
 import quadrants.Static;
@@ -16,6 +17,8 @@ import quadrants.Types.U32;
 import quadrants.Types.U1;
 import quadrants.Types.F16;
 import quadrants.Types.F32;
+import quadrants.simt.BlockReduce;
+import quadrants.simt.BlockScan;
 
 class TestDescriptorSnapshot {
   static function expectEq(name:String, got:Int, expected:Int):Void {
@@ -238,6 +241,18 @@ class TestDescriptorSnapshot {
       out[0] = tile[15] + (flags[0] ? 1 : 0) + (halfTile[0] > 1.0 ? 1 : 0);
     });
     expectEq("shared_descriptor_magic", u32(sharedDescriptor, 0), 0x4c484451);
+
+    var helperExpandedDescriptor = Kernel.descriptorBytes(macro (input:Tensor<I32>, out:Tensor<I32>) -> {
+      blockDim(16);
+      var lane = Block.threadIdx();
+      var value = input[lane];
+      var prefix = BlockScan.exclusiveAddI32Tile16(value);
+      var sum = BlockReduce.reduceAddI32Tile16(value);
+      out[lane] = prefix + sum;
+    }, {helpers: [BlockReduce, BlockScan]});
+    var helperFunctionsOffset = sectionOffset(helperExpandedDescriptor, SECTION_FUNCTIONS);
+    expectEq("helper_expanded_descriptor_magic", u32(helperExpandedDescriptor, 0), 0x4c484451);
+    expectEq("helper_expanded_function_count", u32(helperExpandedDescriptor, helperFunctionsOffset), 20);
 
     var structDescriptor = Kernel.descriptorBytes(macro (out:Tensor<I32>) -> {
       var particle = Struct.of2("mass", 2, "velocity", 3);

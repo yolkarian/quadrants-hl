@@ -1,6 +1,8 @@
 #include "bindings/hashlink/native/quadrants_hl.h"
 
 #include <atomic>
+#include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
@@ -396,6 +398,33 @@ struct qd_cuda_gl_resource {
   bool released{false};
 };
 
+struct QdSparseEntry {
+  int row{0};
+  int col{0};
+  double value{0.0};
+};
+
+struct qd_sparse_matrix {
+  void (*finalize)(qd_sparse_matrix *self){nullptr};
+  QdContextState *state{nullptr};
+  int rows{0};
+  int cols{0};
+  PrimitiveTypeID dtype{PrimitiveTypeID::f32};
+  std::vector<QdSparseEntry> entries;
+  bool released{false};
+};
+
+struct qd_sparse_solver {
+  void (*finalize)(qd_sparse_solver *self){nullptr};
+  QdContextState *state{nullptr};
+  PrimitiveTypeID dtype{PrimitiveTypeID::f32};
+  std::string solver_type{"LU"};
+  std::string ordering{"COLAMD"};
+  bool computed{false};
+  bool last_info{false};
+  bool released{false};
+};
+
 
 namespace {
 void release_context_handle(qd_context *ctx) noexcept {
@@ -525,6 +554,27 @@ void release_cuda_gl_resource_handle(qd_cuda_gl_resource *resource) noexcept {
   resource->released = true;
 }
 
+void release_sparse_matrix_handle(qd_sparse_matrix *matrix) noexcept {
+  if (matrix == nullptr || matrix->released) {
+    return;
+  }
+  matrix->entries.clear();
+  release_state(matrix->state);
+  matrix->state = nullptr;
+  matrix->released = true;
+}
+
+void release_sparse_solver_handle(qd_sparse_solver *solver) noexcept {
+  if (solver == nullptr || solver->released) {
+    return;
+  }
+  release_state(solver->state);
+  solver->state = nullptr;
+  solver->computed = false;
+  solver->last_info = false;
+  solver->released = true;
+}
+
 void finalize_context(qd_context *ctx) {
   release_context_handle(ctx);
   ctx->~qd_context();
@@ -560,6 +610,16 @@ void finalize_cuda_gl_resource(qd_cuda_gl_resource *resource) {
   resource->~qd_cuda_gl_resource();
 }
 
+void finalize_sparse_matrix(qd_sparse_matrix *matrix) {
+  release_sparse_matrix_handle(matrix);
+  matrix->~qd_sparse_matrix();
+}
+
+void finalize_sparse_solver(qd_sparse_solver *solver) {
+  release_sparse_solver_handle(solver);
+  solver->~qd_sparse_solver();
+}
+
 qd_ndarray *make_ndarray_handle(QdContextState &state,
                                Ndarray *array,
                                bool managed_by_program,
@@ -571,6 +631,33 @@ qd_ndarray *make_ndarray_handle(QdContextState &state,
   handle->array = array;
   handle->managed_by_program = managed_by_program;
   handle->imported_dlpack = imported_dlpack;
+  retain_state(&state);
+  return handle;
+}
+
+qd_sparse_matrix *make_sparse_matrix_handle(QdContextState &state, int rows, int cols, PrimitiveTypeID dtype) {
+  auto *handle = static_cast<qd_sparse_matrix *>(hl_gc_alloc_finalizer(sizeof(qd_sparse_matrix)));
+  new (handle) qd_sparse_matrix();
+  handle->finalize = finalize_sparse_matrix;
+  handle->state = &state;
+  handle->rows = rows;
+  handle->cols = cols;
+  handle->dtype = dtype;
+  retain_state(&state);
+  return handle;
+}
+
+qd_sparse_solver *make_sparse_solver_handle(QdContextState &state,
+                                            PrimitiveTypeID dtype,
+                                            std::string solver_type,
+                                            std::string ordering) {
+  auto *handle = static_cast<qd_sparse_solver *>(hl_gc_alloc_finalizer(sizeof(qd_sparse_solver)));
+  new (handle) qd_sparse_solver();
+  handle->finalize = finalize_sparse_solver;
+  handle->state = &state;
+  handle->dtype = dtype;
+  handle->solver_type = std::move(solver_type);
+  handle->ordering = std::move(ordering);
   retain_state(&state);
   return handle;
 }
@@ -594,6 +681,26 @@ Ndarray &require_ndarray(QdContextState &state, qd_ndarray *array) {
     throw std::runtime_error("Quadrants ndarray belongs to a different context");
   }
   return *array->array;
+}
+
+qd_sparse_matrix &require_sparse_matrix(QdContextState &state, qd_sparse_matrix *matrix) {
+  if (matrix == nullptr || matrix->state == nullptr || matrix->released) {
+    throw std::runtime_error("Quadrants sparse matrix handle is closed");
+  }
+  if (matrix->state != &state) {
+    throw std::runtime_error("Quadrants sparse matrix belongs to a different context");
+  }
+  return *matrix;
+}
+
+qd_sparse_solver &require_sparse_solver(QdContextState &state, qd_sparse_solver *solver) {
+  if (solver == nullptr || solver->state == nullptr || solver->released) {
+    throw std::runtime_error("Quadrants sparse solver handle is closed");
+  }
+  if (solver->state != &state) {
+    throw std::runtime_error("Quadrants sparse solver belongs to a different context");
+  }
+  return *solver;
 }
 
 qd_stream &require_stream(QdContextState &state, qd_stream *stream) {
@@ -1337,6 +1444,156 @@ quadrants::lang::KernelProfilerBase &require_profiler(QdContextState &state) {
   }
   return *profiler;
 }
+
+bool profiler_enabled(QdContextState &state) {
+  return state.program->get_profiler() != nullptr;
+}
+
+void require_sparse_index(const qd_sparse_matrix &matrix, int row, int col) {
+  if (row < 0 || row >= matrix.rows || col < 0 || col >= matrix.cols) {
+    throw std::runtime_error("Quadrants sparse matrix index out of bounds");
+  }
+}
+
+void require_sparse_f32(const qd_sparse_matrix &matrix) {
+  if (matrix.dtype != PrimitiveTypeID::f32) {
+    throw std::runtime_error("Quadrants sparse bridge currently supports F32 matrices");
+  }
+}
+
+int sparse_entry_index(const qd_sparse_matrix &matrix, int row, int col) {
+  for (std::size_t i = 0; i < matrix.entries.size(); ++i) {
+    if (matrix.entries[i].row == row && matrix.entries[i].col == col) {
+      return static_cast<int>(i);
+    }
+  }
+  return -1;
+}
+
+double sparse_get_value(const qd_sparse_matrix &matrix, int row, int col) {
+  const int index = sparse_entry_index(matrix, row, col);
+  return index < 0 ? 0.0 : matrix.entries[static_cast<std::size_t>(index)].value;
+}
+
+void sparse_set_value(qd_sparse_matrix &matrix, int row, int col, double value) {
+  require_sparse_index(matrix, row, col);
+  const int index = sparse_entry_index(matrix, row, col);
+  if (value == 0.0) {
+    if (index >= 0) {
+      matrix.entries.erase(matrix.entries.begin() + index);
+    }
+    return;
+  }
+  if (index >= 0) {
+    matrix.entries[static_cast<std::size_t>(index)].value = value;
+  } else {
+    matrix.entries.push_back({row, col, value});
+  }
+}
+
+std::vector<double> dense_from_sparse(const qd_sparse_matrix &matrix) {
+  std::vector<double> dense(static_cast<std::size_t>(matrix.rows) * static_cast<std::size_t>(matrix.cols), 0.0);
+  for (const auto &entry : matrix.entries) {
+    dense[static_cast<std::size_t>(entry.row) * static_cast<std::size_t>(matrix.cols) + static_cast<std::size_t>(entry.col)] +=
+        entry.value;
+  }
+  return dense;
+}
+
+
+double read_f32_flat(Ndarray &array, int index) {
+  return array.read_float(flat_to_indices(array, index));
+}
+
+void write_f32_flat(Ndarray &array, int index, double value) {
+  array.write_float(flat_to_indices(array, index), value);
+}
+
+std::vector<double> read_f32_vector(QdContextState &state, qd_ndarray *handle, int length, const char *name) {
+  Ndarray &array = require_typed_ndarray(state, handle, PrimitiveTypeID::f32);
+  if (array.get_nelement() < static_cast<std::size_t>(length)) {
+    throw std::runtime_error(std::string("Quadrants sparse ") + name + " vector is too small");
+  }
+  std::vector<double> values(static_cast<std::size_t>(length), 0.0);
+  for (int i = 0; i < length; ++i) {
+    values[static_cast<std::size_t>(i)] = read_f32_flat(array, i);
+  }
+  return values;
+}
+
+void write_f32_vector(QdContextState &state, qd_ndarray *handle, const std::vector<double> &values, const char *name) {
+  Ndarray &array = require_typed_ndarray(state, handle, PrimitiveTypeID::f32);
+  if (array.get_nelement() < values.size()) {
+    throw std::runtime_error(std::string("Quadrants sparse ") + name + " vector is too small");
+  }
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    write_f32_flat(array, static_cast<int>(i), values[i]);
+  }
+}
+
+bool solve_dense_system(std::vector<double> matrix, std::vector<double> rhs, int n, std::vector<double> &solution) {
+  if (n <= 0) {
+    return false;
+  }
+  for (int pivot = 0; pivot < n; ++pivot) {
+    int best = pivot;
+    double best_abs = std::fabs(matrix[static_cast<std::size_t>(pivot) * n + pivot]);
+    for (int row = pivot + 1; row < n; ++row) {
+      const double candidate = std::fabs(matrix[static_cast<std::size_t>(row) * n + pivot]);
+      if (candidate > best_abs) {
+        best = row;
+        best_abs = candidate;
+      }
+    }
+    if (best_abs <= 1.0e-12) {
+      return false;
+    }
+    if (best != pivot) {
+      for (int col = pivot; col < n; ++col) {
+        std::swap(matrix[static_cast<std::size_t>(pivot) * n + col], matrix[static_cast<std::size_t>(best) * n + col]);
+      }
+      std::swap(rhs[static_cast<std::size_t>(pivot)], rhs[static_cast<std::size_t>(best)]);
+    }
+    for (int row = pivot + 1; row < n; ++row) {
+      const double factor = matrix[static_cast<std::size_t>(row) * n + pivot] /
+                            matrix[static_cast<std::size_t>(pivot) * n + pivot];
+      if (factor == 0.0) {
+        continue;
+      }
+      matrix[static_cast<std::size_t>(row) * n + pivot] = 0.0;
+      for (int col = pivot + 1; col < n; ++col) {
+        matrix[static_cast<std::size_t>(row) * n + col] -=
+            factor * matrix[static_cast<std::size_t>(pivot) * n + col];
+      }
+      rhs[static_cast<std::size_t>(row)] -= factor * rhs[static_cast<std::size_t>(pivot)];
+    }
+  }
+  solution.assign(static_cast<std::size_t>(n), 0.0);
+  for (int row = n - 1; row >= 0; --row) {
+    double value = rhs[static_cast<std::size_t>(row)];
+    for (int col = row + 1; col < n; ++col) {
+      value -= matrix[static_cast<std::size_t>(row) * n + col] * solution[static_cast<std::size_t>(col)];
+    }
+    solution[static_cast<std::size_t>(row)] = value / matrix[static_cast<std::size_t>(row) * n + row];
+  }
+  return true;
+}
+
+double dot(const std::vector<double> &lhs, const std::vector<double> &rhs) {
+  double total = 0.0;
+  for (std::size_t i = 0; i < lhs.size(); ++i) {
+    total += lhs[i] * rhs[i];
+  }
+  return total;
+}
+
+std::vector<double> sparse_matvec_host(const qd_sparse_matrix &matrix, const std::vector<double> &x) {
+  std::vector<double> y(static_cast<std::size_t>(matrix.rows), 0.0);
+  for (const auto &entry : matrix.entries) {
+    y[static_cast<std::size_t>(entry.row)] += entry.value * x[static_cast<std::size_t>(entry.col)];
+  }
+  return y;
+}
 void set_scalar_arg(LaunchContextBuilder &launch_context, int arg_id, DescriptorDType dtype, vdynamic *value) {
   switch (dtype) {
     case DescriptorDType::i8:
@@ -1763,6 +2020,237 @@ HL_PRIM double HL_NAME(profiler_query_avg)(qd_context *ctx, vbyte *kernel_name) 
     auto result = state.program->query_kernel_profile_info(
         kernel_name == nullptr ? std::string() : std::string(reinterpret_cast<const char *>(kernel_name)));
     return result.avg;
+  });
+}
+
+HL_PRIM int HL_NAME(profiler_is_enabled)(qd_context *ctx) {
+  return guard([&]() -> int {
+    QdContextState &state = require_context(ctx);
+    return profiler_enabled(state) ? 1 : 0;
+  });
+}
+
+HL_PRIM int HL_NAME(profiler_scoped_available)(qd_context *ctx) {
+  return guard([&]() -> int {
+    QdContextState &state = require_context(ctx);
+    return profiler_enabled(state) ? 1 : 0;
+  });
+}
+
+HL_PRIM int HL_NAME(profiler_memory_available)(qd_context *ctx) {
+  return guard([&]() -> int {
+    require_context(ctx);
+    return 0;
+  });
+}
+
+HL_PRIM int HL_NAME(profiler_kernel_available)(qd_context *ctx) {
+  return guard([&]() -> int {
+    QdContextState &state = require_context(ctx);
+    return profiler_enabled(state) ? 1 : 0;
+  });
+}
+
+HL_PRIM qd_sparse_matrix *HL_NAME(sparse_matrix_create)(qd_context *ctx, int rows, int cols, int dtype) {
+  return guard([&]() -> qd_sparse_matrix * {
+    if (rows <= 0 || cols <= 0) {
+      throw std::runtime_error("Quadrants sparse matrix dimensions must be positive");
+    }
+    PrimitiveTypeID primitive = primitive_id_from_bridge_id(dtype);
+    if (primitive != PrimitiveTypeID::f32) {
+      throw std::runtime_error("Quadrants sparse matrix bridge currently supports F32");
+    }
+    QdContextState &state = require_context(ctx);
+    return make_sparse_matrix_handle(state, rows, cols, primitive);
+  });
+}
+
+HL_PRIM void HL_NAME(sparse_matrix_close)(qd_sparse_matrix *matrix) {
+  guard([&]() { release_sparse_matrix_handle(matrix); });
+}
+
+HL_PRIM void HL_NAME(sparse_matrix_clear)(qd_context *ctx, qd_sparse_matrix *matrix) {
+  guard([&]() {
+    QdContextState &state = require_context(ctx);
+    require_sparse_matrix(state, matrix).entries.clear();
+  });
+}
+
+HL_PRIM int HL_NAME(sparse_matrix_rows)(qd_context *ctx, qd_sparse_matrix *matrix) {
+  return guard([&]() -> int {
+    QdContextState &state = require_context(ctx);
+    return require_sparse_matrix(state, matrix).rows;
+  });
+}
+
+HL_PRIM int HL_NAME(sparse_matrix_cols)(qd_context *ctx, qd_sparse_matrix *matrix) {
+  return guard([&]() -> int {
+    QdContextState &state = require_context(ctx);
+    return require_sparse_matrix(state, matrix).cols;
+  });
+}
+
+HL_PRIM int HL_NAME(sparse_matrix_nnz)(qd_context *ctx, qd_sparse_matrix *matrix) {
+  return guard([&]() -> int {
+    QdContextState &state = require_context(ctx);
+    return static_cast<int>(require_sparse_matrix(state, matrix).entries.size());
+  });
+}
+
+HL_PRIM void HL_NAME(sparse_matrix_set_f32)(qd_context *ctx, qd_sparse_matrix *matrix, int row, int col, double value) {
+  guard([&]() {
+    QdContextState &state = require_context(ctx);
+    qd_sparse_matrix &matrix_ref = require_sparse_matrix(state, matrix);
+    require_sparse_f32(matrix_ref);
+    sparse_set_value(matrix_ref, row, col, value);
+  });
+}
+
+HL_PRIM double HL_NAME(sparse_matrix_get_f32)(qd_context *ctx, qd_sparse_matrix *matrix, int row, int col) {
+  return guard([&]() -> double {
+    QdContextState &state = require_context(ctx);
+    qd_sparse_matrix &matrix_ref = require_sparse_matrix(state, matrix);
+    require_sparse_f32(matrix_ref);
+    require_sparse_index(matrix_ref, row, col);
+    return sparse_get_value(matrix_ref, row, col);
+  });
+}
+
+HL_PRIM void HL_NAME(sparse_matrix_matvec_f32)(qd_context *ctx, qd_sparse_matrix *matrix, qd_ndarray *x, qd_ndarray *y) {
+  guard([&]() {
+    QdContextState &state = require_context(ctx);
+    qd_sparse_matrix &matrix_ref = require_sparse_matrix(state, matrix);
+    require_sparse_f32(matrix_ref);
+    std::vector<double> x_values = read_f32_vector(state, x, matrix_ref.cols, "input");
+    std::vector<double> y_values = sparse_matvec_host(matrix_ref, x_values);
+    write_f32_vector(state, y, y_values, "output");
+  });
+}
+
+HL_PRIM qd_sparse_solver *HL_NAME(sparse_solver_create)(qd_context *ctx, int dtype, vbyte *solver_type, vbyte *ordering) {
+  return guard([&]() -> qd_sparse_solver * {
+    PrimitiveTypeID primitive = primitive_id_from_bridge_id(dtype);
+    if (primitive != PrimitiveTypeID::f32) {
+      throw std::runtime_error("Quadrants sparse solver bridge currently supports F32");
+    }
+    QdContextState &state = require_context(ctx);
+    std::string solver = solver_type == nullptr ? std::string("LU") : std::string(reinterpret_cast<const char *>(solver_type));
+    std::string order = ordering == nullptr ? std::string("COLAMD") : std::string(reinterpret_cast<const char *>(ordering));
+    return make_sparse_solver_handle(state, primitive, std::move(solver), std::move(order));
+  });
+}
+
+HL_PRIM void HL_NAME(sparse_solver_close)(qd_sparse_solver *solver) {
+  guard([&]() { release_sparse_solver_handle(solver); });
+}
+
+HL_PRIM int HL_NAME(sparse_solver_compute)(qd_context *ctx, qd_sparse_solver *solver, qd_sparse_matrix *matrix) {
+  return guard([&]() -> int {
+    QdContextState &state = require_context(ctx);
+    qd_sparse_solver &solver_ref = require_sparse_solver(state, solver);
+    qd_sparse_matrix &matrix_ref = require_sparse_matrix(state, matrix);
+    require_sparse_f32(matrix_ref);
+    if (matrix_ref.rows != matrix_ref.cols) {
+      solver_ref.computed = true;
+      solver_ref.last_info = false;
+      return 0;
+    }
+    std::vector<double> dense = dense_from_sparse(matrix_ref);
+    std::vector<double> rhs(static_cast<std::size_t>(matrix_ref.rows), 0.0);
+    std::vector<double> solution;
+    solver_ref.last_info = solve_dense_system(std::move(dense), std::move(rhs), matrix_ref.rows, solution);
+    solver_ref.computed = true;
+    return solver_ref.last_info ? 1 : 0;
+  });
+}
+
+HL_PRIM int HL_NAME(sparse_solver_info)(qd_context *ctx, qd_sparse_solver *solver) {
+  return guard([&]() -> int {
+    QdContextState &state = require_context(ctx);
+    qd_sparse_solver &solver_ref = require_sparse_solver(state, solver);
+    return solver_ref.last_info ? 1 : 0;
+  });
+}
+
+HL_PRIM void HL_NAME(sparse_solver_solve_f32)(qd_context *ctx,
+                                             qd_sparse_solver *solver,
+                                             qd_sparse_matrix *matrix,
+                                             qd_ndarray *b,
+                                             qd_ndarray *x) {
+  guard([&]() {
+    QdContextState &state = require_context(ctx);
+    qd_sparse_solver &solver_ref = require_sparse_solver(state, solver);
+    qd_sparse_matrix &matrix_ref = require_sparse_matrix(state, matrix);
+    require_sparse_f32(matrix_ref);
+    if (solver_ref.dtype != matrix_ref.dtype) {
+      throw std::runtime_error("Quadrants sparse solver dtype mismatch");
+    }
+    if (matrix_ref.rows != matrix_ref.cols) {
+      throw std::runtime_error("Quadrants sparse solver requires a square matrix");
+    }
+    std::vector<double> rhs = read_f32_vector(state, b, matrix_ref.rows, "rhs");
+    std::vector<double> solution;
+    solver_ref.last_info = solve_dense_system(dense_from_sparse(matrix_ref), std::move(rhs), matrix_ref.rows, solution);
+    solver_ref.computed = true;
+    if (!solver_ref.last_info) {
+      throw std::runtime_error("Quadrants sparse solver failed to factorize matrix");
+    }
+    write_f32_vector(state, x, solution, "solution");
+  });
+}
+
+HL_PRIM int HL_NAME(sparse_cg_solve_f32)(qd_context *ctx,
+                                        qd_sparse_matrix *matrix,
+                                        qd_ndarray *b,
+                                        qd_ndarray *x,
+                                        int max_iterations,
+                                        double tolerance) {
+  return guard([&]() -> int {
+    if (max_iterations <= 0) {
+      throw std::runtime_error("Quadrants sparse CG max iterations must be positive");
+    }
+    if (tolerance <= 0.0) {
+      throw std::runtime_error("Quadrants sparse CG tolerance must be positive");
+    }
+    QdContextState &state = require_context(ctx);
+    qd_sparse_matrix &matrix_ref = require_sparse_matrix(state, matrix);
+    require_sparse_f32(matrix_ref);
+    if (matrix_ref.rows != matrix_ref.cols) {
+      throw std::runtime_error("Quadrants sparse CG requires a square matrix");
+    }
+    std::vector<double> rhs = read_f32_vector(state, b, matrix_ref.rows, "rhs");
+    std::vector<double> solution(static_cast<std::size_t>(matrix_ref.rows), 0.0);
+    std::vector<double> residual = rhs;
+    std::vector<double> direction = residual;
+    double residual_sq = dot(residual, residual);
+    const double tolerance_sq = tolerance * tolerance;
+    int iterations = 0;
+    while (iterations < max_iterations && residual_sq > tolerance_sq) {
+      std::vector<double> ad = sparse_matvec_host(matrix_ref, direction);
+      const double denom = dot(direction, ad);
+      if (std::fabs(denom) <= 1.0e-20) {
+        break;
+      }
+      const double alpha = residual_sq / denom;
+      for (std::size_t i = 0; i < solution.size(); ++i) {
+        solution[i] += alpha * direction[i];
+        residual[i] -= alpha * ad[i];
+      }
+      const double next_residual_sq = dot(residual, residual);
+      if (next_residual_sq <= tolerance_sq) {
+        residual_sq = next_residual_sq;
+        ++iterations;
+        break;
+      }
+      const double beta = next_residual_sq / residual_sq;
+      for (std::size_t i = 0; i < direction.size(); ++i) {
+        direction[i] = residual[i] + beta * direction[i];
+      }
+      residual_sq = next_residual_sq;
+      ++iterations;
+    }
+    write_f32_vector(state, x, solution, "solution");
+    return residual_sq <= tolerance_sq ? iterations : -iterations;
   });
 }
 
@@ -2753,6 +3241,26 @@ DEFINE_PRIM(_I32, profiler_query_count, _QD_CONTEXT _BYTES);
 DEFINE_PRIM(_F64, profiler_query_min, _QD_CONTEXT _BYTES);
 DEFINE_PRIM(_F64, profiler_query_max, _QD_CONTEXT _BYTES);
 DEFINE_PRIM(_F64, profiler_query_avg, _QD_CONTEXT _BYTES);
+DEFINE_PRIM(_I32, profiler_is_enabled, _QD_CONTEXT);
+DEFINE_PRIM(_I32, profiler_scoped_available, _QD_CONTEXT);
+DEFINE_PRIM(_I32, profiler_memory_available, _QD_CONTEXT);
+DEFINE_PRIM(_I32, profiler_kernel_available, _QD_CONTEXT);
+
+DEFINE_PRIM(_QD_SPARSE_MATRIX, sparse_matrix_create, _QD_CONTEXT _I32 _I32 _I32);
+DEFINE_PRIM(_VOID, sparse_matrix_close, _QD_SPARSE_MATRIX);
+DEFINE_PRIM(_VOID, sparse_matrix_clear, _QD_CONTEXT _QD_SPARSE_MATRIX);
+DEFINE_PRIM(_I32, sparse_matrix_rows, _QD_CONTEXT _QD_SPARSE_MATRIX);
+DEFINE_PRIM(_I32, sparse_matrix_cols, _QD_CONTEXT _QD_SPARSE_MATRIX);
+DEFINE_PRIM(_I32, sparse_matrix_nnz, _QD_CONTEXT _QD_SPARSE_MATRIX);
+DEFINE_PRIM(_VOID, sparse_matrix_set_f32, _QD_CONTEXT _QD_SPARSE_MATRIX _I32 _I32 _F64);
+DEFINE_PRIM(_F64, sparse_matrix_get_f32, _QD_CONTEXT _QD_SPARSE_MATRIX _I32 _I32);
+DEFINE_PRIM(_VOID, sparse_matrix_matvec_f32, _QD_CONTEXT _QD_SPARSE_MATRIX _QD_NDARRAY _QD_NDARRAY);
+DEFINE_PRIM(_QD_SPARSE_SOLVER, sparse_solver_create, _QD_CONTEXT _I32 _BYTES _BYTES);
+DEFINE_PRIM(_VOID, sparse_solver_close, _QD_SPARSE_SOLVER);
+DEFINE_PRIM(_I32, sparse_solver_compute, _QD_CONTEXT _QD_SPARSE_SOLVER _QD_SPARSE_MATRIX);
+DEFINE_PRIM(_I32, sparse_solver_info, _QD_CONTEXT _QD_SPARSE_SOLVER);
+DEFINE_PRIM(_VOID, sparse_solver_solve_f32, _QD_CONTEXT _QD_SPARSE_SOLVER _QD_SPARSE_MATRIX _QD_NDARRAY _QD_NDARRAY);
+DEFINE_PRIM(_I32, sparse_cg_solve_f32, _QD_CONTEXT _QD_SPARSE_MATRIX _QD_NDARRAY _QD_NDARRAY _I32 _F64);
 
 DEFINE_PRIM(_QD_NDARRAY, ndarray_create, _QD_CONTEXT _I32 _ARR);
 DEFINE_PRIM(_QD_NDARRAY, ndarray_import_dlpack, _QD_CONTEXT _I32 _I64);

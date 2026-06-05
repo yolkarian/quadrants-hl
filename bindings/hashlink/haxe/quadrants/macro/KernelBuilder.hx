@@ -5,6 +5,7 @@ import haxe.io.Bytes as HxBytes;
 import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.PositionTools;
+import haxe.macro.Type;
 
 import sys.io.File;
 private typedef ParamInfo = {
@@ -64,6 +65,7 @@ private typedef MeshForInfo = {
 }
 private typedef QdFunctionInfo = {
   var name:String;
+  var owner:String;
   var args:Array<FunctionArg>;
   var body:Expr;
   var ret:Null<ComplexType>;
@@ -591,6 +593,10 @@ private class DescriptorBuilder {
         if (builtinCount != null) {
           return builtinCount;
         }
+        var inlineCall = inlineFunctionCall(expr);
+        if (inlineCall != null) {
+          return encodeInlineFunctionStatementCall(inlineCall.info, inlineCall.args, writer, expr.pos);
+        }
         Context.error("Unsupported Quadrants HashLink kernel statement", expr.pos);
       default:
         Context.error("Unsupported Quadrants HashLink kernel statement", expr.pos);
@@ -601,6 +607,29 @@ private class DescriptorBuilder {
   function encodeBuiltinStatementCall(callee:Expr, args:Array<Expr>, writer:ByteWriter, pos:Position):Null<Int> {
     var name = callName(callee, pos);
     var path = callPath(callee, pos);
+    var packedCount = encodePackedWriteStatement(path, args, writer, pos);
+    if (packedCount != null) {
+      return packedCount;
+    }
+    var writeTarget = tensorMethodTarget(callee, "write");
+    if (writeTarget == null) {
+      writeTarget = tensorMethodTarget(callee, "kernelWrite");
+    }
+    if (writeTarget == null && (name == "write" || name == "kernelWrite") && args.length == 3) {
+      writeTarget = args[0];
+      args = [args[1], args[2]];
+    }
+    if (writeTarget != null) {
+      if (args.length != 2) {
+        Context.error("Quadrants HashLink Tensor.write(index, value) expects two arguments", pos);
+      }
+      writer.u8(STMT_STORE_INDEX);
+      encodeArrayBase(writeTarget, writer, 1);
+      writer.u32(1);
+      encodeArrayIndices(writeTarget, [args[0]], writer);
+      encodeExpression(args[1], writer);
+      return 1;
+    }
     var internalStmt = internalStatementOpcode(path);
     if (internalStmt != null) {
       writer.u8(internalStmt);
@@ -652,6 +681,75 @@ private class DescriptorBuilder {
     }
   }
 
+
+  function encodePackedWriteStatement(path:String, args:Array<Expr>, writer:ByteWriter, pos:Position):Null<Int> {
+    var width = -1;
+    var dtype = DTYPE_I32;
+    var isMatrix = false;
+    var isMember = false;
+    if (StringTools.endsWith(path, "PackedHelpers.writeVec2I32")) {
+      width = 2;
+      dtype = DTYPE_I32;
+    } else if (StringTools.endsWith(path, "PackedHelpers.writeVec3I32")) {
+      width = 3;
+      dtype = DTYPE_I32;
+    } else if (StringTools.endsWith(path, "PackedHelpers.writeVec4I32")) {
+      width = 4;
+      dtype = DTYPE_I32;
+    } else if (StringTools.endsWith(path, "PackedHelpers.writeVec2F32")) {
+      width = 2;
+      dtype = DTYPE_F32;
+    } else if (StringTools.endsWith(path, "PackedHelpers.writeVec3F32")) {
+      width = 3;
+      dtype = DTYPE_F32;
+    } else if (StringTools.endsWith(path, "PackedHelpers.writeVec4F32")) {
+      width = 4;
+      dtype = DTYPE_F32;
+    } else if (StringTools.endsWith(path, "PackedHelpers.writeMat2I32")) {
+      width = 4;
+      dtype = DTYPE_I32;
+      isMatrix = true;
+    } else if (StringTools.endsWith(path, "PackedHelpers.writeMat2F32")) {
+      width = 4;
+      dtype = DTYPE_F32;
+      isMatrix = true;
+    } else if (StringTools.endsWith(path, "PackedHelpers.writeMemberI32")) {
+      width = 1;
+      dtype = DTYPE_I32;
+      isMember = true;
+    } else if (StringTools.endsWith(path, "PackedHelpers.writeMemberF32")) {
+      width = 1;
+      dtype = DTYPE_F32;
+      isMember = true;
+    }
+    if (width < 0) return null;
+    if (args.length != 3) {
+      Context.error("Quadrants packed write helper expects storage, index, and value", pos);
+    }
+    var name = isMember ? null : (isMatrix ? directMatrixName(args[2]) : directVectorName(args[2]));
+    if (!isMember && name == null) {
+      Context.error("Quadrants packed write helper value must be a kernel vector or matrix local", args[2].pos);
+    }
+    for (component in 0...width) {
+      writer.u8(STMT_STORE_INDEX);
+      encodeArrayBase(args[0], writer, 1);
+      writer.u32(1);
+      encodeArrayIndices(args[0], [isMember ? args[1] : packedOffsetExpr(args[1], width, component, pos)], writer);
+      if (isMember) {
+        encodeExpressionWithExpectedDType(args[2], dtype, writer);
+      } else if (isMatrix) {
+        encodeExpressionWithExpectedDType(matrixElementExpr(name, Std.int(component / 2), component % 2, pos), dtype, writer);
+      } else {
+        encodeExpressionWithExpectedDType(vectorComponentExpr(name, component, pos), dtype, writer);
+      }
+    }
+    return width;
+  }
+
+  function packedOffsetExpr(index:Expr, width:Int, component:Int, pos:Position):Expr {
+    var offset = binaryExpr(OpMult, index, intLiteralExpr(width, pos), pos);
+    return component == 0 ? offset : binaryExpr(OpAdd, offset, intLiteralExpr(component, pos), pos);
+  }
   function encodeLoopHintStatement(callee:Expr, args:Array<Expr>, writer:ByteWriter, pos:Position):Null<Int> {
     var name = callName(callee, pos);
     switch (name) {
@@ -1278,6 +1376,14 @@ private class DescriptorBuilder {
     var expr = stripNoCasts(expression);
     switch (expr.expr) {
       case ECall(callee, args):
+        var inlineCall = inlineFunctionCall(expr);
+        if (inlineCall != null) {
+          beginInlineFunctionScope(inlineCall.info, inlineCall.args, expr.pos);
+          var returned = inlineFunctionReturnExpressionOrNull(inlineCall.info);
+          var init = returned == null ? null : matrixInitializer(returned);
+          finishInlineFunctionCall();
+          if (init != null) return init;
+        }
         var ctor = matrixConstructorInitializer(callee, args, expr.pos);
         if (ctor != null) return ctor;
         return matrixCallInitializer(callee, args, expr.pos);
@@ -1305,6 +1411,8 @@ private class DescriptorBuilder {
 
   function matrixConstructorInitializer(callee:Expr, args:Array<Expr>, pos:Position):Null<MatrixInitInfo> {
     var path = callPath(callee, pos);
+    var packed = packedMatrixReadInitializer(path, args, pos);
+    if (packed != null) return packed;
     if (path == "Matrix.ofArray" || path == "quadrants.Matrix.ofArray") {
       if (args.length != 3) {
         Context.error("Quadrants Matrix.ofArray expects rows, cols, and an array literal", pos);
@@ -1339,6 +1447,43 @@ private class DescriptorBuilder {
       Context.error('Quadrants ${typeName}.${method} expects ${expected} row-major arguments', pos);
     }
     return {values: args, rows: dim, cols: dim, dtype: vectorFactoryDType(method, pos)};
+  }
+
+  function packedMatrixReadInitializer(path:String, args:Array<Expr>, pos:Position):Null<MatrixInitInfo> {
+    var dim = -1;
+    var dtype = DTYPE_I32;
+    if (StringTools.endsWith(path, "PackedHelpers.readMat2I32")) {
+      dim = 2;
+      dtype = DTYPE_I32;
+    } else if (StringTools.endsWith(path, "PackedHelpers.readMat3I32")) {
+      dim = 3;
+      dtype = DTYPE_I32;
+    } else if (StringTools.endsWith(path, "PackedHelpers.readMat4I32")) {
+      dim = 4;
+      dtype = DTYPE_I32;
+    } else if (StringTools.endsWith(path, "PackedHelpers.readMat2F32")) {
+      dim = 2;
+      dtype = DTYPE_F32;
+    }
+    if (dim < 0) return null;
+    if (args.length != 2) {
+      Context.error("Quadrants packed matrix read helper expects storage and index", pos);
+    }
+    return {values: packedReadValues(args[0], args[1], dim * dim, pos), rows: dim, cols: dim, dtype: dtype};
+  }
+
+  function packedReadValues(storage:Expr, index:Expr, width:Int, pos:Position):Array<Expr> {
+    return [for (component in 0...width) {
+      var offset = binaryExpr(OpMult, index, intLiteralExpr(width, pos), pos);
+      if (component != 0) {
+        offset = binaryExpr(OpAdd, offset, intLiteralExpr(component, pos), pos);
+      }
+      {expr: ECall({expr: EField(storage, "kernelRead"), pos: pos}, [offset]), pos: pos};
+    }];
+  }
+
+  function intLiteralExpr(value:Int, pos:Position):Expr {
+    return {expr: EConst(CInt(Std.string(value), null)), pos: pos};
   }
 
   function matrixCallInitializer(callee:Expr, args:Array<Expr>, pos:Position):Null<MatrixInitInfo> {
@@ -1385,7 +1530,13 @@ private class DescriptorBuilder {
   function directMatrixName(expression:Expr):Null<String> {
     var expr = stripNoCasts(expression);
     return switch (expr.expr) {
-      case EConst(CIdent(name)) if (lookupMatrix(name) != null): name;
+      case EConst(CIdent(name)):
+        if (lookupMatrix(name) != null) {
+          name;
+        } else {
+          var inlineArg = lookupInlineArg(name);
+          inlineArg == null || directIdentifier(inlineArg) == name ? null : directMatrixName(inlineArg);
+        }
       default: null;
     };
   }
@@ -1465,6 +1616,14 @@ private class DescriptorBuilder {
     var expr = stripNoCasts(expression);
     switch (expr.expr) {
       case ECall(callee, args):
+        var inlineCall = inlineFunctionCall(expr);
+        if (inlineCall != null) {
+          beginInlineFunctionScope(inlineCall.info, inlineCall.args, expr.pos);
+          var returned = inlineFunctionReturnExpressionOrNull(inlineCall.info);
+          var init = returned == null ? null : vectorInitializer(returned);
+          finishInlineFunctionCall();
+          if (init != null) return init;
+        }
         var ctor = vectorConstructorInitializer(callee, args, expr.pos);
         if (ctor != null) return ctor;
         return vectorCallInitializer(callee, args, expr.pos);
@@ -1486,6 +1645,8 @@ private class DescriptorBuilder {
 
   function vectorConstructorInitializer(callee:Expr, args:Array<Expr>, pos:Position):Null<VectorInitInfo> {
     var path = callPath(callee, pos);
+    var packed = packedVectorReadInitializer(path, args, pos);
+    if (packed != null) return packed;
     if (path == "Vector.ofArray" || path == "quadrants.Vector.ofArray") {
       if (args.length != 1) {
         Context.error("Quadrants Vector.ofArray expects one array literal", pos);
@@ -1514,6 +1675,35 @@ private class DescriptorBuilder {
       Context.error('Quadrants ${typeName}.${method} expects ${dim} arguments', pos);
     }
     return {values: args, dtype: vectorFactoryDType(method, pos)};
+  }
+
+  function packedVectorReadInitializer(path:String, args:Array<Expr>, pos:Position):Null<VectorInitInfo> {
+    var width = -1;
+    var dtype = DTYPE_I32;
+    if (StringTools.endsWith(path, "PackedHelpers.readVec2I32")) {
+      width = 2;
+      dtype = DTYPE_I32;
+    } else if (StringTools.endsWith(path, "PackedHelpers.readVec3I32")) {
+      width = 3;
+      dtype = DTYPE_I32;
+    } else if (StringTools.endsWith(path, "PackedHelpers.readVec4I32")) {
+      width = 4;
+      dtype = DTYPE_I32;
+    } else if (StringTools.endsWith(path, "PackedHelpers.readVec2F32")) {
+      width = 2;
+      dtype = DTYPE_F32;
+    } else if (StringTools.endsWith(path, "PackedHelpers.readVec3F32")) {
+      width = 3;
+      dtype = DTYPE_F32;
+    } else if (StringTools.endsWith(path, "PackedHelpers.readVec4F32")) {
+      width = 4;
+      dtype = DTYPE_F32;
+    }
+    if (width < 0) return null;
+    if (args.length != 2) {
+      Context.error("Quadrants packed vector read helper expects storage and index", pos);
+    }
+    return {values: packedReadValues(args[0], args[1], width, pos), dtype: dtype};
   }
 
   function vectorCallInitializer(callee:Expr, args:Array<Expr>, pos:Position):Null<VectorInitInfo> {
@@ -1574,7 +1764,13 @@ private class DescriptorBuilder {
   function directVectorName(expression:Expr):Null<String> {
     var expr = stripNoCasts(expression);
     return switch (expr.expr) {
-      case EConst(CIdent(name)) if (lookupVector(name) != null): name;
+      case EConst(CIdent(name)):
+        if (lookupVector(name) != null) {
+          name;
+        } else {
+          var inlineArg = lookupInlineArg(name);
+          inlineArg == null || directIdentifier(inlineArg) == name ? null : directVectorName(inlineArg);
+        }
       default: null;
     };
   }
@@ -1809,7 +2005,7 @@ private class DescriptorBuilder {
         encodeExpression(operand, writer);
       case EField(_, _):
         if (!encodeVectorAccess(expr, writer) && !encodeStructFieldAccess(expr, writer)) {
-          Context.error("Unsupported Quadrants HashLink kernel expression", expr.pos);
+          Context.error("Unsupported Quadrants HashLink kernel expression: " + new haxe.macro.Printer().printExpr(expr), expr.pos);
         }
       case ECall(callee, args):
         encodeCall(callee, args, writer, expr.pos);
@@ -1831,7 +2027,7 @@ private class DescriptorBuilder {
         encodeExpression(ifExpr, writer);
         encodeExpression(elseExpr, writer);
       default:
-        Context.error("Unsupported Quadrants HashLink kernel expression", expr.pos);
+        Context.error("Unsupported Quadrants HashLink kernel expression: " + new haxe.macro.Printer().printExpr(expr), expr.pos);
     }
   }
 
@@ -1840,7 +2036,7 @@ private class DescriptorBuilder {
     switch (expr.expr) {
       case EConst(CIdent(name)):
         var inlineArg = lookupInlineArg(name);
-        if (inlineArg != null) {
+        if (inlineArg != null && directIdentifier(inlineArg) != name) {
           encodeArrayBase(inlineArg, writer, rank);
           return;
         }
@@ -2112,7 +2308,28 @@ private class DescriptorBuilder {
       return;
     }
     var internalOpcode = internalExpressionOpcode(path);
+    var readMethodBase = tensorMethodTarget(callee, "read");
+    if (readMethodBase == null) {
+      readMethodBase = tensorMethodTarget(callee, "kernelRead");
+    }
+    if (readMethodBase == null && (name == "read" || name == "kernelRead") && args.length == 2) {
+      readMethodBase = args[0];
+      args = [args[1]];
+    }
     var shapeMethodBase = shapeMethodTarget(callee);
+    if (encodePackedMemberReadCall(path, args, writer, pos)) {
+      return;
+    }
+    if (readMethodBase != null) {
+      if (args.length != 1) {
+        Context.error("Quadrants HashLink Tensor.read(index) expects one argument", pos);
+      }
+      writer.u8(EXPR_LOAD_INDEX);
+      encodeArrayBase(readMethodBase, writer, 1);
+      writer.u32(1);
+      encodeArrayIndices(readMethodBase, [args[0]], writer);
+      return;
+    }
     if (shapeMethodBase != null) {
       if (args.length != 1) {
         Context.error("Quadrants HashLink Tensor.shape(axis) expects one argument", pos);
@@ -2176,6 +2393,20 @@ private class DescriptorBuilder {
     Context.error('Unsupported Quadrants HashLink function call ${name}', pos);
   }
 
+
+  function encodePackedMemberReadCall(path:String, args:Array<Expr>, writer:ByteWriter, pos:Position):Bool {
+    if (!StringTools.endsWith(path, "PackedHelpers.readMemberI32") && !StringTools.endsWith(path, "PackedHelpers.readMemberF32")) {
+      return false;
+    }
+    if (args.length != 2) {
+      Context.error("Quadrants packed member read helper expects member and index", pos);
+    }
+    writer.u8(EXPR_LOAD_INDEX);
+    encodeArrayBase(args[0], writer, 1);
+    writer.u32(1);
+    encodeArrayIndices(args[0], [args[1]], writer);
+    return true;
+  }
   function randomCallDType(name:String):Null<Int> {
     return switch (name) {
       case "randI32": DTYPE_I32;
@@ -2339,6 +2570,42 @@ private class DescriptorBuilder {
     }
   }
 
+  function tensorMethodTarget(callee:Expr, method:String):Null<Expr> {
+    return switch (strip(callee).expr) {
+      case EField(base, field) if (field == method):
+        base;
+      default:
+        null;
+    };
+  }
+
+  function tensorReadDType(callee:Expr):Null<Int> {
+    var target = tensorMethodTarget(callee, "read");
+    if (target == null) {
+      target = tensorMethodTarget(callee, "kernelRead");
+    }
+    if (target == null) {
+      return null;
+    }
+    return switch (strip(target).expr) {
+      case EConst(CIdent(name)):
+        var inlineArg = lookupInlineArg(name);
+        if (inlineArg != null) {
+          inferExpressionDType(inlineArg);
+        } else {
+          var localId = lookupLocal(name);
+          if (localId != null) {
+            locals[localId].dtype;
+          } else {
+            var paramId = paramIds.get(name);
+            paramId == null ? DTYPE_I32 : params[paramId].dtype;
+          }
+        }
+      default:
+        DTYPE_I32;
+    };
+  }
+
   function shapeMethodTarget(callee:Expr):Null<Expr> {
     return switch (strip(callee).expr) {
       case EField(base, "shape") | EField(base, "dim"):
@@ -2368,6 +2635,15 @@ private class DescriptorBuilder {
     };
   }
 
+  function qdFunctionReturns(info:QdFunctionInfo, typeName:String):Bool {
+    return switch (info.ret) {
+      case TPath(path):
+        path.name == typeName && (path.pack.length == 0 || path.pack.join(".") == "quadrants");
+      default:
+        false;
+    };
+  }
+
   function localLoadExpr(localId:Int):Expr {
     return {expr: EConst(CIdent(locals[localId].name)), pos: Context.currentPos()};
   }
@@ -2383,6 +2659,15 @@ private class DescriptorBuilder {
     popScope();
     finishInlineFunctionCall();
     return {localId: localId, count: count};
+  }
+
+  function encodeInlineFunctionStatementCall(info:QdFunctionInfo, args:Array<Expr>, writer:ByteWriter, pos:Position):Int {
+    beginInlineFunctionScope(info, args, pos);
+    pushScope();
+    var count = encodeStatementList(statementsOf(info.body), writer);
+    popScope();
+    finishInlineFunctionCall();
+    return count;
   }
 
   function beginInlineFunctionScope(info:QdFunctionInfo, args:Array<Expr>, pos:Position):Void {
@@ -2451,13 +2736,27 @@ private class DescriptorBuilder {
         return expr;
     }
   }
+
+  function inlineFunctionReturnExpressionOrNull(info:QdFunctionInfo):Null<Expr> {
+    var body = strip(info.body);
+    return switch (body.expr) {
+      case EReturn(returned) if (returned != null):
+        returned;
+      case EBlock(expressions) if (expressions.length == 1):
+        inlineFunctionReturnExpressionOrNull({name: info.name, owner: info.owner, args: info.args, body: expressions[0], ret: info.ret, pos: info.pos});
+      case EBlock(_):
+        null;
+      default:
+        body;
+    };
+  }
   function inlineFunctionReturnExpression(info:QdFunctionInfo):Expr {
     var body = strip(info.body);
     return switch (body.expr) {
       case EReturn(returned) if (returned != null):
         returned;
       case EBlock(expressions) if (expressions.length == 1):
-        inlineFunctionReturnExpression({name: info.name, args: info.args, body: expressions[0], ret: info.ret, pos: info.pos});
+        inlineFunctionReturnExpression({name: info.name, owner: info.owner, args: info.args, body: expressions[0], ret: info.ret, pos: info.pos});
       case EBlock(expressions) if (expressions.length > 0):
         var last = strip(expressions[expressions.length - 1]);
         switch (last.expr) {
@@ -2742,45 +3041,48 @@ private class DescriptorBuilder {
       case ETernary(_, ifExpr, elseExpr):
         promoteDType(inferExpressionDType(ifExpr), inferExpressionDType(elseExpr));
       case ECall(callee, args):
-        var vectorDType = vectorScalarCallDType(callee, args);
-        if (shapeMethodTarget(callee) != null) {
-          DTYPE_I32;
+        var readDType = tensorReadDType(callee);
+        if (readDType != null) {
+          readDType;
         } else {
-        if (vectorDType != null) {
-          vectorDType;
-        } else {
-        var name = callName(callee, expr.pos);
-        var path = callPath(callee, expr.pos);
-        if (atomicExpressionOpcode(name) != null && args.length > 0) {
-          inferExpressionDType(args[0]);
-        } else if (path == "Static.value" || path == "quadrants.Static.value") {
-          inferExpressionDType(args[0]);
-        } else if ((name == "min" || name == "max" || name == "atan2" || name == "pow") && args.length == 2) {
-          promoteDType(inferExpressionDType(args[0]), inferExpressionDType(args[1]));
-        } else if (name == "select" && args.length == 3) {
-          promoteDType(inferExpressionDType(args[1]), inferExpressionDType(args[2]));
-        } else if (name == "isnan" || name == "isinf") {
-          DTYPE_U1;
-        } else if (randomCallDType(name) != null) {
-          randomCallDType(name);
-        } else if (name == "threadIdx" || name == "shape") {
-          DTYPE_I32;
-        } else if (name == "bitCast" && args.length == 2) {
-          dtypeFromTypeExpression(args[1], args[1].pos);
-        } else {
-          var inlineFunction = functions.get(name);
-          if (inlineFunction != null) {
-            var result = beginInlineFunctionCall(inlineFunction, args, expr.pos);
-            var dtype = inferExpressionDType(result);
-            finishInlineFunctionCall();
-            dtype;
-          } else if (args.length > 0) {
-            inferExpressionDType(args[0]);
-          } else {
+          var vectorDType = vectorScalarCallDType(callee, args);
+          if (shapeMethodTarget(callee) != null) {
             DTYPE_I32;
+          } else if (vectorDType != null) {
+            vectorDType;
+          } else {
+            var name = callName(callee, expr.pos);
+            var path = callPath(callee, expr.pos);
+            if (atomicExpressionOpcode(name) != null && args.length > 0) {
+              inferExpressionDType(args[0]);
+            } else if (path == "Static.value" || path == "quadrants.Static.value") {
+              inferExpressionDType(args[0]);
+            } else if ((name == "min" || name == "max" || name == "atan2" || name == "pow") && args.length == 2) {
+              promoteDType(inferExpressionDType(args[0]), inferExpressionDType(args[1]));
+            } else if (name == "select" && args.length == 3) {
+              promoteDType(inferExpressionDType(args[1]), inferExpressionDType(args[2]));
+            } else if (name == "isnan" || name == "isinf") {
+              DTYPE_U1;
+            } else if (randomCallDType(name) != null) {
+              randomCallDType(name);
+            } else if (name == "threadIdx" || name == "shape") {
+              DTYPE_I32;
+            } else if (name == "bitCast" && args.length == 2) {
+              dtypeFromTypeExpression(args[1], args[1].pos);
+            } else {
+              var inlineFunction = functions.get(name);
+              if (inlineFunction != null) {
+                var result = beginInlineFunctionCall(inlineFunction, args, expr.pos);
+                var dtype = inferExpressionDType(result);
+                finishInlineFunctionCall();
+                dtype;
+              } else if (args.length > 0) {
+                inferExpressionDType(args[0]);
+              } else {
+                DTYPE_I32;
+              }
+            }
           }
-        }
-        }
         }
       case EField(base, field):
         var vectorName = directVectorName(base);
@@ -3139,14 +3441,14 @@ private class DescriptorBuilder {
 
   static function stripNoCasts(expression:Expr):Expr {
     return switch (expression.expr) {
-      case EParenthesis(inner), EMeta(_, inner): stripNoCasts(inner);
+      case EParenthesis(inner), EMeta(_, inner), EUntyped(inner), ECast(inner, null): stripNoCasts(inner);
       default: expression;
     }
   }
 
   public static function strip(expression:Expr):Expr {
     return switch (expression.expr) {
-      case EParenthesis(inner), EMeta(_, inner), ECheckType(inner, _), ECast(inner, _): strip(inner);
+      case EParenthesis(inner), EMeta(_, inner), ECheckType(inner, _), ECast(inner, _), EUntyped(inner): strip(inner);
       default: expression;
     }
   }
@@ -3164,7 +3466,7 @@ class KernelBuilder {
     }
 
     var kernelName = kernelNameFromPosition(functionExpr.pos);
-    var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(), kernelName);
+    var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(options), kernelName);
     var descriptorBytes = builder.build(functionDef.expr);
     var descriptorExpr = bytesExpression(descriptorBytes, functionExpr.pos);
     var autodiffMode = autodiffModeFromOptions(options);
@@ -3176,7 +3478,7 @@ class KernelBuilder {
     return macro quadrants.Kernel.fromDescriptor($e{ctx}, $e{descriptorExpr}, $v{descriptorBytes.length}, $v{autodiffMode}, $v{graphLaunch}, $v{kernelName}, $v{reverseAutodiffReason});
   }
 
-  public static function descriptorBytes(fn:Expr):Expr {
+  public static function descriptorBytes(fn:Expr, ?options:Expr):Expr {
     var functionExpr = unwrapMacroQuote(fn);
     var functionDef = switch (functionExpr.expr) {
       case EFunction(_, f): f;
@@ -3185,24 +3487,32 @@ class KernelBuilder {
     if (functionDef.expr == null) {
       Context.error("Quadrants HashLink kernel function must have a body", functionExpr.pos);
     }
-    var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(), kernelNameFromPosition(functionExpr.pos));
+    var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(options), kernelNameFromPosition(functionExpr.pos));
     var descriptorBytes = builder.build(functionDef.expr);
     return bytesExpression(descriptorBytes, functionExpr.pos);
   }
 
-  static function collectQdFunctions():Map<String, QdFunctionInfo> {
+  static function collectQdFunctions(?options:Expr):Map<String, QdFunctionInfo> {
     var functions = new Map<String, QdFunctionInfo>();
-    var localClass = Context.getLocalClass();
-    if (localClass == null) {
-      return functions;
+    for (helperClass in helperClassesFromOptions(options)) {
+      collectClassQdFunctions(functions, helperClass.classType);
     }
-    for (field in localClass.get().statics.get()) {
+    var localClass = Context.getLocalClass();
+    if (localClass != null) {
+      collectClassQdFunctions(functions, localClass.get());
+    }
+    return functions;
+  }
+
+  static function collectClassQdFunctions(functions:Map<String, QdFunctionInfo>, classType:ClassType):Void {
+    var owner = classTypeName(classType);
+    for (field in classType.statics.get()) {
       if (field.meta.extract(":qdFunc").length == 0 && field.meta.extract("qdFunc").length == 0) {
         continue;
       }
       var typedExpr = field.expr();
       if (typedExpr == null) {
-        Context.error('Quadrants qdFunc ${field.name} has no function body', field.pos);
+        Context.error('Quadrants qdFunc ${owner}.${field.name} has no function body', field.pos);
       }
       var expr = DescriptorBuilder.strip(Context.getTypedExpr(typedExpr));
       var functionDef = switch (expr.expr) {
@@ -3211,17 +3521,87 @@ class KernelBuilder {
         case EBlock(expressions) if (expressions.length == 1):
           switch (DescriptorBuilder.strip(expressions[0]).expr) {
             case EFunction(_, f): f;
-            default: Context.error('Quadrants qdFunc ${field.name} must be a static function', field.pos);
+            default: Context.error('Quadrants qdFunc ${owner}.${field.name} must be a static function', field.pos);
           }
         default:
-          Context.error('Quadrants qdFunc ${field.name} must be a static function', field.pos);
+          Context.error('Quadrants qdFunc ${owner}.${field.name} must be a static function', field.pos);
       };
       if (functionDef.expr == null) {
-        Context.error('Quadrants qdFunc ${field.name} must have a body', field.pos);
+        Context.error('Quadrants qdFunc ${owner}.${field.name} must have a body', field.pos);
       }
-      functions[field.name] = {name: field.name, args: functionDef.args, body: functionDef.expr, ret: functionDef.ret, pos: field.pos};
+      addQdFunction(functions, field.name, owner, functionDef, field.pos);
     }
-    return functions;
+  }
+
+  static function addQdFunction(functions:Map<String, QdFunctionInfo>, name:String, owner:String, functionDef:Function, pos:Position):Void {
+    var existing = functions.get(name);
+    if (existing != null) {
+      Context.error('Duplicate Quadrants qdFunc helper name ${name}: ${existing.owner}.${existing.name} and ${owner}.${name}; helper names must be unique', pos);
+    }
+    functions[name] = {name: name, owner: owner, args: functionDef.args, body: functionDef.expr, ret: functionDef.ret, pos: pos};
+  }
+
+  static function helperClassesFromOptions(options:Null<Expr>):Array<{classType:ClassType}> {
+    if (options == null) {
+      return [];
+    }
+    var expr = DescriptorBuilder.strip(options);
+    if (isNullLiteral(expr)) {
+      return [];
+    }
+    return switch (expr.expr) {
+      case EObjectDecl(fields):
+        var helpers:Array<{classType:ClassType}> = [];
+        for (field in fields) {
+          if (field.field == "helpers") {
+            helpers = helperClassList(field.expr);
+          }
+        }
+        helpers;
+      default:
+        Context.error("quadrants.Kernel.build options must be an object literal", expr.pos);
+    };
+  }
+
+  static function helperClassList(expr:Expr):Array<{classType:ClassType}> {
+    var stripped = DescriptorBuilder.strip(expr);
+    return switch (stripped.expr) {
+      case EArrayDecl(values):
+        [for (value in values) helperClass(value)];
+      default:
+        Context.error("quadrants.Kernel.build helpers option must be an array of class names", stripped.pos);
+    };
+  }
+
+  static function helperClass(expr:Expr):{classType:ClassType} {
+    var path = helperClassPath(expr);
+    var type = try {
+      Context.getType(path);
+    } catch (_:Dynamic) {
+      Context.error('Quadrants kernel helper class ${path} could not be resolved', expr.pos);
+    };
+    return switch (type) {
+      case TInst(classRef, _):
+        {classType: classRef.get()};
+      default:
+        Context.error('Quadrants kernel helper ${path} must be a class', expr.pos);
+    };
+  }
+
+  static function helperClassPath(expr:Expr):String {
+    var stripped = DescriptorBuilder.strip(expr);
+    return switch (stripped.expr) {
+      case EConst(CIdent(name)):
+        name;
+      case EField(base, field):
+        helperClassPath(base) + "." + field;
+      default:
+        Context.error("quadrants.Kernel.build helpers option must contain class names", stripped.pos);
+    };
+  }
+
+  static function classTypeName(classType:ClassType):String {
+    return (classType.pack.length == 0 ? "" : classType.pack.join(".") + ".") + classType.name;
   }
   static function kernelNameFromPosition(pos:Position):String {
     var info = Context.getPosInfos(pos);

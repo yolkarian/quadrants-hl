@@ -7,6 +7,8 @@ abstract QStream(hl.Abstract<"qd_stream">) {}
 abstract QStreamEvent(hl.Abstract<"qd_event">) {}
 abstract QSNodeTree(hl.Abstract<"qd_snode_tree">) {}
 abstract QCudaGlResource(hl.Abstract<"qd_cuda_gl_resource">) {}
+abstract QSparseMatrix(hl.Abstract<"qd_sparse_matrix">) {}
+abstract QSparseSolver(hl.Abstract<"qd_sparse_solver">) {}
 
 @:build(quadrants.macro.NativeLibrary.build())
 class Native {
@@ -173,6 +175,101 @@ class Native {
 
   @:hlNative("quadrants", "profiler_query_avg")
   public static function profiler_query_avg(ctx:QContext, kernelName:hl.Bytes):Float {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "profiler_is_enabled")
+  public static function profiler_is_enabled(ctx:QContext):Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "profiler_scoped_available")
+  public static function profiler_scoped_available(ctx:QContext):Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "profiler_memory_available")
+  public static function profiler_memory_available(ctx:QContext):Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "profiler_kernel_available")
+  public static function profiler_kernel_available(ctx:QContext):Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "sparse_matrix_create")
+  public static function sparse_matrix_create(ctx:QContext, rows:Int, cols:Int, dtype:Int):QSparseMatrix {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "sparse_matrix_close")
+  public static function sparse_matrix_close(matrix:QSparseMatrix):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "sparse_matrix_clear")
+  public static function sparse_matrix_clear(ctx:QContext, matrix:QSparseMatrix):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "sparse_matrix_rows")
+  public static function sparse_matrix_rows(ctx:QContext, matrix:QSparseMatrix):Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "sparse_matrix_cols")
+  public static function sparse_matrix_cols(ctx:QContext, matrix:QSparseMatrix):Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "sparse_matrix_nnz")
+  public static function sparse_matrix_nnz(ctx:QContext, matrix:QSparseMatrix):Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "sparse_matrix_set_f32")
+  public static function sparse_matrix_set_f32(ctx:QContext, matrix:QSparseMatrix, row:Int, col:Int, value:Float):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "sparse_matrix_get_f32")
+  public static function sparse_matrix_get_f32(ctx:QContext, matrix:QSparseMatrix, row:Int, col:Int):Float {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "sparse_matrix_matvec_f32")
+  public static function sparse_matrix_matvec_f32(ctx:QContext, matrix:QSparseMatrix, x:QNdarray, y:QNdarray):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "sparse_solver_create")
+  public static function sparse_solver_create(ctx:QContext, dtype:Int, solverType:hl.Bytes, ordering:hl.Bytes):QSparseSolver {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "sparse_solver_close")
+  public static function sparse_solver_close(solver:QSparseSolver):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "sparse_solver_compute")
+  public static function sparse_solver_compute(ctx:QContext, solver:QSparseSolver, matrix:QSparseMatrix):Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "sparse_solver_info")
+  public static function sparse_solver_info(ctx:QContext, solver:QSparseSolver):Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "sparse_solver_solve_f32")
+  public static function sparse_solver_solve_f32(ctx:QContext, solver:QSparseSolver, matrix:QSparseMatrix, b:QNdarray, x:QNdarray):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "sparse_cg_solve_f32")
+  public static function sparse_cg_solve_f32(ctx:QContext, matrix:QSparseMatrix, b:QNdarray, x:QNdarray, maxIterations:Int, tolerance:Float):Int {
     throw "Quadrants HashLink native bridge is not loaded";
   }
 

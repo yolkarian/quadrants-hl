@@ -10,6 +10,8 @@
 #define _QD_EVENT _ABSTRACT(qd_event)
 #define _QD_SNODE_TREE _ABSTRACT(qd_snode_tree)
 #define _QD_CUDA_GL_RESOURCE _ABSTRACT(qd_cuda_gl_resource)
+#define _QD_SPARSE_MATRIX _ABSTRACT(qd_sparse_matrix)
+#define _QD_SPARSE_SOLVER _ABSTRACT(qd_sparse_solver)
 
 struct qd_context;
 struct qd_kernel;
@@ -18,6 +20,8 @@ struct qd_stream;
 struct qd_event;
 struct qd_snode_tree;
 struct qd_cuda_gl_resource;
+struct qd_sparse_matrix;
+struct qd_sparse_solver;
 
 HL_PRIM void HL_NAME(runtime_set_lib_dir)(vbyte *path);
 HL_PRIM qd_context *HL_NAME(context_create)(int arch);
@@ -48,6 +52,26 @@ HL_PRIM int HL_NAME(profiler_query_count)(qd_context *ctx, vbyte *kernel_name);
 HL_PRIM double HL_NAME(profiler_query_min)(qd_context *ctx, vbyte *kernel_name);
 HL_PRIM double HL_NAME(profiler_query_max)(qd_context *ctx, vbyte *kernel_name);
 HL_PRIM double HL_NAME(profiler_query_avg)(qd_context *ctx, vbyte *kernel_name);
+HL_PRIM int HL_NAME(profiler_is_enabled)(qd_context *ctx);
+HL_PRIM int HL_NAME(profiler_scoped_available)(qd_context *ctx);
+HL_PRIM int HL_NAME(profiler_memory_available)(qd_context *ctx);
+HL_PRIM int HL_NAME(profiler_kernel_available)(qd_context *ctx);
+
+HL_PRIM qd_sparse_matrix *HL_NAME(sparse_matrix_create)(qd_context *ctx, int rows, int cols, int dtype);
+HL_PRIM void HL_NAME(sparse_matrix_close)(qd_sparse_matrix *matrix);
+HL_PRIM void HL_NAME(sparse_matrix_clear)(qd_context *ctx, qd_sparse_matrix *matrix);
+HL_PRIM int HL_NAME(sparse_matrix_rows)(qd_context *ctx, qd_sparse_matrix *matrix);
+HL_PRIM int HL_NAME(sparse_matrix_cols)(qd_context *ctx, qd_sparse_matrix *matrix);
+HL_PRIM int HL_NAME(sparse_matrix_nnz)(qd_context *ctx, qd_sparse_matrix *matrix);
+HL_PRIM void HL_NAME(sparse_matrix_set_f32)(qd_context *ctx, qd_sparse_matrix *matrix, int row, int col, double value);
+HL_PRIM double HL_NAME(sparse_matrix_get_f32)(qd_context *ctx, qd_sparse_matrix *matrix, int row, int col);
+HL_PRIM void HL_NAME(sparse_matrix_matvec_f32)(qd_context *ctx, qd_sparse_matrix *matrix, qd_ndarray *x, qd_ndarray *y);
+HL_PRIM qd_sparse_solver *HL_NAME(sparse_solver_create)(qd_context *ctx, int dtype, vbyte *solver_type, vbyte *ordering);
+HL_PRIM void HL_NAME(sparse_solver_close)(qd_sparse_solver *solver);
+HL_PRIM int HL_NAME(sparse_solver_compute)(qd_context *ctx, qd_sparse_solver *solver, qd_sparse_matrix *matrix);
+HL_PRIM int HL_NAME(sparse_solver_info)(qd_context *ctx, qd_sparse_solver *solver);
+HL_PRIM void HL_NAME(sparse_solver_solve_f32)(qd_context *ctx, qd_sparse_solver *solver, qd_sparse_matrix *matrix, qd_ndarray *b, qd_ndarray *x);
+HL_PRIM int HL_NAME(sparse_cg_solve_f32)(qd_context *ctx, qd_sparse_matrix *matrix, qd_ndarray *b, qd_ndarray *x, int max_iterations, double tolerance);
 
 HL_PRIM qd_ndarray *HL_NAME(ndarray_create)(qd_context *ctx, int dtype, varray *shape);
 HL_PRIM qd_ndarray *HL_NAME(ndarray_import_dlpack)(qd_context *ctx, int dtype, int64 handle);

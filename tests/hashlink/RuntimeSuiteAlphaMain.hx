@@ -11,6 +11,7 @@ class RuntimeSuiteAlphaMain {
     TestTemplateRuntime.run();
     TestStructRuntime.run();
     TestStreamEventRuntime.run();
+    TestRuntimeFacade.run();
     TestRuntimeSupport.closeSharedContexts();
     Sys.println("hashlink runtime alpha ok");
   }

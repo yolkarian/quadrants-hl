@@ -17,12 +17,26 @@ class FieldsBuilder {
   final context:Context;
   var steps:Array<FieldPlacementStep> = [];
   var shape:Array<Int> = [];
+  var finalized:Bool = false;
+
+  function ensureMutable():Void {
+    if (finalized) {
+      throw "Quadrants field builder is finalized";
+    }
+  }
+
+  function ensureHasSteps():Void {
+    if (steps.length == 0) {
+      throw "Quadrants field builder has no placement steps";
+    }
+  }
 
   public function new(context:Context) {
     this.context = context;
   }
 
   function add(kind:Int, axis:Axis, size:Int, chunkSize:Int):FieldsBuilder {
+    ensureMutable();
     if (size <= 0) {
       throw "Quadrants field SNode size must be positive";
     }
@@ -114,12 +128,33 @@ class FieldsBuilder {
     Native.snode_tree_close(tree);
   }
 
+  public function path():quadrants.snode.FieldPlacementPath {
+    ensureHasSteps();
+    return new quadrants.snode.FieldPlacementPath(context, quadrants.TensorStorage.copyIntArray(shape), copySteps(steps));
+  }
+
+  public function finalize():quadrants.snode.FieldPlacementPath {
+    ensureMutable();
+    var result = path();
+    finalized = true;
+    return result;
+  }
+
   public function place(field:FieldRuntime):Void {
-    placeWithSteps(context, field, quadrants.TensorStorage.copyIntArray(shape), copySteps(steps));
+    ensureMutable();
+    path().place(field);
+  }
+
+  public function placeMany(fields:Array<FieldRuntime>):quadrants.snode.FieldPlacementPath {
+    ensureMutable();
+    var result = path();
+    result.placeMany(fields);
+    return result;
   }
 
   public function destroy():Void {
     steps = [];
     shape = [];
+    finalized = false;
   }
 }
