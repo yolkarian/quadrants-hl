@@ -10,16 +10,16 @@ import quadrants.Types.U32;
 import quadrants.Vector;
 
 class PackedVectorField<T> {
-  public final storage:Dynamic;
+  public final storage:Field<T>;
   public final context:Context;
   public final components:Int;
   public final length:Int;
 
-  public function new(storage:Dynamic, components:Int) {
+  public function new(storage:Field<T>, components:Int) {
     if (components <= 0 || components > 4) {
       throw "Quadrants packed vector component count must be in 1...4";
     }
-    var runtime = requireField(storage);
+    var runtime:FieldRuntime = cast storage;
     if (runtime.shape == null || runtime.shape.length == 0) {
       throw "Quadrants packed vector field requires storage elements";
     }
@@ -51,7 +51,7 @@ class PackedVectorField<T> {
     return new PackedVectorField<F64>(new Field<F64>(context, [length * components]), components);
   }
 
-  public static function fromField<T>(storage:Dynamic, components:Int):PackedVectorField<T> {
+  public static function fromField<T>(storage:Field<T>, components:Int):PackedVectorField<T> {
     return new PackedVectorField<T>(storage, components);
   }
 
@@ -103,10 +103,4 @@ class PackedVectorField<T> {
     storage.close();
   }
 
-  static function requireField(value:Dynamic):FieldRuntime {
-    if (!Std.isOfType(value, FieldRuntime)) {
-      throw "Quadrants packed vector storage must be a Field";
-    }
-    return cast value;
-  }
 }

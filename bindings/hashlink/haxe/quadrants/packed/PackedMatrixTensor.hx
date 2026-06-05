@@ -10,17 +10,17 @@ import quadrants.Types.I32;
 import quadrants.Types.U32;
 
 class PackedMatrixTensor<T> {
-  public final storage:Dynamic;
+  public final storage:Tensor<T>;
   public final context:Context;
   public final rows:Int;
   public final cols:Int;
   public final length:Int;
 
-  public function new(storage:Dynamic, rows:Int, cols:Int) {
+  public function new(storage:Tensor<T>, rows:Int, cols:Int) {
     if (rows <= 0 || cols <= 0 || rows > 4 || cols > 4) {
       throw "Quadrants packed matrix dimensions must be in 1...4";
     }
-    var runtime = requireTensor(storage);
+    var runtime:TensorRuntime = cast storage;
     var components = rows * cols;
     if (runtime.shape.length == 0) {
       throw "Quadrants packed matrix tensor requires storage elements";
@@ -54,7 +54,7 @@ class PackedMatrixTensor<T> {
     return new PackedMatrixTensor<F64>(new Tensor<F64>(context, [length * rows * cols]), rows, cols);
   }
 
-  public static function fromTensor<T>(storage:Dynamic, rows:Int, cols:Int):PackedMatrixTensor<T> {
+  public static function fromTensor<T>(storage:Tensor<T>, rows:Int, cols:Int):PackedMatrixTensor<T> {
     return new PackedMatrixTensor<T>(storage, rows, cols);
   }
 
@@ -108,10 +108,4 @@ class PackedMatrixTensor<T> {
     storage.close();
   }
 
-  static function requireTensor(value:Dynamic):TensorRuntime {
-    if (!Std.isOfType(value, TensorRuntime)) {
-      throw "Quadrants packed matrix storage must be a Tensor";
-    }
-    return cast value;
-  }
 }

@@ -8,8 +8,8 @@ class TensorRuntime implements TensorHandle {
   public final shape:Array<Int>;
   public final dtype:DType;
   var handle:QNdarray;
-  public var gradTensor:Dynamic = null;
-  public var dualTensor:Dynamic = null;
+  public var gradTensor:TensorHandle = null;
+  public var dualTensor:TensorHandle = null;
   public var needsGrad(default, null):Bool = false;
   var closed:Bool = false;
 

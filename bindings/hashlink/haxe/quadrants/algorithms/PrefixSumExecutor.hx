@@ -23,17 +23,17 @@ class PrefixSumExecutor {
     this.scratch = ownsScratch ? new Scratch(context) : scratch;
   }
 
-  public function deviceExclusiveScanAdd(input:Dynamic, output:Dynamic, ?n:Int = -1):Void {
+  public function deviceExclusiveScanAdd<T>(input:Tensor<T>, output:Tensor<T>, ?n:Int = -1):Void {
     requireOpen();
     Scan.deviceExclusiveScanAdd(input, output, n);
   }
 
-  public function deviceExclusiveScanMin(input:Dynamic, output:Dynamic, ?n:Int = -1):Void {
+  public function deviceExclusiveScanMin<T>(input:Tensor<T>, output:Tensor<T>, ?n:Int = -1):Void {
     requireOpen();
     Scan.deviceExclusiveScanMin(input, output, n);
   }
 
-  public function deviceExclusiveScanMax(input:Dynamic, output:Dynamic, ?n:Int = -1):Void {
+  public function deviceExclusiveScanMax<T>(input:Tensor<T>, output:Tensor<T>, ?n:Int = -1):Void {
     requireOpen();
     Scan.deviceExclusiveScanMax(input, output, n);
   }

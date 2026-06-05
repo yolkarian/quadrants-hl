@@ -9,21 +9,21 @@ import quadrants.Types.F32;
 import quadrants.Types.I32;
 
 class Scan {
-  public static function deviceExclusiveScanAdd(input:Dynamic, output:Dynamic, ?n:Int = -1):Void {
+  public static function deviceExclusiveScanAdd<T>(input:Tensor<T>, output:Tensor<T>, ?n:Int = -1):Void {
     dispatch(input, output, n, "add");
   }
 
-  public static function deviceExclusiveScanMin(input:Dynamic, output:Dynamic, ?n:Int = -1):Void {
+  public static function deviceExclusiveScanMin<T>(input:Tensor<T>, output:Tensor<T>, ?n:Int = -1):Void {
     dispatch(input, output, n, "min");
   }
 
-  public static function deviceExclusiveScanMax(input:Dynamic, output:Dynamic, ?n:Int = -1):Void {
+  public static function deviceExclusiveScanMax<T>(input:Tensor<T>, output:Tensor<T>, ?n:Int = -1):Void {
     dispatch(input, output, n, "max");
   }
 
-  static function dispatch(input:Dynamic, output:Dynamic, n:Int, op:String):Void {
-    var inputTensor = requireTensor(input, "input");
-    var outputTensor = requireTensor(output, "output");
+  static function dispatch<T>(input:Tensor<T>, output:Tensor<T>, n:Int, op:String):Void {
+    var inputTensor:TensorRuntime = cast input;
+    var outputTensor:TensorRuntime = cast output;
     requireSupportedDType(inputTensor, "input");
     requireSameDType(inputTensor, outputTensor, "output");
     requireSameContext(inputTensor.context, outputTensor.context, "output");
@@ -171,12 +171,6 @@ class Scan {
     }
   }
 
-  static function requireTensor(value:Dynamic, name:String):TensorRuntime {
-    if (!Std.isOfType(value, TensorRuntime)) {
-      throw 'Quadrants ${name} must be a Tensor';
-    }
-    return cast value;
-  }
 
   static function requireSupportedDType(tensor:TensorRuntime, name:String):Void {
     switch (tensor.dtype) {

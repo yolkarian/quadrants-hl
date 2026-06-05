@@ -115,10 +115,10 @@ The macro recognizes these type names in scalar annotations, `Tensor<T>` paramet
 | `hl.F32`, `quadrants.Types.F32` | `f32` |
 | `Float`, `quadrants.Types.F64` | `f64` |
 
-The same `T` dtype parameter is recognized for `VectorNdarray<T>`, `MatrixNdarray<T>`, `VectorField<T>`, and `MatrixField<T>` kernel parameters. These compound parameters are still one-dimensional native ndarray arguments at the descriptor/ABI level.
+The same explicit `T` dtype parameter is required for `VectorNdarray<T>`, `MatrixNdarray<T>`, `VectorField<T>`, and `MatrixField<T>` kernel parameters. These compound parameters are still one-dimensional native ndarray arguments at the descriptor/ABI level. `Tensor`, `Field`, and compound storage annotations without a dtype parameter are rejected; do not rely on an implicit `I32` default.
 
 ```haxe
-var k = Kernel.build(ctx, macro (a, out) -> {
+var k = Kernel.build(ctx, macro (a:Tensor<F32>, out:Tensor<F32>) -> {
   for (i in 0...4) {
     out[i] = (a[i] : quadrants.Types.F32);
   }

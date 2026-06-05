@@ -9,7 +9,7 @@ import quadrants.Types.U32;
 import quadrants.packed.PackedMatrixField;
 
 class MatrixField<T> implements TensorHandle {
-  public final storage:Dynamic;
+  public final storage:Field<T>;
   final field:FieldRuntime;
   public final context:Context;
   public final shape:Array<Int>;
@@ -18,11 +18,11 @@ class MatrixField<T> implements TensorHandle {
   public final cols:Int;
   public final length:Int;
 
-  public function new(storage:Dynamic, rows:Int, cols:Int) {
+  public function new(storage:Field<T>, rows:Int, cols:Int) {
     if (rows <= 0 || cols <= 0 || rows > 4 || cols > 4) {
       throw "Quadrants MatrixField dimensions must be in 1...4";
     }
-    var runtime = requireField(storage);
+    var runtime:FieldRuntime = cast storage;
     if (runtime.shape == null || runtime.shape.length != 1) {
       throw "Quadrants MatrixField storage must be a placed flat one-dimensional Field";
     }
@@ -57,7 +57,7 @@ class MatrixField<T> implements TensorHandle {
     return new MatrixField<F64>(new Field<F64>(context, [length * rows * cols]), rows, cols);
   }
 
-  public static function fromField<T>(storage:Dynamic, rows:Int, cols:Int):MatrixField<T> {
+  public static function fromField<T>(storage:Field<T>, rows:Int, cols:Int):MatrixField<T> {
     return new MatrixField<T>(storage, rows, cols);
   }
 
@@ -152,13 +152,11 @@ class MatrixField<T> implements TensorHandle {
   }
 
   public function lazyGrad():MatrixField<T> {
-    var dynamicField:Dynamic = field;
-    return new MatrixField<T>(dynamicField.grad, rows, cols);
+    return new MatrixField<T>(storage.lazyGrad(), rows, cols);
   }
 
   public function lazyDual():MatrixField<T> {
-    var dynamicField:Dynamic = field;
-    return new MatrixField<T>(dynamicField.dual, rows, cols);
+    return new MatrixField<T>(storage.lazyDual(), rows, cols);
   }
 
   public function syncBeforeKernel():Void {
@@ -179,10 +177,4 @@ class MatrixField<T> implements TensorHandle {
     field.close();
   }
 
-  static function requireField(value:Dynamic):FieldRuntime {
-    if (!Std.isOfType(value, FieldRuntime)) {
-      throw "Quadrants MatrixField storage must be a Field";
-    }
-    return cast value;
-  }
 }

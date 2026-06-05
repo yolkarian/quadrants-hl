@@ -77,11 +77,11 @@ class PackedHelpers {
     return Mat2.i32(storage.kernelRead(index * 4), storage.kernelRead(index * 4 + 1), storage.kernelRead(index * 4 + 2), storage.kernelRead(index * 4 + 3));
   }
 
-  public static function writeMat2I32(storage:Tensor<I32>, index:Int, value:Dynamic):Void {
-    storage.kernelWrite(index * 4, value[0]);
-    storage.kernelWrite(index * 4 + 1, value[1]);
-    storage.kernelWrite(index * 4 + 2, value[2]);
-    storage.kernelWrite(index * 4 + 3, value[3]);
+  public static function writeMat2I32(storage:Tensor<I32>, index:Int, value:Matrix<I32>):Void {
+    storage.kernelWrite(index * 4, value.getFlat(0));
+    storage.kernelWrite(index * 4 + 1, value.getFlat(1));
+    storage.kernelWrite(index * 4 + 2, value.getFlat(2));
+    storage.kernelWrite(index * 4 + 3, value.getFlat(3));
   }
 
   public static function readMat3I32(storage:Tensor<I32>, index:Int):Matrix<I32> {
@@ -96,11 +96,11 @@ class PackedHelpers {
     return Mat2.f32(storage.kernelRead(index * 4), storage.kernelRead(index * 4 + 1), storage.kernelRead(index * 4 + 2), storage.kernelRead(index * 4 + 3));
   }
 
-  public static function writeMat2F32(storage:Tensor<F32>, index:Int, value:Dynamic):Void {
-    storage.kernelWrite(index * 4, value[0]);
-    storage.kernelWrite(index * 4 + 1, value[1]);
-    storage.kernelWrite(index * 4 + 2, value[2]);
-    storage.kernelWrite(index * 4 + 3, value[3]);
+  public static function writeMat2F32(storage:Tensor<F32>, index:Int, value:Matrix<F32>):Void {
+    storage.kernelWrite(index * 4, value.getFlat(0));
+    storage.kernelWrite(index * 4 + 1, value.getFlat(1));
+    storage.kernelWrite(index * 4 + 2, value.getFlat(2));
+    storage.kernelWrite(index * 4 + 3, value.getFlat(3));
   }
 
   public static function readMemberI32(member:Tensor<I32>, index:Int):I32 {

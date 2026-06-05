@@ -1,0 +1,16 @@
+package quadrants;
+
+/**
+ * Generic typed view implemented by every concrete Field<T> generated dtype class.
+ *
+ * Like Tensor<T>, Field<T> is a generic-build facade. This interface preserves
+ * dtype relationships for public generic APIs while concrete storage remains the
+ * generated Field_<DType> classes.
+ */
+interface FieldArg<T> extends TensorHandle {
+  public function elementCount():Int;
+  public function read(flatIndex:Int):T;
+  public function write(flatIndex:Int, value:T):Void;
+  public function lazyGrad():Field<T>;
+  public function lazyDual():Field<T>;
+}

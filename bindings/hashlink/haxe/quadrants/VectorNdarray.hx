@@ -9,7 +9,7 @@ import quadrants.Types.U32;
 import quadrants.packed.PackedVectorTensor;
 
 class VectorNdarray<T> implements TensorHandle {
-  public final storage:Dynamic;
+  public final storage:Tensor<T>;
   final handle:TensorHandle;
   public final context:Context;
   public final shape:Array<Int>;
@@ -17,11 +17,11 @@ class VectorNdarray<T> implements TensorHandle {
   public final components:Int;
   public final length:Int;
 
-  public function new(storage:Dynamic, components:Int) {
+  public function new(storage:Tensor<T>, components:Int) {
     if (components <= 0 || components > 4) {
       throw "Quadrants VectorNdarray component count must be in 1...4";
     }
-    var runtime = requireTensor(storage);
+    var runtime:TensorRuntime = cast storage;
     if (runtime.shape == null || runtime.shape.length != 1) {
       throw "Quadrants VectorNdarray storage must be a flat one-dimensional Tensor";
     }
@@ -54,7 +54,7 @@ class VectorNdarray<T> implements TensorHandle {
     return new VectorNdarray<F64>(new Tensor<F64>(context, [length * components]), components);
   }
 
-  public static function fromTensor<T>(storage:Dynamic, components:Int):VectorNdarray<T> {
+  public static function fromTensor<T>(storage:Tensor<T>, components:Int):VectorNdarray<T> {
     return new VectorNdarray<T>(storage, components);
   }
 
@@ -158,10 +158,4 @@ class VectorNdarray<T> implements TensorHandle {
     handle.close();
   }
 
-  static function requireTensor(value:Dynamic):TensorRuntime {
-    if (!Std.isOfType(value, TensorRuntime)) {
-      throw "Quadrants VectorNdarray storage must be a Tensor";
-    }
-    return cast value;
-  }
 }

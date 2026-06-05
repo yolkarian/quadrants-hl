@@ -3,15 +3,49 @@ package quadrants.macro;
 #if macro
 import haxe.macro.Context;
 import haxe.macro.Expr;
+import haxe.macro.Type;
 
 class FieldBuild {
   static final defined:Map<String, Bool> = new Map();
 
   public static function build():ComplexType {
+    var genericArg = genericFieldArgType();
+    if (genericArg != null) {
+      return genericArg;
+    }
     var spec = DTypeBuild.fromLocalType("Field");
     var className = DTypeBuild.fieldClassName(spec.typeName);
     ensureDefined(spec, className);
     return DTypeBuild.generatedComplexType(className);
+  }
+
+  static function genericFieldArgType():Null<ComplexType> {
+    return switch (Context.getLocalType()) {
+      case TInst(_.get() => cls, params) if (cls.name == "Field" && cls.pack.join(".") == "quadrants"):
+        if (params.length != 1) {
+          Context.error("quadrants.Field requires exactly one dtype type parameter", Context.currentPos());
+        }
+        var typeParam = typeParameterComplexType(params[0]);
+        typeParam == null ? null : TPath({pack: ["quadrants"], name: "FieldArg", params: [TPType(typeParam)]});
+      default:
+        null;
+    };
+  }
+
+  static function typeParameterComplexType(type:Type):Null<ComplexType> {
+    return switch (type) {
+      case TLazy(f):
+        typeParameterComplexType(f());
+      case TInst(_.get() => cls, _):
+        switch (cls.kind) {
+          case KTypeParameter(_):
+            TPath({pack: [], name: cls.name});
+          default:
+            null;
+        }
+      default:
+        null;
+    };
   }
 
   static function ensureDefined(spec, className:String):Void {
@@ -107,7 +141,7 @@ class FieldBuild {
       meta: [],
       params: [],
       isExtern: false,
-      kind: TDClass({pack: ["quadrants"], name: "FieldRuntime"}, [], false, false, false),
+      kind: TDClass({pack: ["quadrants"], name: "FieldRuntime"}, [{pack: ["quadrants"], name: "FieldArg", params: [TPType(valueType)]}], false, false, false),
       fields: fields
     });
   }

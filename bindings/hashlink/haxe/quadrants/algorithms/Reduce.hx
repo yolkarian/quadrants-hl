@@ -9,9 +9,9 @@ import quadrants.Types.F32;
 import quadrants.Types.I32;
 
 class Reduce {
-  public static function deviceReduceAdd(input:Dynamic, output:Dynamic, ?n:Int = -1):Void {
-    var inputTensor = requireTensor(input, "input");
-    var outputTensor = requireTensor(output, "output");
+  public static function deviceReduceAdd<T>(input:Tensor<T>, output:Tensor<T>, ?n:Int = -1):Void {
+    var inputTensor:TensorRuntime = cast input;
+    var outputTensor:TensorRuntime = cast output;
     requireSupportedDType(inputTensor, "input");
     requireSameDType(inputTensor, outputTensor, "output");
     requireSameContext(inputTensor.context, outputTensor.context, "output");
@@ -27,9 +27,9 @@ class Reduce {
     }
   }
 
-  public static function deviceReduceMin(input:Dynamic, output:Dynamic, ?n:Int = -1):Void {
-    var inputTensor = requireTensor(input, "input");
-    var outputTensor = requireTensor(output, "output");
+  public static function deviceReduceMin<T>(input:Tensor<T>, output:Tensor<T>, ?n:Int = -1):Void {
+    var inputTensor:TensorRuntime = cast input;
+    var outputTensor:TensorRuntime = cast output;
     requireSupportedDType(inputTensor, "input");
     requireSameDType(inputTensor, outputTensor, "output");
     requireSameContext(inputTensor.context, outputTensor.context, "output");
@@ -48,9 +48,9 @@ class Reduce {
     }
   }
 
-  public static function deviceReduceMax(input:Dynamic, output:Dynamic, ?n:Int = -1):Void {
-    var inputTensor = requireTensor(input, "input");
-    var outputTensor = requireTensor(output, "output");
+  public static function deviceReduceMax<T>(input:Tensor<T>, output:Tensor<T>, ?n:Int = -1):Void {
+    var inputTensor:TensorRuntime = cast input;
+    var outputTensor:TensorRuntime = cast output;
     requireSupportedDType(inputTensor, "input");
     requireSameDType(inputTensor, outputTensor, "output");
     requireSameContext(inputTensor.context, outputTensor.context, "output");
@@ -185,12 +185,6 @@ class Reduce {
     }
   }
 
-  static function requireTensor(value:Dynamic, name:String):TensorRuntime {
-    if (!Std.isOfType(value, TensorRuntime)) {
-      throw 'Quadrants ${name} must be a Tensor';
-    }
-    return cast value;
-  }
 
   static function requireSupportedDType(tensor:TensorRuntime, name:String):Void {
     switch (tensor.dtype) {

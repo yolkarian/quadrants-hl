@@ -9,8 +9,8 @@ import quadrants.Types.F32;
 import quadrants.Types.I32;
 
 class Sort {
-  public static function parallelSort(values:Dynamic, ?n:Int = -1, ascending:Bool = true):Void {
-    var valuesTensor = requireTensor(values, "values");
+  public static function parallelSort<T>(values:Tensor<T>, ?n:Int = -1, ascending:Bool = true):Void {
+    var valuesTensor:TensorRuntime = cast values;
     requireSupportedDType(valuesTensor, "values");
     var count = checkedInputCount(valuesTensor, n, "sort");
     switch (valuesTensor.dtype) {
@@ -24,8 +24,8 @@ class Sort {
   }
 
   public static function deviceRadixSort(input:Tensor<I32>, output:Tensor<I32>, ?n:Int = -1, ascending:Bool = true):Void {
-    var inputTensor = requireTensor(input, "input");
-    var outputTensor = requireTensor(output, "output");
+    var inputTensor:TensorRuntime = cast input;
+    var outputTensor:TensorRuntime = cast output;
     requireDType(inputTensor, DType.I32, "input");
     requireDType(outputTensor, DType.I32, "output");
     requireSameContext(inputTensor.context, outputTensor.context, "output");
@@ -145,12 +145,6 @@ class Sort {
     }
   }
 
-  static function requireTensor(value:Dynamic, name:String):TensorRuntime {
-    if (!Std.isOfType(value, TensorRuntime)) {
-      throw 'Quadrants ${name} must be a Tensor';
-    }
-    return cast value;
-  }
 
   static function requireSupportedDType(tensor:TensorRuntime, name:String):Void {
     switch (tensor.dtype) {

@@ -3,6 +3,7 @@ import quadrants.Field;
 import quadrants.Kernel;
 import quadrants.Mat2;
 import quadrants.Tensor;
+import quadrants.StructMember;
 import quadrants.Types.I32;
 import quadrants.Vec2;
 import quadrants.packed.PackedHelpers;
@@ -40,23 +41,25 @@ class TestPackedCompoundRuntime {
 
     var memberI = new Tensor<I32>(ctx, [2]);
     var memberJ = new Tensor<I32>(ctx, [2]);
+    var iMember = new StructMember<I32>("i");
+    var jMember = new StructMember<I32>("j");
     var packedStruct = new PackedStructTensor()
-      .add("i", memberI)
-      .add("j", memberJ);
-    packedStruct.write("i", 0, 11);
-    packedStruct.write("j", 1, 12);
-    expectEq("packed_struct_member_i", packedStruct.read("i", 0), 11);
-    expectEq("packed_struct_member_j", packedStruct.read("j", 1), 12);
+      .addMember(iMember, memberI)
+      .addMember(jMember, memberJ);
+    packedStruct.writeMember(iMember, 0, 11);
+    packedStruct.writeMember(jMember, 1, 12);
+    expectEq("packed_struct_member_i", packedStruct.readMember(iMember, 0), 11);
+    expectEq("packed_struct_member_j", packedStruct.readMember(jMember, 1), 12);
 
     var fieldI = new Field<I32>(ctx, [2]);
     var fieldJ = new Field<I32>(ctx, [2]);
     var soa = new StructOfArraysField()
-      .add("i", fieldI)
-      .add("j", fieldJ);
-    soa.write("i", 0, 13);
-    soa.write("j", 1, 14);
-    expectEq("soa_field_member_i", soa.read("i", 0), 13);
-    expectEq("soa_field_member_j", soa.read("j", 1), 14);
+      .addMember(iMember, fieldI)
+      .addMember(jMember, fieldJ);
+    soa.writeMember(iMember, 0, 13);
+    soa.writeMember(jMember, 1, 14);
+    expectEq("soa_field_member_i", soa.readMember(iMember, 0), 13);
+    expectEq("soa_field_member_j", soa.readMember(jMember, 1), 14);
 
     vectors.close();
     vectorField.close();

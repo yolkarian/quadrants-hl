@@ -9,7 +9,7 @@ import quadrants.Types.U32;
 import quadrants.packed.PackedMatrixTensor;
 
 class MatrixNdarray<T> implements TensorHandle {
-  public final storage:Dynamic;
+  public final storage:Tensor<T>;
   final handle:TensorHandle;
   public final context:Context;
   public final shape:Array<Int>;
@@ -18,11 +18,11 @@ class MatrixNdarray<T> implements TensorHandle {
   public final cols:Int;
   public final length:Int;
 
-  public function new(storage:Dynamic, rows:Int, cols:Int) {
+  public function new(storage:Tensor<T>, rows:Int, cols:Int) {
     if (rows <= 0 || cols <= 0 || rows > 4 || cols > 4) {
       throw "Quadrants MatrixNdarray dimensions must be in 1...4";
     }
-    var runtime = requireTensor(storage);
+    var runtime:TensorRuntime = cast storage;
     if (runtime.shape == null || runtime.shape.length != 1) {
       throw "Quadrants MatrixNdarray storage must be a flat one-dimensional Tensor";
     }
@@ -57,7 +57,7 @@ class MatrixNdarray<T> implements TensorHandle {
     return new MatrixNdarray<F64>(new Tensor<F64>(context, [length * rows * cols]), rows, cols);
   }
 
-  public static function fromTensor<T>(storage:Dynamic, rows:Int, cols:Int):MatrixNdarray<T> {
+  public static function fromTensor<T>(storage:Tensor<T>, rows:Int, cols:Int):MatrixNdarray<T> {
     return new MatrixNdarray<T>(storage, rows, cols);
   }
 
@@ -163,10 +163,4 @@ class MatrixNdarray<T> implements TensorHandle {
     handle.close();
   }
 
-  static function requireTensor(value:Dynamic):TensorRuntime {
-    if (!Std.isOfType(value, TensorRuntime)) {
-      throw "Quadrants MatrixNdarray storage must be a Tensor";
-    }
-    return cast value;
-  }
 }

@@ -9,17 +9,17 @@ import quadrants.Types.F32;
 import quadrants.Types.I32;
 
 class ReduceByKey {
-  public static function deviceReduceByKeyAdd(keys:Tensor<I32>,
-      values:Dynamic,
+  public static function deviceReduceByKeyAdd<T>(keys:Tensor<I32>,
+      values:Tensor<T>,
       outKeys:Tensor<I32>,
-      outValues:Dynamic,
+      outValues:Tensor<T>,
       countOut:Tensor<I32>,
       ?n:Int = -1):Void {
-    var keysTensor = requireTensor(keys, "keys");
-    var valuesTensor = requireTensor(values, "values");
-    var outKeysTensor = requireTensor(outKeys, "outKeys");
-    var outValuesTensor = requireTensor(outValues, "outValues");
-    var countOutTensor = requireTensor(countOut, "countOut");
+    var keysTensor:TensorRuntime = cast keys;
+    var valuesTensor:TensorRuntime = cast values;
+    var outKeysTensor:TensorRuntime = cast outKeys;
+    var outValuesTensor:TensorRuntime = cast outValues;
+    var countOutTensor:TensorRuntime = cast countOut;
     requireDType(keysTensor, DType.I32, "keys");
     requireSupportedDType(valuesTensor, "values");
     requireDType(outKeysTensor, DType.I32, "outKeys");
@@ -114,12 +114,6 @@ class ReduceByKey {
     }
   }
 
-  static function requireTensor(value:Dynamic, name:String):TensorRuntime {
-    if (!Std.isOfType(value, TensorRuntime)) {
-      throw 'Quadrants ${name} must be a Tensor';
-    }
-    return cast value;
-  }
 
   static function requireSupportedDType(tensor:TensorRuntime, name:String):Void {
     switch (tensor.dtype) {

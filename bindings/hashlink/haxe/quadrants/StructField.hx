@@ -64,6 +64,15 @@ class StructField {
     return this;
   }
 
+  /** Typed member insertion for new code. The string-keyed `add` method remains a compatibility shim. */
+  public inline function addField<T>(name:String, field:Field<T>):StructField {
+    return add(name, field);
+  }
+
+  public inline function addMember<T>(member:StructMember<T>, field:Field<T>):StructField {
+    return add(member.name, field);
+  }
+
   public function members():Array<String> {
     return fieldNames.copy();
   }
@@ -80,6 +89,19 @@ class StructField {
     return member(name);
   }
 
+  /** Typed member lookup for new code using the compatibility string-keyed container. */
+  public inline function memberField<T>(name:String):Field<T> {
+    return cast member(name);
+  }
+
+  public inline function fieldAs<T>(name:String):Field<T> {
+    return memberField(name);
+  }
+
+  public inline function memberBy<T>(member:StructMember<T>):Field<T> {
+    return memberField(member.name);
+  }
+
   public function elementCount():Int {
     if (shape == null) {
       return 0;
@@ -93,6 +115,22 @@ class StructField {
 
   public function write(name:String, flatIndex:Int, value:Dynamic):Void {
     member(name).write(flatIndex, value);
+  }
+
+  public inline function readField<T>(name:String, flatIndex:Int):T {
+    return memberField(name).read(flatIndex);
+  }
+
+  public inline function writeField<T>(name:String, flatIndex:Int, value:T):Void {
+    memberField(name).write(flatIndex, value);
+  }
+
+  public inline function readMember<T>(member:StructMember<T>, flatIndex:Int):T {
+    return readField(member.name, flatIndex);
+  }
+
+  public inline function writeMember<T>(member:StructMember<T>, flatIndex:Int, value:T):Void {
+    writeField(member.name, flatIndex, value);
   }
 
   public function lazyGrad():StructField {

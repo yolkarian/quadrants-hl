@@ -3557,7 +3557,7 @@ private class DescriptorBuilder {
 
   function tensorElementDType(path:TypePath, pos:Position):Int {
     if (path.params == null || path.params.length == 0) {
-      return DTYPE_I32;
+      Context.error("Quadrants Tensor/Field kernel parameter requires an explicit dtype type parameter", pos);
     }
     return switch (path.params[0]) {
       case TPType(type): dtypeFromComplexType(type, pos, DTYPE_F32);

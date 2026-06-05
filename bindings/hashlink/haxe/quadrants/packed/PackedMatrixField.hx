@@ -10,17 +10,17 @@ import quadrants.Types.I32;
 import quadrants.Types.U32;
 
 class PackedMatrixField<T> {
-  public final storage:Dynamic;
+  public final storage:Field<T>;
   public final context:Context;
   public final rows:Int;
   public final cols:Int;
   public final length:Int;
 
-  public function new(storage:Dynamic, rows:Int, cols:Int) {
+  public function new(storage:Field<T>, rows:Int, cols:Int) {
     if (rows <= 0 || cols <= 0 || rows > 4 || cols > 4) {
       throw "Quadrants packed matrix dimensions must be in 1...4";
     }
-    var runtime = requireField(storage);
+    var runtime:FieldRuntime = cast storage;
     var components = rows * cols;
     if (runtime.shape == null || runtime.shape.length == 0) {
       throw "Quadrants packed matrix field requires storage elements";
@@ -54,7 +54,7 @@ class PackedMatrixField<T> {
     return new PackedMatrixField<F64>(new Field<F64>(context, [length * rows * cols]), rows, cols);
   }
 
-  public static function fromField<T>(storage:Dynamic, rows:Int, cols:Int):PackedMatrixField<T> {
+  public static function fromField<T>(storage:Field<T>, rows:Int, cols:Int):PackedMatrixField<T> {
     return new PackedMatrixField<T>(storage, rows, cols);
   }
 
@@ -108,10 +108,4 @@ class PackedMatrixField<T> {
     storage.close();
   }
 
-  static function requireField(value:Dynamic):FieldRuntime {
-    if (!Std.isOfType(value, FieldRuntime)) {
-      throw "Quadrants packed matrix storage must be a Field";
-    }
-    return cast value;
-  }
 }

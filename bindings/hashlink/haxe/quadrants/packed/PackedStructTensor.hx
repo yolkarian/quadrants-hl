@@ -46,6 +46,15 @@ class PackedStructTensor {
     return this;
   }
 
+  /** Typed member insertion for new code. The `add` method remains a compatibility shim. */
+  public inline function addTensor<T>(name:String, tensor:quadrants.Tensor<T>):PackedStructTensor {
+    return add(name, tensor);
+  }
+
+  public inline function addMember<T>(member:quadrants.StructMember<T>, tensor:quadrants.Tensor<T>):PackedStructTensor {
+    return add(member.name, tensor);
+  }
+
   public function members():Array<String> {
     return tensorNames.copy();
   }
@@ -60,6 +69,19 @@ class PackedStructTensor {
 
   public inline function tensor(name:String):Dynamic {
     return member(name);
+  }
+
+  /** Typed tensor lookup for new code using the compatibility string-keyed container. */
+  public inline function memberTensor<T>(name:String):quadrants.Tensor<T> {
+    return cast member(name);
+  }
+
+  public inline function tensorAs<T>(name:String):quadrants.Tensor<T> {
+    return memberTensor(name);
+  }
+
+  public inline function memberBy<T>(member:quadrants.StructMember<T>):quadrants.Tensor<T> {
+    return memberTensor(member.name);
   }
 
   public function elementCount():Int {
@@ -77,6 +99,22 @@ class PackedStructTensor {
 
   public function write(name:String, flatIndex:Int, value:Dynamic):Void {
     member(name).write(flatIndex, value);
+  }
+
+  public inline function readTensor<T>(name:String, flatIndex:Int):T {
+    return memberTensor(name).read(flatIndex);
+  }
+
+  public inline function writeTensor<T>(name:String, flatIndex:Int, value:T):Void {
+    memberTensor(name).write(flatIndex, value);
+  }
+
+  public inline function readMember<T>(member:quadrants.StructMember<T>, flatIndex:Int):T {
+    return readTensor(member.name, flatIndex);
+  }
+
+  public inline function writeMember<T>(member:quadrants.StructMember<T>, flatIndex:Int, value:T):Void {
+    writeTensor(member.name, flatIndex, value);
   }
 
   public function close():Void {

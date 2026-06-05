@@ -10,16 +10,16 @@ import quadrants.Types.U32;
 import quadrants.Vector;
 
 class PackedVectorTensor<T> {
-  public final storage:Dynamic;
+  public final storage:Tensor<T>;
   public final context:Context;
   public final components:Int;
   public final length:Int;
 
-  public function new(storage:Dynamic, components:Int) {
+  public function new(storage:Tensor<T>, components:Int) {
     if (components <= 0 || components > 4) {
       throw "Quadrants packed vector component count must be in 1...4";
     }
-    var runtime = requireTensor(storage);
+    var runtime:TensorRuntime = cast storage;
     if (runtime.shape.length == 0) {
       throw "Quadrants packed vector tensor requires storage elements";
     }
@@ -51,7 +51,7 @@ class PackedVectorTensor<T> {
     return new PackedVectorTensor<F64>(new Tensor<F64>(context, [length * components]), components);
   }
 
-  public static function fromTensor<T>(storage:Dynamic, components:Int):PackedVectorTensor<T> {
+  public static function fromTensor<T>(storage:Tensor<T>, components:Int):PackedVectorTensor<T> {
     return new PackedVectorTensor<T>(storage, components);
   }
 
@@ -103,10 +103,4 @@ class PackedVectorTensor<T> {
     storage.close();
   }
 
-  static function requireTensor(value:Dynamic):TensorRuntime {
-    if (!Std.isOfType(value, TensorRuntime)) {
-      throw "Quadrants packed vector storage must be a Tensor";
-    }
-    return cast value;
-  }
 }

@@ -134,7 +134,7 @@ var k = Kernel.build(ctx, macro (input:Tensor<I32>, out:Tensor<I32>) -> {
 }, {helpers: [BlockReduce]});
 ```
 
-`quadrants.algorithms` adds Haxe-only host orchestration for scalar `I32`/`F32` tensors: reductions, exclusive add/min/max scans, select/compaction, simple sort/radix-sort entrypoints, `PrefixSumExecutor`, reduce-by-key add, and a reusable `Scratch` manager. The current implementations prioritize deterministic correctness and small/medium tensor usability; backend behavior is documented in `docs/source/user_guide/haxe_api.md`.
+`quadrants.algorithms` adds Haxe-only host orchestration for scalar `I32`/`F32` tensors: reductions, exclusive add/min/max scans, select/compaction, simple sort/radix-sort entrypoints, `PrefixSumExecutor`, reduce-by-key add, and a reusable `Scratch` manager. Public algorithm signatures relate inputs and outputs with `Tensor<T>`, so dtype mismatches and tensor/field mixups fail at Haxe compile time before the remaining runtime dtype support checks run. The current implementations prioritize deterministic correctness and small/medium tensor usability; backend behavior is documented in `docs/source/user_guide/haxe_api.md`.
 
 ## Autodiff, coverage, and diagnostics
 
@@ -144,15 +144,17 @@ var k = Kernel.build(ctx, macro (input:Tensor<I32>, out:Tensor<I32>) -> {
 
 ## Packed data, SNode helpers, sparse, and profiler bridge
 
-`quadrants.packed` provides workaround storage for non-scalar data without claiming final native compound-field parity. `PackedVectorTensor` / `PackedVectorField` and `PackedMatrixTensor` / `PackedMatrixField` store logical vectors or matrices in flat primitive storage, while `PackedStructTensor` and `StructOfArraysField` keep named primitive members in separate tensors/fields. Kernel helper calls such as `PackedHelpers.readVec2I32(...)` and `PackedHelpers.writeVec2I32(...)` lower to scalar tensor loads/stores.
+`quadrants.packed` provides workaround storage for non-scalar data without claiming final native compound-field parity. `PackedVectorTensor<T>` / `PackedVectorField<T>` and `PackedMatrixTensor<T>` / `PackedMatrixField<T>` store logical vectors or matrices in typed primitive `Tensor<T>` / `Field<T>` storage, while `PackedStructTensor` and `StructOfArraysField` keep named primitive members in separate tensors/fields. Prefer `StructMember<T>` plus `addMember` / `readMember` / `writeMember` for typed struct member access; the string-keyed `Dynamic` methods are compatibility shims. Kernel helper calls such as `PackedHelpers.readVec2I32(...)` and `PackedHelpers.writeVec2I32(...)` lower to scalar tensor loads/stores.
 
-`VectorNdarray`, `MatrixNdarray`, `VectorField`, `MatrixField`, and `StructField` are the first-class compound storage names. Vector/matrix containers are flat primitive tensors/fields with native `TensorHandle` launch behavior and kernel methods such as `readVec2(...)`, `writeVec2(...)`, `readMat2(...)`, and `writeMat2(...)`; `StructField` keeps named field members in a supported SOA layout. `fromPacked(...)` / `toPacked()` adapters preserve the Phase 6 migration path.
+`VectorNdarray<T>`, `MatrixNdarray<T>`, `VectorField<T>`, `MatrixField<T>`, and `StructField` are the first-class compound storage names. Vector/matrix containers are typed wrappers around primitive `Tensor<T>` / `Field<T>` flat storage with native `TensorHandle` launch behavior and kernel methods such as `readVec2(...)`, `writeVec2(...)`, `readMat2(...)`, and `writeMat2(...)`; `StructField` keeps named field members in a supported SOA layout. `fromPacked(...)` / `toPacked()` adapters preserve the Phase 6 migration path.
 
 `FieldsBuilder.placeMany(...)`, `FieldsBuilder.finalize()`, `quadrants.snode.FieldPlacementPath`, `quadrants.snode.FieldTree`, and `quadrants.runtime.LoopConfig` centralize placement and loop-control ergonomics while keeping explicit `Context` ownership.
 
 `quadrants.linalg` exposes the first native sparse bridge: `SparseMatrix`, `SparseMatrixBuilder`, `SparseSolver`, and `SparseCG` for F32 sparse CPU/runtime smoke usage. `quadrants.profiler.ProfilerBridge` reports profiler feature availability and `ScopedProfiler.run(...)` wraps named profiler scopes.
 
 `CompilerHints.assumeInRange(value, base, low, high)` lowers to the native range-assumption IR expression. Other deep compiler hints remain unavailable unless the runtime/compiler exposes a concrete hook.
+
+`bindings/hashlink/haxe/quadrants/DYNAMIC_BOUNDARIES.md` records every retained public `Dynamic` boundary and whether it is a permanent interop boundary or a compatibility shim.
 
 
 ## API surface

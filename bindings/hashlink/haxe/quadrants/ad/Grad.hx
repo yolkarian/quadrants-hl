@@ -1,7 +1,9 @@
 package quadrants.ad;
 
 import haxe.Int64;
+import quadrants.Field;
 import quadrants.FieldRuntime;
+import quadrants.Tensor;
 import quadrants.TensorRuntime;
 import quadrants.Types.DType;
 
@@ -11,6 +13,22 @@ class Grad {
   }
 
   public static function zeroDual(value:Dynamic):Void {
+    zeroPeer(value, "dual");
+  }
+
+  public static function zeroTensorGrad<T>(value:Tensor<T>):Void {
+    zeroPeer(value, "grad");
+  }
+
+  public static function zeroFieldGrad<T>(value:Field<T>):Void {
+    zeroPeer(value, "grad");
+  }
+
+  public static function zeroTensorDual<T>(value:Tensor<T>):Void {
+    zeroPeer(value, "dual");
+  }
+
+  public static function zeroFieldDual<T>(value:Field<T>):Void {
     zeroPeer(value, "dual");
   }
 

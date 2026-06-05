@@ -10,9 +10,9 @@ class FieldRuntime implements TensorHandle {
   public final context:Context;
   public final dtype:DType;
   public var shape(default, null):Array<Int> = null;
-  public var tensor:Dynamic = null;
-  public var gradField:Dynamic = null;
-  public var dualField:Dynamic = null;
+  public var tensor:TensorHandle = null;
+  public var gradField:FieldRuntime = null;
+  public var dualField:FieldRuntime = null;
   public var ownsTensor:Bool = false;
   public var snodeId(default, null):Int = -1;
   public var snodeTreeId(default, null):Int = -1;

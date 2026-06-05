@@ -9,15 +9,15 @@ import quadrants.Types.F32;
 import quadrants.Types.I32;
 
 class Select {
-  public static function deviceSelect(input:Dynamic,
+  public static function deviceSelect<T>(input:Tensor<T>,
       flags:Tensor<I32>,
-      output:Dynamic,
+      output:Tensor<T>,
       countOut:Tensor<I32>,
       ?n:Int = -1):Void {
-    var inputTensor = requireTensor(input, "input");
-    var flagsTensor = requireTensor(flags, "flags");
-    var outputTensor = requireTensor(output, "output");
-    var countOutTensor = requireTensor(countOut, "countOut");
+    var inputTensor:TensorRuntime = cast input;
+    var flagsTensor:TensorRuntime = cast flags;
+    var outputTensor:TensorRuntime = cast output;
+    var countOutTensor:TensorRuntime = cast countOut;
     requireSupportedDType(inputTensor, "input");
     requireDType(flagsTensor, DType.I32, "flags");
     requireSameDType(inputTensor, outputTensor, "output");
@@ -81,12 +81,6 @@ class Select {
     }
   }
 
-  static function requireTensor(value:Dynamic, name:String):TensorRuntime {
-    if (!Std.isOfType(value, TensorRuntime)) {
-      throw 'Quadrants ${name} must be a Tensor';
-    }
-    return cast value;
-  }
 
   static function requireSupportedDType(tensor:TensorRuntime, name:String):Void {
     switch (tensor.dtype) {

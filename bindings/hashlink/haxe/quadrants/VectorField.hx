@@ -9,7 +9,7 @@ import quadrants.Types.U32;
 import quadrants.packed.PackedVectorField;
 
 class VectorField<T> implements TensorHandle {
-  public final storage:Dynamic;
+  public final storage:Field<T>;
   final field:FieldRuntime;
   public final context:Context;
   public final shape:Array<Int>;
@@ -17,11 +17,11 @@ class VectorField<T> implements TensorHandle {
   public final components:Int;
   public final length:Int;
 
-  public function new(storage:Dynamic, components:Int) {
+  public function new(storage:Field<T>, components:Int) {
     if (components <= 0 || components > 4) {
       throw "Quadrants VectorField component count must be in 1...4";
     }
-    var runtime = requireField(storage);
+    var runtime:FieldRuntime = cast storage;
     if (runtime.shape == null || runtime.shape.length != 1) {
       throw "Quadrants VectorField storage must be a placed flat one-dimensional Field";
     }
@@ -54,7 +54,7 @@ class VectorField<T> implements TensorHandle {
     return new VectorField<F64>(new Field<F64>(context, [length * components]), components);
   }
 
-  public static function fromField<T>(storage:Dynamic, components:Int):VectorField<T> {
+  public static function fromField<T>(storage:Field<T>, components:Int):VectorField<T> {
     return new VectorField<T>(storage, components);
   }
 
@@ -147,13 +147,11 @@ class VectorField<T> implements TensorHandle {
   }
 
   public function lazyGrad():VectorField<T> {
-    var dynamicField:Dynamic = field;
-    return new VectorField<T>(dynamicField.grad, components);
+    return new VectorField<T>(storage.lazyGrad(), components);
   }
 
   public function lazyDual():VectorField<T> {
-    var dynamicField:Dynamic = field;
-    return new VectorField<T>(dynamicField.dual, components);
+    return new VectorField<T>(storage.lazyDual(), components);
   }
 
   public function syncBeforeKernel():Void {
@@ -174,10 +172,4 @@ class VectorField<T> implements TensorHandle {
     field.close();
   }
 
-  static function requireField(value:Dynamic):FieldRuntime {
-    if (!Std.isOfType(value, FieldRuntime)) {
-      throw "Quadrants VectorField storage must be a Field";
-    }
-    return cast value;
-  }
 }

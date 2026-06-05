@@ -1,6 +1,7 @@
 package quadrants.snode;
 
 import quadrants.Context;
+import quadrants.Field;
 import quadrants.FieldRuntime;
 import quadrants.FieldsBuilder;
 import quadrants.FieldsBuilder.FieldPlacementStep;
@@ -42,6 +43,14 @@ class FieldPlacementPath {
 
   public function lazyDual(field:Dynamic):Dynamic {
     return FieldTree.lazyDual(field);
+  }
+
+  public function lazyFieldGrad<T>(field:Field<T>):Field<T> {
+    return FieldTree.lazyFieldGrad(field);
+  }
+
+  public function lazyFieldDual<T>(field:Field<T>):Field<T> {
+    return FieldTree.lazyFieldDual(field);
   }
 
   public function toString():String {

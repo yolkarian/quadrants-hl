@@ -1,7 +1,7 @@
 package quadrants.packed;
 
 class Helpers {
-  public static function classes():Array<Dynamic> {
-    return [PackedHelpers];
+  public static function classes():Array<Class<Dynamic>> {
+    return [cast PackedHelpers];
   }
 }

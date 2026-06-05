@@ -132,7 +132,7 @@ The first tranche provides `BlockReduce` (`reduceAdd/Min/Max` for I32/F32 and ti
 
 ## Algorithms module
 
-`quadrants.algorithms` derives the context from passed tensors and currently supports scalar `Tensor<I32>` and `Tensor<F32>`:
+`quadrants.algorithms` derives the context from passed tensors and currently supports scalar `Tensor<I32>` and `Tensor<F32>`. Input/output dtype relationships are generic and typed: mismatched algorithm tensors fail during Haxe compilation instead of falling through to runtime dtype checks.
 
 ```haxe
 var values = new Tensor<I32>(ctx, [4]);
@@ -145,6 +145,8 @@ var executor = new PrefixSumExecutor(ctx);
 executor.deviceExclusiveScanAdd(values, out);
 executor.close();
 ```
+
+The same typed contract is used by `Select.deviceSelect<T>(input:Tensor<T>, flags:Tensor<I32>, output:Tensor<T>, countOut:Tensor<I32>, ?n)` and `ReduceByKey.deviceReduceByKeyAdd<T>(keys:Tensor<I32>, values:Tensor<T>, outKeys:Tensor<I32>, outValues:Tensor<T>, countOut:Tensor<I32>, ?n)`.
 
 | Algorithm family | CPU | CUDA/AMDGPU/Vulkan/Metal |
 | --- | --- | --- |
@@ -174,18 +176,20 @@ k.launch(positions, out);
 
 `readVec2/3/4` and `writeVec2/3/4` lower to scalar loads/stores and produce normal kernel `Vector<T>` locals. `readMat2/3/4` and `writeMat2/3/4` do the same for row-major `Matrix<T>` locals. Host-side `read(...)`, `write(...)`, `toVectors()`, and `toMatrices()` are convenience wrappers over the same flat storage.
 
-`StructField` is the first-class SOA struct container:
+`StructField` is the first-class SOA struct container. String-keyed APIs remain available for compatibility, but new code should use `StructMember<T>` handles so member reads and writes keep value types in Haxe:
 
 ```haxe
 var mass = new Field<F32>(ctx, [particleCount]);
 var id = new Field<I32>(ctx, [particleCount]);
+var massMember = new StructMember<F32>("mass");
+var idMember = new StructMember<I32>("id");
 var particles = new StructField()
-  .add("mass", mass)
-  .add("id", id);
-particles.write("id", 0, 7);
+  .addMember(massMember, mass)
+  .addMember(idMember, id);
+particles.writeMember(idMember, 0, 7);
 ```
 
-Pass struct members (`particles.member("mass")`, etc.) to kernels when device code needs them; whole-struct kernel parameters remain deferred until the descriptor ABI has heterogeneous member metadata.
+Pass struct members (`particles.memberBy(massMember)`, etc.) to kernels when device code needs them; whole-struct kernel parameters remain deferred until the descriptor ABI has heterogeneous member metadata. The old `add("name", value)`, `member("name")`, `read("name", i)`, and `write("name", i, value)` methods are compatibility shims and are listed in the retained-`Dynamic` ledger.
 
 Migration from the Phase 6 workaround layer is explicit and lossless for the supported layouts:
 
@@ -199,7 +203,7 @@ var packedAgain = positions.toPacked();
 | --- | --- | --- | --- |
 | `VectorNdarray<T>` / `MatrixNdarray<T>` | Flat AOS primitive `Tensor<T>` storage. | Direct parameter; `readVec*` / `writeVec*` / `readMat*` / `writeMat*` lower to scalar IR. | `fromPacked(...)` / `toPacked()`. |
 | `VectorField<T>` / `MatrixField<T>` | Flat AOS primitive `Field<T>` storage; placed fields synchronize through their tensor mirror before/after launch. | Direct parameter through `TensorHandle`; same compound read/write methods. | `fromPacked(...)` / `toPacked()`. |
-| `StructField` | SOA: one placed primitive `Field<T>` per member. | Pass members as normal field parameters. | `fromStructOfArrays(...)` / `toStructOfArrays()`. |
+| `StructField` | SOA: one placed primitive `Field<T>` per typed `StructMember<T>`. | Pass members as normal field parameters. | `fromStructOfArrays(...)` / `toStructOfArrays()`. |
 
 Backend behavior: CPU runtime tests cover host storage, direct compound kernel parameters, placed field synchronization, and range-assumption lowering. CUDA/AMDGPU/Vulkan/Metal receive the same descriptor and native ndarray ABI when those backends support the underlying scalar tensor/field operations.
 
@@ -236,12 +240,12 @@ The workaround layout is deliberately explicit:
 
 | Container | Host layout | Kernel helper behavior |
 | --- | --- | --- |
-| `PackedVectorTensor<T>` / `PackedVectorField<T>` | Flat primitive storage with `length * components` elements; constructors also accept pre-existing storage whose trailing dimension matches `components`. | `PackedHelpers.readVec2/3/4I32/F32` and `writeVec2/3/4I32/F32` lower to flat scalar loads/stores. |
-| `PackedMatrixTensor<T>` / `PackedMatrixField<T>` | Flat primitive storage with `length * rows * cols` elements; constructors also accept pre-existing storage whose trailing dimensions match `rows, cols`. | `PackedHelpers.readMat2I32/F32`, `readMat3I32`, and `readMat4I32` lower to row-major scalar matrix locals. |
-| `StructOfArraysField` | One primitive field per named member, all placed with the same shape and context. | Pass the member field to kernels; `PackedHelpers.readMember*` / `writeMember*` lower to scalar loads/stores. |
-| `PackedStructTensor` | One primitive tensor per named member, all with the same shape and context. | Pass the member tensor to kernels; helper calls lower to scalar loads/stores. |
+| `PackedVectorTensor<T>` / `PackedVectorField<T>` | Flat primitive `Tensor<T>` / `Field<T>` storage with `length * components` elements; constructors also accept pre-existing typed storage whose trailing dimension matches `components`. | `PackedHelpers.readVec2/3/4I32/F32` and `writeVec2/3/4I32/F32` lower to flat scalar loads/stores. |
+| `PackedMatrixTensor<T>` / `PackedMatrixField<T>` | Flat primitive `Tensor<T>` / `Field<T>` storage with `length * rows * cols` elements; constructors also accept pre-existing typed storage whose trailing dimensions match `rows, cols`. | `PackedHelpers.readMat2I32/F32`, `readMat3I32`, and `readMat4I32` lower to row-major scalar matrix locals. |
+| `StructOfArraysField` | One primitive field per typed `StructMember<T>`, all placed with the same shape and context. | Pass the member field to kernels; `PackedHelpers.readMember*` / `writeMember*` lower to scalar loads/stores. |
+| `PackedStructTensor` | One primitive tensor per typed `StructMember<T>`, all with the same shape and context. | Pass the member tensor to kernels; helper calls lower to scalar loads/stores. |
 
-These names remain intentionally `Packed*` / `StructOfArrays*` for workaround code. Prefer `VectorNdarray`, `MatrixNdarray`, `VectorField`, `MatrixField`, and `StructField` for new first-class compound storage, and use the adapter methods when migrating existing packed code.
+These names remain intentionally `Packed*` / `StructOfArrays*` for workaround code. Prefer `VectorNdarray`, `MatrixNdarray`, `VectorField`, `MatrixField`, and `StructField` for new first-class compound storage, use `StructMember<T>` handles for typed member access, and use the adapter methods when migrating existing packed code.
 
 ## FieldsBuilder, SNode helpers, and loop controls
 
@@ -252,10 +256,10 @@ var a = new Field<I32>(ctx);
 var b = new Field<I32>(ctx);
 var path = ctx.root.dense(Axis.i, 1024).finalize();
 path.placeMany([cast a, cast b]);
-var grad = FieldTree.lazyGrad(a);
+var grad = FieldTree.lazyFieldGrad(a);
 ```
 
-Calling `finalize()` prevents further mutation of that builder until `destroy()` is called, but the returned `FieldPlacementPath` can keep placing compatible fields. `FieldTree.lazyGrad(...)` and `lazyDual(...)` expose the standard field gradient/dual allocation flow for individual fields or arrays of fields.
+Calling `finalize()` prevents further mutation of that builder until `destroy()` is called, but the returned `FieldPlacementPath` can keep placing compatible fields. `FieldTree.lazyFieldGrad(...)`, `lazyFieldDual(...)`, `lazyFieldGrads(...)`, and `lazyFieldDuals(...)` expose typed field gradient/dual allocation flows; the older `lazyGrad` / `lazyDual` names remain compatibility shims for heterogeneous field lists.
 
 Loop controls are available either as the existing kernel DSL calls or through the central wrapper:
 
@@ -301,12 +305,15 @@ Tape lifecycle helpers keep recording explicit:
 ```haxe
 Tape.runBackward(function(tape) {
   tape.launch(lossKernel, x, loss, n);
-  Grad.clearAllGradients(x, loss);
+  Grad.zeroTensorGrad(x);
+  Grad.zeroTensorGrad(loss);
   loss.grad.fill(1.0);
 }, true);
 ```
 
 `GradCheck.checkTensorToScalar(kernel, args, input, loss)` compares reverse-mode gradients with central finite differences for F32 tensor inputs and a one-element F32 loss tensor. `CustomGradient` pairs caller-provided forward/backward kernels for explicit tape recording; it does not emulate Python decorators.
+
+`Grad.zeroGrad`, `zeroDual`, and `clearAllGradients` remain heterogeneous compatibility helpers. Prefer `zeroTensorGrad`, `zeroFieldGrad`, `zeroTensorDual`, and `zeroFieldDual` when the value kind is statically known.
 
 `Coverage.enable()` records kernel builds, launches, and descriptor source-span probe counts. `Coverage.flush(path)` writes JSON artifacts. `Diagnostics.descriptorDump(kernel)`, `Diagnostics.kernelInfo(kernel)`, `Diagnostics.valueInfo(value)`, and `Diagnostics.health(ctx)` are host-side inspection helpers.
 
