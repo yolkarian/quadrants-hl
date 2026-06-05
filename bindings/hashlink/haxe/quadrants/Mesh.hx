@@ -1,5 +1,13 @@
 package quadrants;
 
+import quadrants.Field;
+import quadrants.mesh.MeshAttribute;
+import quadrants.mesh.MeshDomain;
+import quadrants.mesh.MeshElement;
+import quadrants.mesh.MeshElementKind;
+import quadrants.mesh.MeshKinds;
+import quadrants.mesh.MeshRelation;
+
 enum abstract MeshElementType(Int) from Int to Int {
   var Vertex = 0;
   var Edge = 1;
@@ -76,6 +84,27 @@ class Mesh {
     return values[neighborIndex];
   }
 
+
+  public function domain<T>(kind:MeshElementKind<T>):MeshDomain<T> {
+    return new MeshDomain(this, kind);
+  }
+
+  public function element<T>(kind:MeshElementKind<T>, index:Int):MeshElement<T> {
+    return new MeshElement(this, kind, index);
+  }
+
+  public function relation<From, To>(from:MeshElementKind<From>, to:MeshElementKind<To>):MeshRelation<From, To> {
+    return new MeshRelation(this, from, to);
+  }
+
+  public function attribute<Element, Value>(kind:MeshElementKind<Element>, storage:Field<Value>):MeshAttribute<Element, Value> {
+    return new MeshAttribute(this, kind, storage);
+  }
+
+  public function typedVertices():MeshDomain<quadrants.mesh.Vertex> return domain(MeshKinds.vertex);
+  public function typedEdges():MeshDomain<quadrants.mesh.Edge> return domain(MeshKinds.edge);
+  public function typedFaces():MeshDomain<quadrants.mesh.Face> return domain(MeshKinds.face);
+  public function typedCells():MeshDomain<quadrants.mesh.Cell> return domain(MeshKinds.cell);
   public function vertices():Iterator<Int> return 0...counts[MeshElementType.Vertex];
   public function edges():Iterator<Int> return 0...counts[MeshElementType.Edge];
   public function faces():Iterator<Int> return 0...counts[MeshElementType.Face];

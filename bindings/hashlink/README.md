@@ -154,6 +154,10 @@ var k = Kernel.build(ctx, macro (input:Tensor<I32>, out:Tensor<I32>) -> {
 
 `CompilerHints.assumeInRange(value, base, low, high)` lowers to the native range-assumption IR expression. Other deep compiler hints remain unavailable unless the runtime/compiler exposes a concrete hook.
 
+`quadrants.mesh` adds typed host-side mesh domains, elements, relations, and attributes (`MeshKinds.vertex`, `MeshRelation<Vertex, Face>`, `MeshAttribute<Vertex, T>`). Kernel mesh-for remains the descriptor-backed loop primitive; relation access and mesh attributes inside kernels are explicitly deferred until native descriptor metadata exists.
+
+`quadrants.quant` adds typed quant storage descriptors (`QuantBits`, `QuantSignedness`, `QuantStorageSpec<T>`) and a Haxe-only `QuantizedF32Tensor` reference container backed by `Tensor<I32>`. Native quant SNode placement and quantized kernel parameters are intentionally not exposed.
+
 `bindings/hashlink/haxe/quadrants/DYNAMIC_BOUNDARIES.md` records every retained public `Dynamic` boundary and whether it is a permanent interop boundary or a compatibility shim.
 
 

@@ -46,7 +46,7 @@ A `BufferView<T>` kernel parameter is flattened at launch to the underlying tens
 - `for (I in Ndrange.of(a, b, ...))` one- to four-dimensional nested range loops from zero, or `Ndrange.ranges(begin0, end0, ...)` for explicit begin/end pairs; use `I[0]`, `I[1]`, ... inside the body.
 - `for (i in fieldOrTensor)` or `for (i in Grouped.of(fieldOrTensor))` struct-for over a direct `Field<T>` or `Tensor<T>` parameter.
 - `for (i in Static.range(begin, end))` static loops over integer literals; `Static.value(literal)` can wrap compile-time literal constants used in static bounds or expressions.
-- `for (v in Mesh.forVertices(count))`, `Mesh.forEdges(count)`, `Mesh.forFaces(count)`, or `Mesh.forCells(count)` static mesh-for over a non-negative integer literal count. Current mesh-for support covers loop indices and no relation access.
+- `for (v in Mesh.forVertices(count))`, `Mesh.forEdges(count)`, `Mesh.forFaces(count)`, or `Mesh.forCells(count)` static mesh-for over a non-negative integer literal count. Current kernel mesh-for support covers loop indices only. Typed host-side `quadrants.mesh.MeshRelation` / `MeshAttribute` handles do not imply kernel relation or attribute access.
 - `while` loops.
 - `break` and `continue` inside loops.
 - `if` / `else` statements. Literal `if (true)` / `if (false)` and `if (Static.value(trueOrFalse))` conditions are expanded at macro time.

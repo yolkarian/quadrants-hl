@@ -274,6 +274,37 @@ var k = Kernel.build(ctx, macro (out:Tensor<I32>) -> {
 
 Compiler-hint recipes remain explicit Haxe patterns: use `CompilerHints.assumeInRange(...)` for native range assumptions, `Shared.array*` / `Shared.tile16*` for manual shared-memory staging, `kernelRead`/`kernelWrite` in helper classes for flattened helper access, and tile load/store idioms built from `Block.threadIdx()` plus `Block.sync()`. True quant placement and compiler-level `noActivate` remain deferred.
 
+## Typed mesh and quant contracts
+
+`quadrants.mesh` provides typed host-side handles for mesh domains, elements, relations, and attributes:
+
+```haxe
+var mesh = new Mesh(3, 0, 1);
+var vertices = mesh.typedVertices();
+var faces = mesh.typedFaces();
+var v0 = vertices.get(0);
+var f0 = faces.get(0);
+var vertexToFace = mesh.relation(MeshKinds.vertex, MeshKinds.face);
+vertexToFace.set(v0, [f0]);
+
+var mass = new Field<I32>(ctx, [vertices.count()]);
+var massAttr = mesh.attribute(MeshKinds.vertex, mass);
+massAttr.write(v0, 7);
+```
+
+The relation handle type encodes the valid source and target domains, so passing an edge to a vertex-to-face relation is a compile-time error. This is currently a typed host contract; kernel-side mesh relation access, mesh attributes, and index-conversion lowering remain explicitly deferred until the native descriptor/bridge has typed relation metadata.
+
+`quadrants.quant` provides typed storage descriptors and a Haxe-only reference quantized tensor:
+
+```haxe
+var spec = Quant.fixedF32(QuantBits.Bits8, QuantSignedness.Signed, 4);
+var q = new QuantizedF32Tensor(ctx, [n], spec);
+q.write(0, 1.5);
+var raw:I32 = q.readRaw(0);
+```
+
+`QuantBits` is an enum abstract rather than an `Int`, so invalid bit-width parameters fail at compile time. Native quantized SNode placement and quantized kernel parameters are not public APIs in this release line; use the compile-fail suite as the contract for unsupported operations.
+
 ## Sparse/linalg and profiler bridge
 
 `quadrants.linalg` is a native bridge namespace distinct from any host-only helper types:

@@ -28,6 +28,20 @@ class FieldPlacementPath {
     return field;
   }
 
+  public function placeField<T>(field:Field<T>):Field<T> {
+    place(cast field);
+    return field;
+  }
+
+  public function placeFields<T>(fields:Array<Field<T>>):Void {
+    if (fields == null || fields.length == 0) {
+      throw "Quadrants typed field placement path requires at least one field";
+    }
+    for (field in fields) {
+      placeField(field);
+    }
+  }
+
   public function placeMany(fields:Array<FieldRuntime>):Void {
     if (fields == null || fields.length == 0) {
       throw "Quadrants field placement path requires at least one field";
