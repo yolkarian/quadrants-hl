@@ -124,6 +124,7 @@ enum class ExprOpcode : std::uint8_t {
   block_barrier_count = 84,
   atomic_compare_exchange = 85,
   rand = 86,
+  assume_in_range = 87,
 };
 
 enum class StmtOpcode : std::uint8_t {
@@ -204,6 +205,8 @@ struct ExpressionDescriptor {
   std::uint32_t index{0};
   std::uint32_t axis{0};
   DescriptorDType cast_dtype{DescriptorDType::i32};
+  std::int32_t range_low{0};
+  std::int32_t range_high{0};
   std::unique_ptr<ExpressionDescriptor> target;
   std::vector<std::unique_ptr<ExpressionDescriptor>> indices;
   std::unique_ptr<ExpressionDescriptor> lhs;

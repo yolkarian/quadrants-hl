@@ -237,6 +237,7 @@ private class DescriptorBuilder {
   static inline var EXPR_BLOCK_BARRIER_COUNT = 84;
   static inline var EXPR_ATOMIC_COMPARE_EXCHANGE = 85;
   static inline var EXPR_RAND = 86;
+  static inline var EXPR_ASSUME_IN_RANGE = 87;
 
   static inline var STMT_LOCAL_ALLOC = 1;
   static inline var STMT_STORE_INDEX = 2;
@@ -611,6 +612,10 @@ private class DescriptorBuilder {
     if (packedCount != null) {
       return packedCount;
     }
+    var compoundCount = encodeCompoundWriteStatement(callee, args, writer, pos);
+    if (compoundCount != null) {
+      return compoundCount;
+    }
     var writeTarget = tensorMethodTarget(callee, "write");
     if (writeTarget == null) {
       writeTarget = tensorMethodTarget(callee, "kernelWrite");
@@ -745,6 +750,112 @@ private class DescriptorBuilder {
     }
     return width;
   }
+
+  function encodeCompoundWriteStatement(callee:Expr, args:Array<Expr>, writer:ByteWriter, pos:Position):Null<Int> {
+    return switch (strip(callee).expr) {
+      case EField(base, method):
+        var width = compoundVectorWidth(method, "writeVec");
+        var isMatrix = false;
+        var matrixDim = 0;
+        if (width < 0) {
+          matrixDim = compoundMatrixDim(method, "writeMat");
+          if (matrixDim > 0) {
+            width = matrixDim * matrixDim;
+            isMatrix = true;
+          }
+        }
+        if (width < 0) {
+          null;
+        } else {
+          if (args.length != 2) {
+            Context.error("Quadrants compound write expects index and value", pos);
+          }
+          var dtype = arrayBaseDType(base, pos);
+          var valueExpressions:Array<Expr>;
+          if (isMatrix) {
+            var name = directMatrixName(args[1]);
+            if (name != null) {
+              valueExpressions = [for (component in 0...width) matrixElementExpr(name, Std.int(component / matrixDim), component % matrixDim, pos)];
+            } else {
+              var init = matrixInitializer(args[1]);
+              if (init == null || init.rows != matrixDim || init.cols != matrixDim) {
+                Context.error("Quadrants compound matrix write value must be a matching kernel matrix", args[1].pos);
+              }
+              valueExpressions = init.values;
+            }
+          } else {
+            var name = directVectorName(args[1]);
+            if (name != null) {
+              valueExpressions = [for (component in 0...width) vectorComponentExpr(name, component, pos)];
+            } else {
+              var init = vectorInitializer(args[1]);
+              if (init == null || init.values.length != width) {
+                Context.error("Quadrants compound vector write value must be a matching kernel vector", args[1].pos);
+              }
+              valueExpressions = init.values;
+            }
+          }
+          for (component in 0...width) {
+            writer.u8(STMT_STORE_INDEX);
+            encodeArrayBase(base, writer, 1);
+            writer.u32(1);
+            encodeArrayIndices(base, [packedOffsetExpr(args[0], width, component, pos)], writer);
+            encodeExpressionWithExpectedDType(valueExpressions[component], dtype, writer);
+          }
+          width;
+        }
+      default:
+        null;
+    };
+  }
+
+  function compoundVectorWidth(method:String, prefix:String):Int {
+    if (!StringTools.startsWith(method, prefix)) {
+      return -1;
+    }
+    return switch (method.substr(prefix.length)) {
+      case "2": 2;
+      case "3": 3;
+      case "4": 4;
+      default: -1;
+    };
+  }
+
+  function compoundMatrixDim(method:String, prefix:String):Int {
+    if (!StringTools.startsWith(method, prefix)) {
+      return -1;
+    }
+    return switch (method.substr(prefix.length)) {
+      case "2": 2;
+      case "3": 3;
+      case "4": 4;
+      default: -1;
+    };
+  }
+
+  function arrayBaseDType(base:Expr, pos:Position):Int {
+    return switch (strip(base).expr) {
+      case EConst(CIdent(name)):
+        var inlineArg = lookupInlineArg(name);
+        if (inlineArg != null && directIdentifier(inlineArg) != name) {
+          inferExpressionDType(inlineArg);
+        } else {
+          var localId = lookupLocal(name);
+          if (localId != null) {
+            locals[localId].dtype;
+          } else {
+            var paramId = paramIds.get(name);
+            if (paramId == null) {
+              Context.error('Quadrants ndarray ${name} is not a kernel parameter', pos);
+            }
+            params[paramId].dtype;
+          }
+        }
+      default:
+        DTYPE_I32;
+    };
+  }
+
 
   function packedOffsetExpr(index:Expr, width:Int, component:Int, pos:Position):Expr {
     var offset = binaryExpr(OpMult, index, intLiteralExpr(width, pos), pos);
@@ -1410,6 +1521,8 @@ private class DescriptorBuilder {
   }
 
   function matrixConstructorInitializer(callee:Expr, args:Array<Expr>, pos:Position):Null<MatrixInitInfo> {
+    var compound = compoundMatrixReadInitializer(callee, args, pos);
+    if (compound != null) return compound;
     var path = callPath(callee, pos);
     var packed = packedMatrixReadInitializer(path, args, pos);
     if (packed != null) return packed;
@@ -1447,6 +1560,23 @@ private class DescriptorBuilder {
       Context.error('Quadrants ${typeName}.${method} expects ${expected} row-major arguments', pos);
     }
     return {values: args, rows: dim, cols: dim, dtype: vectorFactoryDType(method, pos)};
+  }
+
+  function compoundMatrixReadInitializer(callee:Expr, args:Array<Expr>, pos:Position):Null<MatrixInitInfo> {
+    return switch (strip(callee).expr) {
+      case EField(base, method):
+        var dim = compoundMatrixDim(method, "readMat");
+        if (dim < 0) {
+          null;
+        } else {
+          if (args.length != 1) {
+            Context.error("Quadrants compound matrix read expects one index", pos);
+          }
+          {values: packedReadValues(base, args[0], dim * dim, pos), rows: dim, cols: dim, dtype: arrayBaseDType(base, pos)};
+        }
+      default:
+        null;
+    };
   }
 
   function packedMatrixReadInitializer(path:String, args:Array<Expr>, pos:Position):Null<MatrixInitInfo> {
@@ -1644,6 +1774,8 @@ private class DescriptorBuilder {
   }
 
   function vectorConstructorInitializer(callee:Expr, args:Array<Expr>, pos:Position):Null<VectorInitInfo> {
+    var compound = compoundVectorReadInitializer(callee, args, pos);
+    if (compound != null) return compound;
     var path = callPath(callee, pos);
     var packed = packedVectorReadInitializer(path, args, pos);
     if (packed != null) return packed;
@@ -1675,6 +1807,23 @@ private class DescriptorBuilder {
       Context.error('Quadrants ${typeName}.${method} expects ${dim} arguments', pos);
     }
     return {values: args, dtype: vectorFactoryDType(method, pos)};
+  }
+
+  function compoundVectorReadInitializer(callee:Expr, args:Array<Expr>, pos:Position):Null<VectorInitInfo> {
+    return switch (strip(callee).expr) {
+      case EField(base, method):
+        var width = compoundVectorWidth(method, "readVec");
+        if (width < 0) {
+          null;
+        } else {
+          if (args.length != 1) {
+            Context.error("Quadrants compound vector read expects one index", pos);
+          }
+          {values: packedReadValues(base, args[0], width, pos), dtype: arrayBaseDType(base, pos)};
+        }
+      default:
+        null;
+    };
   }
 
   function packedVectorReadInitializer(path:String, args:Array<Expr>, pos:Position):Null<VectorInitInfo> {
@@ -2300,6 +2449,10 @@ private class DescriptorBuilder {
       encodeAtanCall(args, writer, pos);
       return;
     }
+    if (path == "CompilerHints.assumeInRange" || path == "quadrants.CompilerHints.assumeInRange") {
+      encodeAssumeInRangeCall(args, writer, pos);
+      return;
+    }
     if (isStaticValueCall(callee)) {
       if (args.length != 1) {
         Context.error("Quadrants Static.value expects one argument", pos);
@@ -2316,6 +2469,7 @@ private class DescriptorBuilder {
       readMethodBase = args[0];
       args = [args[1]];
     }
+
     var shapeMethodBase = shapeMethodTarget(callee);
     if (encodePackedMemberReadCall(path, args, writer, pos)) {
       return;
@@ -2391,6 +2545,22 @@ private class DescriptorBuilder {
       return;
     }
     Context.error('Unsupported Quadrants HashLink function call ${name}', pos);
+  }
+
+  function encodeAssumeInRangeCall(args:Array<Expr>, writer:ByteWriter, pos:Position):Void {
+    if (args.length != 4) {
+      Context.error("Quadrants CompilerHints.assumeInRange expects value, base, low, and high", pos);
+    }
+    var low = staticIntLiteral(args[2], args[2].pos);
+    var high = staticIntLiteral(args[3], args[3].pos);
+    if (high <= low) {
+      Context.error("Quadrants CompilerHints.assumeInRange high bound must be greater than low bound", pos);
+    }
+    writer.u8(EXPR_ASSUME_IN_RANGE);
+    encodeExpression(args[0], writer);
+    encodeExpression(args[1], writer);
+    writer.i32(low);
+    writer.i32(high);
   }
 
 
@@ -3019,7 +3189,7 @@ private class DescriptorBuilder {
                   }
                 }
               default:
-                DTYPE_I32;
+                Context.error('Quadrants ndarray base must be a simple identifier', expr.pos);
             }
           }
         }
@@ -3056,6 +3226,8 @@ private class DescriptorBuilder {
             if (atomicExpressionOpcode(name) != null && args.length > 0) {
               inferExpressionDType(args[0]);
             } else if (path == "Static.value" || path == "quadrants.Static.value") {
+              inferExpressionDType(args[0]);
+            } else if ((path == "CompilerHints.assumeInRange" || path == "quadrants.CompilerHints.assumeInRange") && args.length > 0) {
               inferExpressionDType(args[0]);
             } else if ((name == "min" || name == "max" || name == "atan2" || name == "pow") && args.length == 2) {
               promoteDType(inferExpressionDType(args[0]), inferExpressionDType(args[1]));
@@ -3354,7 +3526,12 @@ private class DescriptorBuilder {
 
   function isTensorPath(path:TypePath):Bool {
     var fullName = typePathName(path);
-    return fullName == "Tensor" || fullName == "quadrants.Tensor" || fullName == "Field" || fullName == "quadrants.Field";
+    return fullName == "Tensor" || fullName == "quadrants.Tensor"
+      || fullName == "Field" || fullName == "quadrants.Field"
+      || fullName == "VectorNdarray" || fullName == "quadrants.VectorNdarray"
+      || fullName == "MatrixNdarray" || fullName == "quadrants.MatrixNdarray"
+      || fullName == "VectorField" || fullName == "quadrants.VectorField"
+      || fullName == "MatrixField" || fullName == "quadrants.MatrixField";
   }
 
   function isBufferViewComplexType(type:Null<ComplexType>):Bool {

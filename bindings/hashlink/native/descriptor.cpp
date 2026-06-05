@@ -253,6 +253,12 @@ std::unique_ptr<ExpressionDescriptor> parse_expression(DescriptorReader &reader,
     case ExprOpcode::rand:
       expr->cast_dtype = parse_dtype(reader.read_u8());
       break;
+    case ExprOpcode::assume_in_range:
+      expr->operand = parse_expression(reader, descriptor, depth + 1);
+      expr->value = parse_expression(reader, descriptor, depth + 1);
+      expr->range_low = reader.read_i32();
+      expr->range_high = reader.read_i32();
+      break;
     case ExprOpcode::atomic_add:
     case ExprOpcode::atomic_sub:
     case ExprOpcode::atomic_min:
@@ -643,6 +649,12 @@ class LoweringContext {
       case ExprOpcode::subgroup_broadcast:
         return lower_internal_call(lower_internal_expr_opcode(expr.opcode),
                                    {lower_expression(*expr.lhs), lower_expression(*expr.rhs)});
+      case ExprOpcode::assume_in_range:
+        return type_checked(lang::assume_range(lower_expression(*expr.operand),
+                                               lower_expression(*expr.value),
+                                               expr.range_low,
+                                               expr.range_high,
+                                               debug_info_));
       case ExprOpcode::binary_add:
       case ExprOpcode::binary_sub:
       case ExprOpcode::binary_mul:

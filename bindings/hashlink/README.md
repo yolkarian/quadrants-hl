@@ -146,14 +146,18 @@ var k = Kernel.build(ctx, macro (input:Tensor<I32>, out:Tensor<I32>) -> {
 
 `quadrants.packed` provides workaround storage for non-scalar data without claiming final native compound-field parity. `PackedVectorTensor` / `PackedVectorField` and `PackedMatrixTensor` / `PackedMatrixField` store logical vectors or matrices in flat primitive storage, while `PackedStructTensor` and `StructOfArraysField` keep named primitive members in separate tensors/fields. Kernel helper calls such as `PackedHelpers.readVec2I32(...)` and `PackedHelpers.writeVec2I32(...)` lower to scalar tensor loads/stores.
 
+`VectorNdarray`, `MatrixNdarray`, `VectorField`, `MatrixField`, and `StructField` are the first-class compound storage names. Vector/matrix containers are flat primitive tensors/fields with native `TensorHandle` launch behavior and kernel methods such as `readVec2(...)`, `writeVec2(...)`, `readMat2(...)`, and `writeMat2(...)`; `StructField` keeps named field members in a supported SOA layout. `fromPacked(...)` / `toPacked()` adapters preserve the Phase 6 migration path.
+
 `FieldsBuilder.placeMany(...)`, `FieldsBuilder.finalize()`, `quadrants.snode.FieldPlacementPath`, `quadrants.snode.FieldTree`, and `quadrants.runtime.LoopConfig` centralize placement and loop-control ergonomics while keeping explicit `Context` ownership.
 
 `quadrants.linalg` exposes the first native sparse bridge: `SparseMatrix`, `SparseMatrixBuilder`, `SparseSolver`, and `SparseCG` for F32 sparse CPU/runtime smoke usage. `quadrants.profiler.ProfilerBridge` reports profiler feature availability and `ScopedProfiler.run(...)` wraps named profiler scopes.
 
+`CompilerHints.assumeInRange(value, base, low, high)` lowers to the native range-assumption IR expression. Other deep compiler hints remain unavailable unless the runtime/compiler exposes a concrete hook.
+
 
 ## API surface
 
-The supported public API includes `Context`, `quadrants.runtime.Runtime` / `Session`, `Kernel`, primitive `Tensor` ndarrays, streams/events, profiler queries, `quadrants.simt` helpers, `quadrants.algorithms`, `quadrants.ad` workflow utilities, `quadrants.coverage.Coverage`, `quadrants.compat.Diagnostics`, `quadrants.packed` workaround containers, `quadrants.snode` builder helpers, `quadrants.linalg` sparse bridge APIs, `quadrants.profiler` bridge helpers, `Arch`, and `DType`. Python decorators, NumPy/Torch interop, and Python environment integrations are not part of this HashLink package.
+The supported public API includes `Context`, `quadrants.runtime.Runtime` / `Session`, `Kernel`, primitive `Tensor` ndarrays, streams/events, profiler queries, `quadrants.simt` helpers, `quadrants.algorithms`, `quadrants.ad` workflow utilities, `quadrants.coverage.Coverage`, `quadrants.compat.Diagnostics`, first-class `VectorNdarray` / `MatrixNdarray` / `VectorField` / `MatrixField` / `StructField` compound containers, `CompilerHints.assumeInRange`, `quadrants.packed` workaround containers, `quadrants.snode` builder helpers, `quadrants.linalg` sparse bridge APIs, `quadrants.profiler` bridge helpers, `Arch`, and `DType`. Python decorators, NumPy/Torch interop, and Python environment integrations are not part of this HashLink package.
 
 ## Troubleshooting
 

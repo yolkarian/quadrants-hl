@@ -128,12 +128,22 @@ class Kernel {
     return nativeArgs;
   }
 
+
+  function callOptionalSync(value:Dynamic, methodName:String):Void {
+    var method = Reflect.field(value, methodName);
+    if (method != null) {
+      Reflect.callMethod(value, method, []);
+    }
+  }
+
   function syncFieldArgsToTensor(values:Array<Dynamic>):Void {
     for (value in values) {
       if (Std.isOfType(value, FieldRuntime)) {
         var field = (cast value : FieldRuntime);
         field.syncSNodeToTensor();
         field.syncAutodiffPeersToTensor();
+      } else {
+        callOptionalSync(value, "syncBeforeKernel");
       }
     }
   }
@@ -144,6 +154,8 @@ class Kernel {
         var field = (cast value : FieldRuntime);
         field.syncTensorToSNode();
         field.syncAutodiffPeersFromTensor();
+      } else {
+        callOptionalSync(value, "syncAfterKernel");
       }
     }
   }

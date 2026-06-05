@@ -43,6 +43,7 @@ class Main {
     TestPackedCompoundRuntime.run();
     TestBuilderControlDslRuntime.run();
     TestSparseProfilerBridgeRuntime.run();
+    TestCompoundParityRuntime.run();
 
     TestRuntimeSupport.closeSharedContexts();
     Sys.println("hashlink tests ok");

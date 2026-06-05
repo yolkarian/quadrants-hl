@@ -121,6 +121,7 @@ ExprOpcode parse_expr_opcode(std::uint8_t value) {
     case ExprOpcode::block_barrier_and:
     case ExprOpcode::block_barrier_or:
     case ExprOpcode::block_barrier_count:
+    case ExprOpcode::assume_in_range:
       return static_cast<ExprOpcode>(value);
   }
   throw std::runtime_error("HashLink kernel descriptor uses an unsupported expression opcode");

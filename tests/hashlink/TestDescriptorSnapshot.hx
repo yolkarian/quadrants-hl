@@ -1,4 +1,5 @@
 import quadrants.Kernel;
+import quadrants.CompilerHints;
 import quadrants.Block;
 import quadrants.Vec3;
 import quadrants.Vector;
@@ -7,9 +8,11 @@ import quadrants.Shared;
 import quadrants.Struct;
 import quadrants.Mat2;
 import quadrants.Matrix;
+import quadrants.MatrixNdarray;
 import quadrants.Tensor;
 import quadrants.Field;
 import quadrants.Mesh;
+import quadrants.VectorNdarray;
 import quadrants.Types.I8;
 import quadrants.Types.I32;
 import quadrants.Types.I64;
@@ -40,6 +43,7 @@ class TestDescriptorSnapshot {
   static inline var SECTION_FUNCTIONS = 8;
   static inline var STMT_RETURN_VALUE = 12;
   static inline var EXPR_CAST = 25;
+  static inline var EXPR_ASSUME_IN_RANGE = 87;
   static inline var STMT_MESH_FOR = 36;
 
   static function sectionOffset(bytes:hl.Bytes, kind:Int):Int {
@@ -132,6 +136,29 @@ class TestDescriptorSnapshot {
     });
     expectParam("tensor_param", tensorParamDescriptor, 0, PARAM_NDARRAY, DTYPE_I32, 1);
     expectSingleReturnDType("tensor_param", tensorParamDescriptor, DTYPE_I32);
+
+    var vectorNdarrayParamDescriptor = Kernel.descriptorBytes(macro (vectors:VectorNdarray<I32>) -> {
+      var v = vectors.readVec2(0);
+      return v[0] + v[1];
+    });
+    expectParam("vector_ndarray_param", vectorNdarrayParamDescriptor, 0, PARAM_NDARRAY, DTYPE_I32, 1);
+    expectSingleReturnDType("vector_ndarray_param", vectorNdarrayParamDescriptor, DTYPE_I32);
+
+    var matrixNdarrayParamDescriptor = Kernel.descriptorBytes(macro (matrices:MatrixNdarray<I32>) -> {
+      var m = matrices.readMat2(0);
+      return m[0] + m[3];
+    });
+    expectParam("matrix_ndarray_param", matrixNdarrayParamDescriptor, 0, PARAM_NDARRAY, DTYPE_I32, 1);
+    expectSingleReturnDType("matrix_ndarray_param", matrixNdarrayParamDescriptor, DTYPE_I32);
+
+    var assumeInRangeDescriptor = Kernel.descriptorBytes(macro (x:I32) -> {
+      return CompilerHints.assumeInRange(x, 0, 0, 8);
+    });
+    var assumeStatementsOffset = sectionOffset(assumeInRangeDescriptor, SECTION_STATEMENTS);
+    expectEq("assume_statement_count", u32(assumeInRangeDescriptor, assumeStatementsOffset + 4), 1);
+    expectEq("assume_statement_opcode", assumeInRangeDescriptor.getUI8(assumeStatementsOffset + 8), STMT_RETURN_VALUE);
+    expectEq("assume_expression_opcode", assumeInRangeDescriptor.getUI8(assumeStatementsOffset + 9), EXPR_ASSUME_IN_RANGE);
+    expectSingleReturnDType("assume_in_range_descriptor", assumeInRangeDescriptor, DTYPE_I32);
 
     var bufferViewParamDescriptor = Kernel.descriptorBytes(macro (view:quadrants.BufferView<I32>) -> {
       return view[0];

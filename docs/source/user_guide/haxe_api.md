@@ -90,9 +90,11 @@ Runtime.reset();
 | `quadrants.ad.Grad`, `GradCheck`, `CustomGradient` | Gradient zeroing, finite-difference checking for F32 tensor-to-scalar kernels, and explicit custom forward/backward kernel pairing. |
 | `quadrants.coverage.Coverage`, `quadrants.compat.Diagnostics` | Kernel build/launch/source-span coverage JSON artifacts, descriptor dumps/hashes, value info, and runtime health checks. |
 | `quadrants.packed.PackedVectorTensor/Field`, `PackedMatrixTensor/Field`, `StructOfArraysField`, `PackedStructTensor`, `PackedHelpers` | Workaround containers and kernel access helpers for logical vectors, matrices, and named struct members stored in primitive tensors/fields. |
+| `VectorNdarray<T>`, `MatrixNdarray<T>`, `VectorField<T>`, `MatrixField<T>`, `StructField` | First-class compound storage containers for flat AOS vector/matrix storage and SOA struct fields. Vector/matrix containers are kernel parameters and expose `readVec*` / `writeVec*` and `readMat*` / `writeMat*` lowering. |
 | `FieldsBuilder.placeMany(...)`, `FieldsBuilder.finalize()`, `quadrants.snode.FieldPlacementPath`, `quadrants.snode.FieldTree`, `quadrants.runtime.LoopConfig` | Multi-field placement, reusable placement-path handles, lazy grad/dual field helpers, and centralized loop-control wrappers. |
 | `quadrants.linalg.SparseMatrix`, `SparseMatrixBuilder`, `SparseSolver`, `SparseCG` | Native F32 sparse matrix bridge with builder insertion, matvec, direct solve smoke path, and conjugate-gradient solve. |
 | `quadrants.profiler.ProfilerBridge`, `ScopedProfiler` | Profiler feature probes and named scoped profiler blocks. |
+| `CompilerHints.assumeInRange(value, base, low, high)` | Lower a scalar expression to the native range-assumption IR node when the compiler supports it. |
 | `Struct.decodeSchema({field: 0, nested: {value: 0}}, kernel.launchRets(...))` | Decode flattened struct returns back into nested Haxe object literals. |
 | `Shared.array(DType.I32, size)` / `Shared.tile16(DType.F32)` | Generic shared-memory factories inside kernel bodies, alongside the dtype-specific `Shared.arrayI32(...)` / `Shared.tile16F32()` forms. |
 | `CudaGlInterop.available(ctx)` / `CudaGlInterop.registerBuffer(ctx, glBuffer, byteSize)` | Query CUDA/OpenGL interop availability and register an OpenGL buffer with CUDA. |
@@ -154,6 +156,66 @@ executor.close();
 
 The Haxe-only implementations are deterministic reference kernels intended for small/medium tensors and API stabilization. CPU is the always-tested backend. Device backends may run these kernels where the backend supports the required control flow, but performance portability is not the contract for this first tranche.
 
+## First-class compound storage
+
+Use `VectorNdarray` / `MatrixNdarray` for tensor-backed compound values and `VectorField` / `MatrixField` for field-backed compound values. They store primitive elements in a flat AOS layout and implement `TensorHandle`, so kernels can take them as direct parameters:
+
+```haxe
+var positions = VectorNdarray.f32(ctx, particleCount, 3);
+positions.writeVec3(0, Vec3.f32(1.0, 2.0, 3.0));
+
+var k = Kernel.build(ctx, macro (positions:VectorNdarray<F32>, out:Tensor<F32>) -> {
+  var p = positions.readVec3(0);
+  positions.writeVec3(0, Vec3.f32(p[0] + 1.0, p[1], p[2]));
+  out[0] = p[0] + p[1] + p[2];
+});
+k.launch(positions, out);
+```
+
+`readVec2/3/4` and `writeVec2/3/4` lower to scalar loads/stores and produce normal kernel `Vector<T>` locals. `readMat2/3/4` and `writeMat2/3/4` do the same for row-major `Matrix<T>` locals. Host-side `read(...)`, `write(...)`, `toVectors()`, and `toMatrices()` are convenience wrappers over the same flat storage.
+
+`StructField` is the first-class SOA struct container:
+
+```haxe
+var mass = new Field<F32>(ctx, [particleCount]);
+var id = new Field<I32>(ctx, [particleCount]);
+var particles = new StructField()
+  .add("mass", mass)
+  .add("id", id);
+particles.write("id", 0, 7);
+```
+
+Pass struct members (`particles.member("mass")`, etc.) to kernels when device code needs them; whole-struct kernel parameters remain deferred until the descriptor ABI has heterogeneous member metadata.
+
+Migration from the Phase 6 workaround layer is explicit and lossless for the supported layouts:
+
+```haxe
+var packed = PackedVectorTensor.f32(ctx, particleCount, 3);
+var positions = VectorNdarray.fromPacked(packed);
+var packedAgain = positions.toPacked();
+```
+
+| Compound API | Storage layout | Kernel parameter support | Migration path |
+| --- | --- | --- | --- |
+| `VectorNdarray<T>` / `MatrixNdarray<T>` | Flat AOS primitive `Tensor<T>` storage. | Direct parameter; `readVec*` / `writeVec*` / `readMat*` / `writeMat*` lower to scalar IR. | `fromPacked(...)` / `toPacked()`. |
+| `VectorField<T>` / `MatrixField<T>` | Flat AOS primitive `Field<T>` storage; placed fields synchronize through their tensor mirror before/after launch. | Direct parameter through `TensorHandle`; same compound read/write methods. | `fromPacked(...)` / `toPacked()`. |
+| `StructField` | SOA: one placed primitive `Field<T>` per member. | Pass members as normal field parameters. | `fromStructOfArrays(...)` / `toStructOfArrays()`. |
+
+Backend behavior: CPU runtime tests cover host storage, direct compound kernel parameters, placed field synchronization, and range-assumption lowering. CUDA/AMDGPU/Vulkan/Metal receive the same descriptor and native ndarray ABI when those backends support the underlying scalar tensor/field operations.
+
+## Compiler hints
+
+`CompilerHints.assumeInRange(value, base, low, high)` exposes the native range-assumption expression to Haxe kernels:
+
+```haxe
+var k = Kernel.build(ctx, macro (a:Tensor<I32>, out:Tensor<I32>) -> {
+  var i = CompilerHints.assumeInRange(0, 0, 0, 1);
+  out[0] = a[i];
+});
+```
+
+`low` and `high` must be integer literals and `high > low`. The lowered expression is equivalent to `value` semantically; it gives the compiler the fact `base + low <= value < base + high`. Other proposed deep hints such as `blockLocal`, `cacheReadOnly`, and `noActivate` are not surfaced as public Haxe APIs until the runtime/compiler exposes a concrete per-kernel hook.
+
 ## Packed compound workaround layer
 
 Use `quadrants.packed` when data is logically vector-, matrix-, or struct-shaped but final native compound storage is not required:
@@ -179,7 +241,7 @@ The workaround layout is deliberately explicit:
 | `StructOfArraysField` | One primitive field per named member, all placed with the same shape and context. | Pass the member field to kernels; `PackedHelpers.readMember*` / `writeMember*` lower to scalar loads/stores. |
 | `PackedStructTensor` | One primitive tensor per named member, all with the same shape and context. | Pass the member tensor to kernels; helper calls lower to scalar loads/stores. |
 
-These names are intentionally `Packed*` / `StructOfArrays*` so future first-class `VectorField`, `MatrixField`, or `StructField` APIs can be introduced without changing workaround semantics.
+These names remain intentionally `Packed*` / `StructOfArrays*` for workaround code. Prefer `VectorNdarray`, `MatrixNdarray`, `VectorField`, `MatrixField`, and `StructField` for new first-class compound storage, and use the adapter methods when migrating existing packed code.
 
 ## FieldsBuilder, SNode helpers, and loop controls
 
@@ -206,7 +268,7 @@ var k = Kernel.build(ctx, macro (out:Tensor<I32>) -> {
 });
 ```
 
-Compiler-hint recipes remain explicit Haxe patterns: use `Shared.array*` / `Shared.tile16*` for manual shared-memory staging, `kernelRead`/`kernelWrite` in helper classes for flattened helper access, and tile load/store idioms built from `Block.threadIdx()` plus `Block.sync()`. True quant placement and compiler-level `noActivate` remain deferred.
+Compiler-hint recipes remain explicit Haxe patterns: use `CompilerHints.assumeInRange(...)` for native range assumptions, `Shared.array*` / `Shared.tile16*` for manual shared-memory staging, `kernelRead`/`kernelWrite` in helper classes for flattened helper access, and tile load/store idioms built from `Block.threadIdx()` plus `Block.sync()`. True quant placement and compiler-level `noActivate` remain deferred.
 
 ## Sparse/linalg and profiler bridge
 
