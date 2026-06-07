@@ -10,6 +10,9 @@ bindings/hashlink/haxe/quadrants/Tape.hx:
 bindings/hashlink/haxe/quadrants/ad/Grad.hx:
 bindings/hashlink/haxe/quadrants/ad/GradCheck.hx:
 bindings/hashlink/haxe/quadrants/compat/Diagnostics.hx:
+bindings/hashlink/haxe/quadrants/flatten/Flattened.hx:
+bindings/hashlink/haxe/quadrants/flatten/SpecKey.hx:
+bindings/hashlink/haxe/quadrants/flatten/Template.hx:
 bindings/hashlink/haxe/quadrants/coverage/Coverage.hx:
 bindings/hashlink/haxe/quadrants/kernel/ArgBuffer.hx:
 bindings/hashlink/haxe/quadrants/kernel/ArgEncoding.hx:

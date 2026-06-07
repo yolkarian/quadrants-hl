@@ -5,6 +5,7 @@ class Main {
     TestKernelRawRuntime.run();
     TestContextCapabilitiesRuntime.run();
     TestTypedKernelRuntime.run();
+    TestFlattenRuntime.run();
     TestReturn.run();
     TestField.run();
     TestSimtApi.run();

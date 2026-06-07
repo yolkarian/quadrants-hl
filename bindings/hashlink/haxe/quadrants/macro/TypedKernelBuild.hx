@@ -81,7 +81,7 @@ class TypedKernelBuild {
     };
   }
 
-  static function buildLaunchBody(returnType:ComplexType,
+  public static function buildLaunchBody(returnType:ComplexType,
       appendStatements:Array<Expr>,
       useStream:Bool,
       useGraph:Bool,
@@ -141,7 +141,7 @@ class TypedKernelBuild {
     };
   }
 
-  static function wrapperComplexType(args:Array<FunctionArg>, returnType:ComplexType):ComplexType {
+  public static function wrapperComplexType(args:Array<FunctionArg>, returnType:ComplexType):ComplexType {
     var params:Array<TypeParam> = [for (arg in args) TPType(arg.type)];
     params.push(TPType(returnType));
     return TPath({pack: ["quadrants", "kernel"], name: 'QKernel${args.length}', params: params});
@@ -151,11 +151,11 @@ class TypedKernelBuild {
     return ["quadrants", "kernel", 'QKernel${arity}'];
   }
 
-  static function wrapperTypePath(arity:Int):TypePath {
+  public static function wrapperTypePath(arity:Int):TypePath {
     return {pack: ["quadrants", "kernel"], name: 'QKernel${arity}'};
   }
 
-  static function expectedKernelReturnType(arity:Int, pos:Position):Null<ComplexType> {
+  public static function expectedKernelReturnType(arity:Int, pos:Position):Null<ComplexType> {
     var expected = Context.getExpectedType();
     if (expected == null) {
       return null;
@@ -180,11 +180,11 @@ class TypedKernelBuild {
     };
   }
 
-  static function voidType():ComplexType {
+  public static function voidType():ComplexType {
     return TPath({pack: [], name: "Void"});
   }
 
-  static function isVoidType(type:ComplexType, pos:Position):Bool {
+  public static function isVoidType(type:ComplexType, pos:Position):Bool {
     return switch (Context.followWithAbstracts(Context.resolveType(type, pos))) {
       case TAbstract(abstractRef, _):
         abstractRef.get().name == "Void";
