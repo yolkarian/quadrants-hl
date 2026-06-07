@@ -126,7 +126,7 @@ class TypedKernelBuild {
       return macro {
         var __qd_buf = quadrants.kernel.ArgBuffer.acquire();
         $b{appendStatements};
-        var __qd_result:$returnType = quadrants.kernel.ReturnDecoder.decodeSchema($e{schemaExpr}, raw.launchRetsDynamic(__qd_buf.toArray()));
+        var __qd_result:$returnType = quadrants.Struct.decodeSchema($e{schemaExpr}, raw.launchRetsDynamic(__qd_buf.toArray()));
         __qd_buf.release();
         return __qd_result;
       };
@@ -194,11 +194,11 @@ class TypedKernelBuild {
   }
 
   static function schemaExprForComplexType(type:ComplexType, pos:Position):Null<Expr> {
-    return schemaExprForType(Context.followWithAbstracts(Context.resolveType(type, pos)), pos);
+    return schemaExprForType(Context.resolveType(type, pos), pos);
   }
 
   static function schemaExprForType(type:Type, pos:Position):Null<Expr> {
-    var followed = Context.followWithAbstracts(type);
+    var followed = followedType(type);
     return switch (followed) {
       case TAnonymous(anonRef):
         {
@@ -219,6 +219,10 @@ class TypedKernelBuild {
   static function schemaFieldExpr(type:Type, pos:Position):Expr {
     var nested = schemaExprForType(type, pos);
     return nested == null ? macro 0 : nested;
+  }
+
+  static function followedType(type:Type):Type {
+    return Context.followWithAbstracts(Context.follow(type));
   }
 }
 #end

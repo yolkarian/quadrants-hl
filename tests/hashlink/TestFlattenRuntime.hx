@@ -6,6 +6,7 @@ import quadrants.Types.I32;
 import quadrants.flatten.DataOriented;
 import quadrants.flatten.Flattened;
 
+@:rtti
 @:qdFlatten
 class FlatState {
   public final x:Tensor<I32>;
@@ -19,6 +20,7 @@ class FlatState {
   }
 }
 
+@:rtti
 @:qdFlatten
 class NestedFlatState {
   public final inner:FlatState;
@@ -28,6 +30,7 @@ class NestedFlatState {
   }
 }
 
+@:rtti
 @:qdDataOriented("ctx")
 class ParticleSim extends DataOriented {
   public final ctx:Context;

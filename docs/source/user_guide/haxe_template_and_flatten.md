@@ -4,7 +4,10 @@
 
 Annotate a host container class with `@:qdFlatten` so `QD.kernel(...)` can flatten its members into typed kernel arguments.
 
+Add `@:rtti` when you also want to inspect runtime template/resource digests via `quadrants.flatten.Flattened.specKey(...)`.
+
 ```haxe
+@:rtti
 @:qdFlatten
 class State {
   public final x:Tensor<I32>;
@@ -33,7 +36,7 @@ Rules:
 - nested `@:qdFlatten` objects are supported recursively;
 - `Dynamic` members are rejected.
 
-`quadrants.flatten.Flattened.specKey(value)` exposes the template/resource digest used for migration tooling and cache-key style inspection.
+`quadrants.flatten.Flattened.specKey(value)` exposes the template/resource digest used for migration tooling and cache-key style inspection. Because it uses runtime RTTI, flattened/data-oriented classes should be marked `@:rtti` before calling it.
 
 ## Data-oriented classes
 
@@ -44,6 +47,7 @@ Haxe cannot trigger build macros from metadata alone, so the current data-orient
 - mark instance kernel methods with `@:kernel`.
 
 ```haxe
+@:rtti
 @:qdDataOriented("ctx")
 class ParticleSim extends quadrants.flatten.DataOriented {
   public final ctx:Context;
