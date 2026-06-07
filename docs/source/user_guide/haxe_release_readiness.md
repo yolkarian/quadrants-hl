@@ -9,7 +9,7 @@ This page summarizes the stabilized Haxe/HashLink public surface after the typed
 | Final typed APIs | `Tensor<T>`, `Field<T>`, `VectorNdarray<T>`, `MatrixNdarray<T>`, `VectorField<T>`, `MatrixField<T>`, typed `quadrants.algorithms`, `StructMember<T>` member handles, `quadrants.mesh` typed host handles, `quadrants.quant` descriptors | Recommended for new code | Source compatibility should be preserved unless a safety issue requires a compile-time break. |
 | Workaround APIs | `quadrants.packed.Packed*`, `StructOfArraysField`, Haxe-only `QuantizedF32Tensor` | Supported when the layout is useful or native parity is intentionally unavailable | Prefer final typed APIs where they cover the same use case; adapters such as `fromPacked(...)` / `toPacked()` are the migration path. |
 | Compatibility shims | String-keyed struct `add/member/read/write`, heterogeneous `Grad.zeroGrad` / `clearAllGradients`, heterogeneous `FieldTree.lazyGrad` helpers | Retained but not recommended | Do not add new examples using these when a typed alternative exists. Deprecation requires replacement examples and compile-fail coverage. |
-| Interop boundaries | `Kernel.launch(...values:Dynamic)`, native launch arrays, grad-check replay args, diagnostics/coverage JSON-like snapshots, CUDA/GL `glBuffer:Dynamic`, helper `Class<Dynamic>` lists | Permanent | These are documented in [HashLink public Dynamic boundaries](dynamic_boundaries.md) and are not considered normal API typing precedents. |
+| Interop boundaries | `KernelRaw.launchDynamic(...)`, compatibility `Kernel.launch(...values:Dynamic)`, native launch arrays, grad-check replay args, diagnostics/coverage JSON-like snapshots, CUDA/GL `glBuffer:Dynamic`, helper `Class<Dynamic>` lists | Permanent | These are documented in [HashLink public Dynamic boundaries](dynamic_boundaries.md) and are not considered normal API typing precedents. |
 
 ## Backend support matrix
 
@@ -38,4 +38,5 @@ trace(sample.secondsPerIteration);
 - Run the HashLink Haxe compile suite.
 - Run the compile-fail suite; it covers typed algorithm mismatches, storage-kind mismatches, kernel dtype annotation errors, typed struct member mistakes, invalid mesh relation access, unsupported mesh relation/attribute kernel parameters, invalid quant parameters, unsupported native quant/SNode operations, unsupported quant kernel parameters, and unsupported `StreamParallel.block(...)`.
 - Run runtime gamma for algorithms, autodiff diagnostics, packed/compound storage, typed mesh/quant/SNode contracts, sparse/profiler, release migration examples, and the performance-baseline harness.
+- Inspect `Context.capabilities()` and `Context.optionWarnings()` on each supported backend so parsed-but-not-yet-wired config surfaces remain explicit.
 - Update [HashLink public Dynamic boundaries](dynamic_boundaries.md) whenever a public `Dynamic` is added, removed, or reclassified.

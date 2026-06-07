@@ -1,4 +1,5 @@
 # Intentional public Dynamic boundaries.
+bindings/hashlink/haxe/quadrants/Capabilities.hx:
 bindings/hashlink/haxe/quadrants/CudaGlInterop.hx:
 bindings/hashlink/haxe/quadrants/Kernel.hx:
 bindings/hashlink/haxe/quadrants/KernelRaw.hx:

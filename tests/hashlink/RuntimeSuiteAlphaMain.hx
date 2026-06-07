@@ -3,6 +3,7 @@ class RuntimeSuiteAlphaMain {
     TestBindingApi.run();
     TestDescriptorSnapshot.run();
     TestKernelRawRuntime.run();
+    TestContextCapabilitiesRuntime.run();
     TestReturn.run();
     TestField.run();
     TestSimtApi.run();

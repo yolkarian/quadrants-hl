@@ -4453,7 +4453,7 @@ class KernelBuilder {
       Context.error("Quadrants HashLink kernel function must have a body", functionExpr.pos);
     }
 
-    var kernelName = kernelNameFromPosition(functionExpr.pos);
+    var kernelName = kernelNameFromOptions(options, functionExpr.pos);
     var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(options), kernelName);
     var descriptorBytes = builder.build(functionDef.expr);
     var descriptorExpr = bytesExpression(descriptorBytes, functionExpr.pos);
@@ -4476,7 +4476,7 @@ class KernelBuilder {
       Context.error("Quadrants HashLink kernel function must have a body", functionExpr.pos);
     }
 
-    var kernelName = kernelNameFromPosition(functionExpr.pos);
+    var kernelName = kernelNameFromOptions(options, functionExpr.pos);
     var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(options), kernelName);
     var descriptorBytes = builder.build(functionDef.expr);
     var descriptorExpr = bytesExpression(descriptorBytes, functionExpr.pos);
@@ -4498,7 +4498,7 @@ class KernelBuilder {
     if (functionDef.expr == null) {
       Context.error("Quadrants HashLink kernel function must have a body", functionExpr.pos);
     }
-    var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(options), kernelNameFromPosition(functionExpr.pos));
+    var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(options), kernelNameFromOptions(options, functionExpr.pos));
     var descriptorBytes = builder.build(functionDef.expr);
     return bytesExpression(descriptorBytes, functionExpr.pos);
   }
@@ -4614,6 +4614,28 @@ class KernelBuilder {
   static function classTypeName(classType:ClassType):String {
     return (classType.pack.length == 0 ? "" : classType.pack.join(".") + ".") + classType.name;
   }
+
+  static function kernelNameFromOptions(options:Null<Expr>, pos:Position):String {
+    if (options == null) {
+      return kernelNameFromPosition(pos);
+    }
+    var expr = DescriptorBuilder.strip(options);
+    if (isNullLiteral(expr)) {
+      return kernelNameFromPosition(pos);
+    }
+    return switch (expr.expr) {
+      case EObjectDecl(fields):
+        for (field in fields) {
+          if (field.field == "name" || field.field == "debugName") {
+            return stringLiteral(field.expr);
+          }
+        }
+        kernelNameFromPosition(pos);
+      default:
+        Context.error("quadrants.Kernel.build options must be an object literal", expr.pos);
+    };
+  }
+
   static function kernelNameFromPosition(pos:Position):String {
     var info = Context.getPosInfos(pos);
     var file = info.file;

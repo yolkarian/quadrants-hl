@@ -13,16 +13,21 @@ class Context {
   var closed:Bool = false;
   var fieldMirrorFallbackWarningsEnabled:Bool = false;
   final fieldMirrorFallbackEvents:Array<FieldMirrorFallbackEvent> = [];
+  final optionWarningMessages:Array<String> = [];
+  final configuredOptions:ContextOptions;
 
   public function new(arch:Arch = Cpu, enableProfiler:Bool = false, options:ContextOptions = null) {
     Native.ensureConfigured();
-    this.arch = arch;
+    var selectedArch = options != null && options.arch != null ? cast options.arch : arch;
+    this.arch = selectedArch;
     var profilerEnabled = enableProfiler;
     if (options != null && options.profilerEnabled) {
       profilerEnabled = true;
     }
-    handle = Native.context_create_configured(arch, profilerEnabled ? 1 : 0);
+    handle = Native.context_create_configured(selectedArch, profilerEnabled ? 1 : 0);
     root = new FieldsBuilder(this);
+    configuredOptions = options == null ? ContextOptions.create() : options.copy();
+    configuredOptions.arch = selectedArch;
     if (options != null) {
       options.applyTo(this);
     }
@@ -32,12 +37,33 @@ class Context {
     return new Context(arch, false, options);
   }
 
+  public function currentOptions():ContextOptions {
+    return configuredOptions.copy();
+  }
+
+  public function optionWarnings():Array<String> {
+    return [for (warning in optionWarningMessages) warning];
+  }
+
+  public function clearOptionWarnings():Void {
+    optionWarningMessages.resize(0);
+  }
+
+  public function recordOptionWarning(message:String):Void {
+    optionWarningMessages.push(message);
+  }
+
+  public function capabilities():Capabilities {
+    return new Capabilities(this);
+  }
+
   public function warnOnFieldMirrorFallbackEnabled():Bool {
     return fieldMirrorFallbackWarningsEnabled;
   }
 
   public function setWarnOnFieldMirrorFallback(enabled:Bool):Void {
     fieldMirrorFallbackWarningsEnabled = enabled;
+    configuredOptions.warnOnFieldMirrorFallbackEnabled = enabled;
   }
 
   public function fieldMirrorFallbacks():Array<FieldMirrorFallbackEvent> {
@@ -120,6 +146,8 @@ class Context {
     Native.context_set_offline_cache(nativeHandle(), enabled ? 1 : 0, cachePath);
     offlineCacheEnabled = enabled;
     offlineCachePath = path;
+    configuredOptions.offlineCacheEnabled = enabled;
+    configuredOptions.offlineCachePath = path;
   }
 
   public function clearOfflineCache():Void {
@@ -151,10 +179,14 @@ class Context {
       throw "Quadrants adstack sparse threshold must be non-negative";
     }
     Native.context_set_adstack_config(nativeHandle(), experimentalEnabled ? 1 : 0, stackSize, sparseThresholdBytes);
+    configuredOptions.adstackExperimentalEnabled = experimentalEnabled;
+    configuredOptions.adstackSize = stackSize;
+    configuredOptions.adstackSparseThresholdBytes = sparseThresholdBytes;
   }
 
   public function setRandomSeed(seed:Int):Void {
     Native.context_set_random_seed(nativeHandle(), seed);
+    configuredOptions.randomSeed = seed;
   }
 
   public function setCpuMaxNumThreads(threadCount:Int):Void {
@@ -162,19 +194,26 @@ class Context {
       throw "Quadrants CPU max thread count must be positive";
     }
     Native.context_set_cpu_max_num_threads(nativeHandle(), threadCount);
+    configuredOptions.cpuMaxNumThreads = threadCount;
   }
 
   public function setFastMath(enabled:Bool):Void {
     Native.context_set_fast_math(nativeHandle(), enabled ? 1 : 0);
+    configuredOptions.fastMathEnabled = enabled;
   }
 
   public function setBoundsCheck(enabled:Bool):Void {
     Native.context_set_bounds_check(nativeHandle(), enabled ? 1 : 0);
+    configuredOptions.boundsCheckEnabled = enabled;
   }
 
   public function setDebugDump(path:String, printIr:Bool = true, printPreprocessedIr:Bool = false, printIrDebugInfo:Bool = false):Void {
     var dumpPath = @:privateAccess path.toUtf8();
     Native.context_set_debug_dump(nativeHandle(), dumpPath, printIr ? 1 : 0, printPreprocessedIr ? 1 : 0, printIrDebugInfo ? 1 : 0);
+    configuredOptions.debugDumpPath = path;
+    configuredOptions.debugDumpPrintIr = printIr;
+    configuredOptions.debugDumpPrintPreprocessedIr = printPreprocessedIr;
+    configuredOptions.debugDumpPrintIrDebugInfo = printIrDebugInfo;
   }
 
   public function close():Void {

@@ -59,6 +59,21 @@ var opts = ContextOptions.create()
 var configured = Context.fromOptions(opts, Arch.Cpu);
 ```
 
+For grouped configuration, use the builder API:
+
+```haxe
+var opts = ContextOptions.builder()
+  .arch(Arch.Cpu)
+  .offlineCache({enabled: true, path: "build/qdcache", cleanPolicy: CacheCleanPolicy.Lru})
+  .compile({cfgOptimization: true, numCompileThreads: 4, optLevel: OptLevel.O2})
+  .defaults({fp: DType.F32, ip: DType.I32, up: DType.U32})
+  .memory({deviceMemoryFraction: 0.8, cudaStackLimitBytes: 64 * 1024 * 1024})
+  .debug({path: "build/ir", printIr: false, launchDebug: false, timeline: false})
+  .build();
+var configured = Context.fromOptions(opts);
+var caps = configured.capabilities();
+```
+
 Small programs can use `quadrants.runtime.Runtime` as a default-session facade:
 
 ```haxe
@@ -74,10 +89,10 @@ Runtime.reset();
 
 | Haxe API | Purpose |
 | --- | --- |
-| `new Context(Arch.Cpu, enableProfiler = false)` / `Context.fromOptions(ContextOptions.create()...)` | Create an explicitly owned Quadrants runtime context. `ContextOptions` applies the typed Haxe/HL setters currently backed by native APIs: profiler enable, offline cache, adstack config, random seed, CPU thread cap, fast math, bounds checks, and debug dump. |
+| `new Context(Arch.Cpu, enableProfiler = false)` / `Context.fromOptions(ContextOptions.create()...)` / `ContextOptions.builder()` | Create an explicitly owned Quadrants runtime context. `ContextOptions` applies the typed Haxe/HL setters currently backed by native APIs, records explicit warnings for parsed-but-not-yet-wired settings, and supports grouped builder configuration for offline cache, compile, default dtype, memory, AD, and debug sections. |
 | `Runtime.init(Arch.Cpu, enableProfiler = false, options = null)`, `Runtime.context()`, `Runtime.sync()`, `Runtime.reset()` | Manage one default `quadrants.runtime.Session`; pass the same `ContextOptions` used by explicit contexts when a default session needs typed native-backed configuration. |
 | `Context.sync()` / `Context.close()` | Synchronize queued work and release the native context. |
-| `Context.supportsStreamEvents()` / `Context.isExtensionEnabled(Extension.MemoryProfiler)` / `Context.clearOfflineCache()` / `Context.fieldMirrorFallbacks()` / `Context.clearFieldMirrorFallbacks()` | Query typed runtime extensions, inspect explicit field-mirror fallback diagnostics, and delete a previously configured offline-cache tree. |
+| `Context.supportsStreamEvents()` / `Context.isExtensionEnabled(Extension.MemoryProfiler)` / `Context.clearOfflineCache()` / `Context.fieldMirrorFallbacks()` / `Context.clearFieldMirrorFallbacks()` / `Context.capabilities()` / `Context.optionWarnings()` | Query typed runtime extensions, inspect explicit field-mirror fallback diagnostics, inspect the grouped capability schema, inspect parsed-but-not-yet-wired option warnings, and delete a previously configured offline-cache tree. |
 | `new Tensor<I32>(ctx, [n])`, `new Tensor<F32>(ctx, [m, k])` | Allocate a primitive ndarray whose dtype is fixed by the generic type parameter. |
 | `new Tensor<I32>(ctx, [])`, `TensorScalar.i32(ctx)` | Allocate a rank-0 scalar tensor containing exactly one element. |
 | `Tensor<T>.fill(value)`, `read(i)`, `write(i, value)` | Typed flat host access. `read()` returns `T`; `write()` only accepts `T`. |
