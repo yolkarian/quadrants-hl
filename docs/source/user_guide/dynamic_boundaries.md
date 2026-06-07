@@ -4,7 +4,8 @@ HashLink treats `Dynamic` as an interop boundary, not a normal public API design
 
 | API surface | Classification | Retention reason |
 | --- | --- | --- |
-| `Kernel.launch(...)`, `launchOn(...)`, graph launch methods, `launchRet(...)`, `launchRets(...)`, and native `hl.NativeArray<Dynamic>` launch bridge | Permanent necessary boundary | Runtime kernel calls accept heterogeneous argument lists whose arity and scalar/tensor mix are determined by the compiled descriptor. |
+| `KernelRaw.launchDynamic(...)`, `launchOnDynamic(...)`, graph launch methods, `launchRetDynamic(...)`, `launchRetsDynamic(...)`, `kernel.ArgBuffer`, and native `hl.NativeArray<Dynamic>` launch bridge | Permanent necessary boundary | Runtime kernel calls accept heterogeneous argument lists whose arity and scalar/tensor mix are determined by the compiled descriptor. |
+| `Kernel.launch(...)`, `launchOn(...)`, graph launch methods, `launchRet(...)`, `launchRets(...)` | Compatibility shim | `Kernel` remains as a facade over `KernelRaw` so existing code keeps working while new code migrates to `KernelRaw` or typed `QD.kernel(...)` launch wrappers. |
 | `TapeRecord.args`, `Tape.record(...)`, `Tape.launch(...)`, `Tape.launchCustom(...)` | Permanent necessary boundary | Tape records the same heterogeneous launch argument lists as `Kernel.launch`. |
 | `GradCheck.check*ToScalar(..., args:Array<Dynamic>, ...)` | Permanent necessary boundary | Grad checking replays a kernel with the same heterogeneous launch argument list while separately identifying typed differentiable inputs and scalar loss. |
 | `Native.kernel_launch*`, `Native.kernel_launch_ret(s)` | Permanent necessary boundary | HashLink native ABI passes descriptor-validated heterogeneous values through `hl.NativeArray<Dynamic>`. |
@@ -33,3 +34,4 @@ Compatibility policy:
 - Compatibility shims may stay for migration, but new docs and examples should show the typed alternative first.
 - A compatibility shim can be deprecated only when the typed replacement has runtime coverage, compile-fail coverage for the static guarantee, and a migration example.
 - Any new public `Dynamic` must add a row to this ledger in the same change.
+- `tools/check_public_dynamic.sh` enforces that new public `Dynamic` surfaces are explicitly allowlisted.

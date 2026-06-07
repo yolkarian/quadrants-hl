@@ -11,6 +11,8 @@ class Context {
   public var offlineCacheEnabled(default, null):Bool = false;
   public var offlineCachePath(default, null):String = "";
   var closed:Bool = false;
+  var fieldMirrorFallbackWarningsEnabled:Bool = false;
+  final fieldMirrorFallbackEvents:Array<FieldMirrorFallbackEvent> = [];
 
   public function new(arch:Arch = Cpu, enableProfiler:Bool = false, options:ContextOptions = null) {
     Native.ensureConfigured();
@@ -28,6 +30,43 @@ class Context {
 
   public static function fromOptions(options:ContextOptions, arch:Arch = Cpu):Context {
     return new Context(arch, false, options);
+  }
+
+  public function warnOnFieldMirrorFallbackEnabled():Bool {
+    return fieldMirrorFallbackWarningsEnabled;
+  }
+
+  public function setWarnOnFieldMirrorFallback(enabled:Bool):Void {
+    fieldMirrorFallbackWarningsEnabled = enabled;
+  }
+
+  public function fieldMirrorFallbacks():Array<FieldMirrorFallbackEvent> {
+    return [for (event in fieldMirrorFallbackEvents) cloneFieldMirrorFallbackEvent(event)];
+  }
+
+  public function clearFieldMirrorFallbacks():Void {
+    fieldMirrorFallbackEvents.resize(0);
+  }
+
+  public function recordFieldMirrorFallback(kernelName:String,
+      argIndex:Int,
+      field:FieldRuntime,
+      bytesCopied:Int,
+      reason:String):Void {
+    var event:FieldMirrorFallbackEvent = {
+      kernelName: kernelName,
+      argIndex: argIndex,
+      reason: reason,
+      bytesCopied: bytesCopied,
+      backend: arch,
+      dtype: field.dtype,
+      shape: field.shape == null ? [] : [for (value in field.shape) value],
+      snodeId: field.snodeId,
+    };
+    fieldMirrorFallbackEvents.push(event);
+    if (fieldMirrorFallbackWarningsEnabled) {
+      Sys.println('[quadrants] field mirror fallback: kernel=${kernelName} arg=${argIndex} snode=${field.snodeId} bytes=${bytesCopied} reason=${reason}');
+    }
   }
 
   public function nativeHandle():QContext {
@@ -143,5 +182,18 @@ class Context {
       Native.context_close(handle);
       closed = true;
     }
+  }
+
+  static function cloneFieldMirrorFallbackEvent(event:FieldMirrorFallbackEvent):FieldMirrorFallbackEvent {
+    return {
+      kernelName: event.kernelName,
+      argIndex: event.argIndex,
+      reason: event.reason,
+      bytesCopied: event.bytesCopied,
+      backend: event.backend,
+      dtype: event.dtype,
+      shape: [for (value in event.shape) value],
+      snodeId: event.snodeId,
+    };
   }
 }

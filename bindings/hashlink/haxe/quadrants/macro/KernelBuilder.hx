@@ -4466,6 +4466,29 @@ class KernelBuilder {
     return macro quadrants.Kernel.fromDescriptor($e{ctx}, $e{descriptorExpr}, $v{descriptorBytes.length}, $v{autodiffMode}, $v{graphLaunch}, $v{kernelName}, $v{reverseAutodiffReason});
   }
 
+  public static function buildRaw(ctx:Expr, fn:Expr, ?options:Expr):Expr {
+    var functionExpr = unwrapMacroQuote(fn);
+    var functionDef = switch (functionExpr.expr) {
+      case EFunction(_, f): f;
+      default: Context.error("quadrants.Kernel.buildRaw expects a macro arrow function", functionExpr.pos);
+    };
+    if (functionDef.expr == null) {
+      Context.error("Quadrants HashLink kernel function must have a body", functionExpr.pos);
+    }
+
+    var kernelName = kernelNameFromPosition(functionExpr.pos);
+    var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(options), kernelName);
+    var descriptorBytes = builder.build(functionDef.expr);
+    var descriptorExpr = bytesExpression(descriptorBytes, functionExpr.pos);
+    var autodiffMode = autodiffModeFromOptions(options);
+    var graphLaunch = graphFromOptions(options);
+    var reverseAutodiffReason = reverseAutodiffBlockedReason(functionDef.expr);
+    if ((autodiffMode == 2 || autodiffMode == 3) && reverseAutodiffReason != null) {
+      Context.error(reverseAutodiffReason, functionExpr.pos);
+    }
+    return macro quadrants.KernelRaw.fromDescriptor($e{ctx}, $e{descriptorExpr}, $v{descriptorBytes.length}, $v{autodiffMode}, $v{graphLaunch}, $v{kernelName}, $v{reverseAutodiffReason});
+  }
+
   public static function descriptorBytes(fn:Expr, ?options:Expr):Expr {
     var functionExpr = unwrapMacroQuote(fn);
     var functionDef = switch (functionExpr.expr) {

@@ -2,6 +2,7 @@ class RuntimeSuiteAlphaMain {
   static function main():Void {
     TestBindingApi.run();
     TestDescriptorSnapshot.run();
+    TestKernelRawRuntime.run();
     TestReturn.run();
     TestField.run();
     TestSimtApi.run();

@@ -15,6 +15,7 @@ package quadrants;
   public var debugDumpPrintIr(default, null):Bool = true;
   public var debugDumpPrintPreprocessedIr(default, null):Bool = false;
   public var debugDumpPrintIrDebugInfo(default, null):Bool = false;
+  public var warnOnFieldMirrorFallbackEnabled(default, null):Null<Bool> = null;
 
   public function new(profilerEnabled:Bool = false) {
     this.profilerEnabled = profilerEnabled;
@@ -83,6 +84,11 @@ package quadrants;
     return this;
   }
 
+  public function warnOnFieldMirrorFallback(enabled:Bool = true):ContextOptions {
+    warnOnFieldMirrorFallbackEnabled = enabled;
+    return this;
+  }
+
   public function applyTo(context:Context):Void {
     if (offlineCacheEnabled != null) {
       context.setOfflineCache(offlineCacheEnabled == true, offlineCachePath);
@@ -104,6 +110,9 @@ package quadrants;
     }
     if (debugDumpPath != null) {
       context.setDebugDump(cast debugDumpPath, debugDumpPrintIr, debugDumpPrintPreprocessedIr, debugDumpPrintIrDebugInfo);
+    }
+    if (warnOnFieldMirrorFallbackEnabled != null) {
+      context.setWarnOnFieldMirrorFallback(warnOnFieldMirrorFallbackEnabled == true);
     }
   }
 }

@@ -1,0 +1,19 @@
+# Intentional public Dynamic boundaries.
+bindings/hashlink/haxe/quadrants/CudaGlInterop.hx:
+bindings/hashlink/haxe/quadrants/Kernel.hx:
+bindings/hashlink/haxe/quadrants/KernelRaw.hx:
+bindings/hashlink/haxe/quadrants/Native.hx:
+bindings/hashlink/haxe/quadrants/Struct.hx:
+bindings/hashlink/haxe/quadrants/StructField.hx:
+bindings/hashlink/haxe/quadrants/Tape.hx:
+bindings/hashlink/haxe/quadrants/ad/Grad.hx:
+bindings/hashlink/haxe/quadrants/ad/GradCheck.hx:
+bindings/hashlink/haxe/quadrants/compat/Diagnostics.hx:
+bindings/hashlink/haxe/quadrants/coverage/Coverage.hx:
+bindings/hashlink/haxe/quadrants/kernel/ArgBuffer.hx:
+bindings/hashlink/haxe/quadrants/packed/Helpers.hx:
+bindings/hashlink/haxe/quadrants/packed/PackedStructTensor.hx:
+bindings/hashlink/haxe/quadrants/packed/StructOfArraysField.hx:
+bindings/hashlink/haxe/quadrants/simt/Helpers.hx:
+bindings/hashlink/haxe/quadrants/snode/FieldPlacementPath.hx:
+bindings/hashlink/haxe/quadrants/snode/FieldTree.hx:
