@@ -12,6 +12,8 @@ bindings/hashlink/haxe/quadrants/ad/GradCheck.hx:
 bindings/hashlink/haxe/quadrants/compat/Diagnostics.hx:
 bindings/hashlink/haxe/quadrants/coverage/Coverage.hx:
 bindings/hashlink/haxe/quadrants/kernel/ArgBuffer.hx:
+bindings/hashlink/haxe/quadrants/kernel/ArgEncoding.hx:
+bindings/hashlink/haxe/quadrants/kernel/ReturnDecoder.hx:
 bindings/hashlink/haxe/quadrants/packed/Helpers.hx:
 bindings/hashlink/haxe/quadrants/packed/PackedStructTensor.hx:
 bindings/hashlink/haxe/quadrants/packed/StructOfArraysField.hx:

@@ -4721,6 +4721,10 @@ class KernelBuilder {
     };
   }
 
+  public static function decodeMacroExpr(expression:Expr):Expr {
+    return unwrapMacroQuote(expression);
+  }
+
   static function unwrapMacroQuote(expression:Expr):Expr {
     var expr = DescriptorBuilder.strip(expression);
     return switch (expr.expr) {

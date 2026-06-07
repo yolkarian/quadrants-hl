@@ -4,6 +4,7 @@ class RuntimeSuiteAlphaMain {
     TestDescriptorSnapshot.run();
     TestKernelRawRuntime.run();
     TestContextCapabilitiesRuntime.run();
+    TestTypedKernelRuntime.run();
     TestReturn.run();
     TestField.run();
     TestSimtApi.run();
