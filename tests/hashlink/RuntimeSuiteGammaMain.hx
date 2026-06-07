@@ -5,6 +5,7 @@ class RuntimeSuiteGammaMain {
     TestKernelFeatureRuntime.run();
     TestProfilerRuntime.run();
     TestAlgorithmsRuntime.run();
+    TestPerfDispatcherRuntime.run();
     TestAdCoverageDiagnosticsRuntime.run();
     TestPackedCompoundRuntime.run();
     TestBuilderControlDslRuntime.run();

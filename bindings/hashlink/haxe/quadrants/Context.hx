@@ -12,11 +12,22 @@ class Context {
   public var offlineCachePath(default, null):String = "";
   var closed:Bool = false;
 
-  public function new(arch:Arch = Cpu, enableProfiler:Bool = false) {
+  public function new(arch:Arch = Cpu, enableProfiler:Bool = false, options:ContextOptions = null) {
     Native.ensureConfigured();
     this.arch = arch;
-    handle = Native.context_create_configured(arch, enableProfiler ? 1 : 0);
+    var profilerEnabled = enableProfiler;
+    if (options != null && options.profilerEnabled) {
+      profilerEnabled = true;
+    }
+    handle = Native.context_create_configured(arch, profilerEnabled ? 1 : 0);
     root = new FieldsBuilder(this);
+    if (options != null) {
+      options.applyTo(this);
+    }
+  }
+
+  public static function fromOptions(options:ContextOptions, arch:Arch = Cpu):Context {
+    return new Context(arch, false, options);
   }
 
   public function nativeHandle():QContext {
@@ -36,6 +47,29 @@ class Context {
 
   public function profiler():Profiler {
     return new Profiler(this);
+  }
+
+  public function isExtensionEnabled(extension:Extension):Bool {
+    return switch (extension) {
+      case Extension.Cuda:
+        arch == Arch.Cuda;
+      case Extension.CudaGlInterop:
+        Native.cuda_gl_interop_available(nativeHandle()) != 0;
+      case Extension.StreamEvents:
+        supportsStreamEvents();
+      case Extension.KernelProfiler:
+        Native.profiler_kernel_available(nativeHandle()) != 0;
+      case Extension.ScopedProfiler:
+        Native.profiler_scoped_available(nativeHandle()) != 0;
+      case Extension.MemoryProfiler:
+        Native.profiler_memory_available(nativeHandle()) != 0;
+      case Extension.ZeroCopy:
+        Native.ndarray_supports_zero_copy(nativeHandle()) != 0;
+      case Extension.ExternalPointerImport:
+        Native.ndarray_supports_external_pointer_import(nativeHandle()) != 0;
+      default:
+        false;
+    };
   }
 
   public function supportsStreamEvents():Bool {

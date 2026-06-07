@@ -144,6 +144,12 @@ class TensorBuild {
       ? '{ quadrants.Native.ndarray_write_${suffix}(context.nativeHandle(), nativeHandle(), flatIndex, ((value : Bool) ? 1 : 0)); }'
       : '{ quadrants.Native.ndarray_write_${suffix}(context.nativeHandle(), nativeHandle(), flatIndex, cast value); }'));
 
+    add("scalarRead", [APublic, AInline], fun([], valueType, "return read(0)"));
+
+    add("scalarWrite", [APublic, AInline], fun([
+      DTypeBuild.arg("value", valueType)
+    ], DTypeBuild.voidType(), "{ write(0, value); }"));
+
     add("kernelRead", [APublic], fun([
       DTypeBuild.arg("flatIndex", DTypeBuild.intType())
     ], valueType, "return read(flatIndex)"));

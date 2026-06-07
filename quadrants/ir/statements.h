@@ -732,13 +732,15 @@ class LoopUniqueStmt : public Stmt {
 class GlobalLoadStmt : public Stmt, public ir_traits::Load {
  public:
   Stmt *src;
+  bool is_volatile{false};
 
-  explicit GlobalLoadStmt(Stmt *src, const DebugInfo &dbg_info = DebugInfo()) : Stmt(dbg_info), src(src) {
+  explicit GlobalLoadStmt(Stmt *src, const DebugInfo &dbg_info = DebugInfo(), bool is_volatile = false)
+      : Stmt(dbg_info), src(src), is_volatile(is_volatile) {
     QD_STMT_REG_FIELDS;
   }
 
   bool has_global_side_effect() const override {
-    return false;
+    return is_volatile;
   }
 
   bool common_statement_eliminable() const override {
@@ -750,7 +752,7 @@ class GlobalLoadStmt : public Stmt, public ir_traits::Load {
     return src;
   }
 
-  QD_STMT_DEF_FIELDS(ret_type, src);
+  QD_STMT_DEF_FIELDS(ret_type, src, is_volatile);
   QD_DEFINE_ACCEPT_AND_CLONE;
 };
 

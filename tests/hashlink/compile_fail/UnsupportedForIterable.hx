@@ -1,4 +1,4 @@
-// EXPECT_ERROR: Quadrants HashLink range-for only supports start...end, Ndrange.of(...), Ndrange.ranges(...), Grouped.of(...), Static.range(...), or Mesh.forVertices/forEdges/forFaces/forCells(...)
+// EXPECT_ERROR: Quadrants HashLink range-for only supports start...end, Ndrange.of*/ranges* helpers, Grouped.of(...), Static.range(...), or Mesh.forVertices/forEdges/forFaces/forCells(...)
 import quadrants.Context;
 import quadrants.Kernel;
 

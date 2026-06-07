@@ -101,6 +101,68 @@ class TestField {
       ctx.sync();
       expectEq("field_kernel", x.read(0), 9);
       k.close();
+      k = null;
+
+      var direct = new Field<I32>(ctx, [4]);
+      direct.write(0, 5);
+      k = Kernel.build(ctx, macro (field:Field<I32>) -> {
+        field[0] = field[0] + 2;
+      });
+      k.launch(direct);
+      ctx.sync();
+      expectEq("field_direct_snode_kernel", direct.read(0), 7);
+      k.close();
+      k = null;
+      k = Kernel.build(ctx, macro (field:Field<I32>, out:Tensor<I32>) -> {
+        out[0] = field.append(0, 1);
+      });
+      expectThrows("field_dense_append_rejected", "Field kernel argument rank mismatch", function() {
+        k.launch(direct, denseSource);
+      });
+      k.close();
+      k = null;
+
+
+      var appended = new Field<I32>(ctx);
+      ctx.root.dense(Axis.i, 2).dynamic_(Axis.j, 4).place(appended);
+      var appendOut = new Tensor<I32>(ctx, [4]);
+      appendOut.fill(-1);
+      k = Kernel.build(ctx, macro (field:Field<I32>, out:Tensor<I32>) -> {
+        out[0] = field.append(0, 7);
+        out[1] = field.append(0, 11);
+        out[2] = field.length(0);
+      });
+      k.launch(appended, appendOut);
+      ctx.sync();
+      expectEq("field_append_first_index", appendOut.read(0), 0);
+      expectEq("field_append_second_index", appendOut.read(1), 1);
+      expectEq("field_append_length", appendOut.read(2), 2);
+      expectEq("field_append_value0", appended.read(0), 7);
+      expectEq("field_append_value1", appended.read(1), 11);
+      k.close();
+      k = null;
+      ctx.root.destroy();
+
+      var active = new Field<I32>(ctx);
+      ctx.root.bitmasked(Axis.i, 4).place(active);
+      var activeOut = new Tensor<I32>(ctx, [3]);
+      activeOut.fill(-1);
+      k = Kernel.build(ctx, macro (field:Field<I32>, out:Tensor<I32>) -> {
+        out[0] = field.isActive(1) ? 1 : 0;
+        field.activate(1);
+        out[1] = field.isActive(1) ? 1 : 0;
+        field[1] = 23;
+        field.deactivate(1);
+        out[2] = field.isActive(1) ? 1 : 0;
+      });
+      k.launch(active, activeOut);
+      ctx.sync();
+      expectEq("field_active_initial", activeOut.read(0), 0);
+      expectEq("field_active_after_activate", activeOut.read(1), 1);
+      expectEq("field_active_after_deactivate", activeOut.read(2), 0);
+      k.close();
+      k = null;
+      ctx.root.destroy();
       denseSource.close();
       source.close();
       ctx.close();

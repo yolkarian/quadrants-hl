@@ -3,7 +3,11 @@ package quadrants.algorithms;
 import quadrants.Context;
 import quadrants.Tensor;
 import quadrants.Types.F32;
+import quadrants.Types.F64;
 import quadrants.Types.I32;
+import quadrants.Types.I64;
+import quadrants.Types.U32;
+import quadrants.Types.U64;
 
 class PrefixSumExecutor {
   public final context:Context;
@@ -43,9 +47,29 @@ class PrefixSumExecutor {
     return scratch.i32(count);
   }
 
+  public function u32Scratch(count:Int):Tensor<U32> {
+    requireOpen();
+    return scratch.u32(count);
+  }
+
+  public function i64Scratch(count:Int):Tensor<I64> {
+    requireOpen();
+    return scratch.i64(count);
+  }
+
+  public function u64Scratch(count:Int):Tensor<U64> {
+    requireOpen();
+    return scratch.u64(count);
+  }
+
   public function f32Scratch(count:Int):Tensor<F32> {
     requireOpen();
     return scratch.f32(count);
+  }
+
+  public function f64Scratch(count:Int):Tensor<F64> {
+    requireOpen();
+    return scratch.f64(count);
   }
 
   public function reset():Void {

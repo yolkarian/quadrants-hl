@@ -13,6 +13,7 @@ class RuntimeSuiteBetaMain {
     TestUnaryOps.run();
     TestMathModule.run();
     TestNativeFunctions.run();
+    TestSpecialOpsRuntime.run();
     TestMatrix.run();
     TestAtomic.run();
     TestFunction.run();

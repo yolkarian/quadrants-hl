@@ -191,7 +191,7 @@ The current Haxe macro supports:
 
 - Primitive scalar and `Tensor<T>` parameters.
 - Ndarray indexing, including nested indexing up to rank 8.
-- `for (i in start...end)`, `for (I in Ndrange.of(...))`, `for (I in Ndrange.ranges(...))`, `for (i in fieldOrTensor)`, `for (i in Static.range(...))`, `while`, `break`, and `continue`.
+- `for (i in start...end)`, typed `Ndrange.ofN(...)`/`Ndrange.rangesN(...)` loops, `Ndrange.ofNAxes(...)`/`rangesNAxes(...)` loops with `AxisOrder.ofN(...)` permutations, `for (i in fieldOrTensor)`, `for (i in Static.range(...))`, `while`, `break`, and `continue`.
 - `if` statements, compile-time literal `if (true)` / `if (false)`, expression-level `if`/select, and Haxe ternary expressions.
 - Local variable declarations and assignments.
 - Ndarray element stores, atomic compound assignment on ndarray elements, and `atomicAdd(a[i], value)`/related fetch-atomic expressions, including `atomicCompareExchange(a[i], expected, desired)`.
@@ -206,7 +206,7 @@ The current Haxe macro supports:
 - `print(...)` and `assert(...)` frontend statements.
 - Primitive scalar return values via `Kernel.launchRet(args...)`.
 - Autodiff descriptor rebuild helpers (`Kernel.grad()`, `forwardGrad()`, `validationKernel()`) and `Tape` replay for recorded launches.
-- `Ndrange.of`, `shape(tensor, axis)`, loop hints (`blockDim`, `parallelize`, `serialize`), `@:qdFunc` helper calls, `Grid.threadIdx()`, and `Block`/`Subgroup`/`Workgroup` SIMT helpers inside lowered loops.
+- Typed `Ndrange.ofN` domains, `shape(tensor, axis)`, loop hints (`blockDim`, `parallelize`, `serialize`), `@:qdFunc` helper calls, `Grid.threadIdx()`, and `Block`/`Subgroup`/`Workgroup` SIMT helpers inside lowered loops.
 - Template specialization through `Template.build(DType.I32, ctx, macro (...:Tensor<TemplateDType>, ...) -> { ... })`.
 - Flattened struct returns that can be decoded on the host with `Struct.decodeSchema(...)`.
 - External-pointer and DLPack tensor import/export on LLVM-backed backends (`Cpu`, `Cuda`, `Amdgpu`).

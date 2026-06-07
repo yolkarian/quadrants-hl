@@ -1,4 +1,5 @@
 import quadrants.Context;
+import quadrants.Field;
 import quadrants.Kernel;
 import quadrants.Tape;
 import quadrants.Tensor;
@@ -45,6 +46,7 @@ class TestAdCoverageDiagnosticsRuntime {
       var x:Tensor<F32> = null;
       var loss:Tensor<F32> = null;
       var aux:Tensor<F32> = null;
+      var fieldInput:Field<F32> = null;
       var countOut:Tensor<I32> = null;
       try {
         localCtx = new Context(ctx.arch, true);
@@ -52,11 +54,13 @@ class TestAdCoverageDiagnosticsRuntime {
 
         x = enableGrad(new Tensor<F32>(localCtx, [3]));
         loss = enableGrad(new Tensor<F32>(localCtx, [1]));
-        aux = new Tensor<F32>(localCtx, [3]);
+        aux = enableGrad(new Tensor<F32>(localCtx, [3]));
         countOut = new Tensor<I32>(localCtx, [1]);
+        fieldInput = new Field<F32>(localCtx, [3]);
         x.fromArray([1.0, 2.0, 3.0]);
         loss.fill(0.0);
         aux.fill(0.0);
+        fieldInput.fill(0.0);
         countOut.fill(0);
 
         var lossKernel = Kernel.build(localCtx, macro (x:Tensor<F32>, loss:Tensor<F32>, n:Int) -> {
@@ -141,6 +145,55 @@ class TestAdCoverageDiagnosticsRuntime {
         gradCheck.requirePass();
         expectEq("gradcheck_checked", gradCheck.checked, 3);
 
+        aux.fromArray([4.0, 5.0, 6.0]);
+        x.fromArray([1.0, 2.0, 3.0]);
+        loss.fill(0.0);
+        var multiLossKernel = Kernel.build(localCtx, macro (x:Tensor<F32>, y:Tensor<F32>, loss:Tensor<F32>, n:Int) -> {
+          for (i in 0...n) {
+            loss[0] += x[i] * x[i] + x[i] * y[i];
+          }
+        });
+        kernels.push(multiLossKernel);
+        var multiGradCheck = GradCheck.checkTensorsToScalar(multiLossKernel, [x, aux, loss, 3], [x, aux], loss, {epsilon: 0.01, absoluteTolerance: 0.04, relativeTolerance: 0.04});
+        multiGradCheck.requirePass();
+        expectEq("gradcheck_multi_checked", multiGradCheck.checked, 6);
+
+        fieldInput.fromArray([1.0, 2.0, 3.0]);
+        loss.fill(0.0);
+        var fieldLossKernel = Kernel.build(localCtx, macro (fieldInput:Field<F32>, loss:Tensor<F32>, n:Int) -> {
+          for (i in 0...n) {
+            loss[0] += fieldInput[i] * fieldInput[i];
+          }
+        });
+        kernels.push(fieldLossKernel);
+        var fieldGradCheck = GradCheck.checkFieldToScalar(fieldLossKernel, [fieldInput, loss, 3], fieldInput, loss, {epsilon: 0.01, absoluteTolerance: 0.03, relativeTolerance: 0.03});
+        fieldGradCheck.requirePass();
+        expectEq("gradcheck_field_checked", fieldGradCheck.checked, 3);
+
+        x.fromArray([0.0, 2.0, 3.0]);
+        loss.fill(0.0);
+        var kinkKernel = Kernel.build(localCtx, macro (x:Tensor<F32>, loss:Tensor<F32>) -> {
+          if (x[0] > 0.0) {
+            loss[0] += x[0];
+          } else {
+            loss[0] += 2.0 * x[0];
+          }
+        });
+        kernels.push(kinkKernel);
+        var failingGradCheck = GradCheck.checkTensorToScalar(kinkKernel, [x, loss], x, loss, {epsilon: 0.01, absoluteTolerance: 0.001, relativeTolerance: 0.001, maxChecks: 1});
+        if (failingGradCheck.passed) throw "gradcheck_failure_expected";
+        expectEq("gradcheck_failure_count", failingGradCheck.failureCount, 1);
+        expectEq("gradcheck_failure_mismatch_count", failingGradCheck.mismatches.length, 1);
+        if (failingGradCheck.mismatches[0].parameterName != "input") throw "gradcheck_failure_parameter_name";
+        expectEq("gradcheck_failure_index", failingGradCheck.mismatches[0].index, 0);
+        var requirePassFailed = false;
+        try {
+          failingGradCheck.requirePass();
+        } catch (e:Dynamic) {
+          requirePassFailed = Std.string(e).indexOf("first mismatch input[0]") >= 0;
+        }
+        if (!requirePassFailed) throw "gradcheck_failure_require_pass";
+
         var customForward = Kernel.build(localCtx, macro (x:Tensor<F32>, out:Tensor<F32>, xGrad:Tensor<F32>, outGrad:Tensor<F32>, n:Int) -> {
           for (i in 0...n) {
             out[i] = x[i] * x[i];
@@ -175,6 +228,7 @@ class TestAdCoverageDiagnosticsRuntime {
         expectNear("custom_backward_x2", x.grad.read(2), 8.0);
       } catch (e:Dynamic) {
         if (countOut != null) countOut.close();
+        if (fieldInput != null) fieldInput.close();
         if (aux != null) aux.close();
         if (loss != null) loss.close();
         if (x != null) x.close();
@@ -184,6 +238,7 @@ class TestAdCoverageDiagnosticsRuntime {
         throw e;
       }
       countOut.close();
+      fieldInput.close();
       aux.close();
       loss.close();
       x.close();

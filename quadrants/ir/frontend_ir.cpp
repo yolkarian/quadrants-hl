@@ -1695,8 +1695,8 @@ Stmt *flatten_lvalue(Expr expr, Expression::FlattenContext *ctx) {
   return ptr_stmt;
 }
 
-Stmt *flatten_global_load(Stmt *ptr_stmt, Expression::FlattenContext *ctx) {
-  auto load_stmt = std::make_unique<GlobalLoadStmt>(ptr_stmt, ptr_stmt->dbg_info);
+Stmt *flatten_global_load(Stmt *ptr_stmt, Expression::FlattenContext *ctx, bool is_volatile = false) {
+  auto load_stmt = std::make_unique<GlobalLoadStmt>(ptr_stmt, ptr_stmt->dbg_info, is_volatile);
   auto pointee_type = load_stmt->src->ret_type.ptr_removed();
   load_stmt->ret_type = pointee_type->get_compute_type();
   ctx->push_back(std::move(load_stmt));
@@ -1722,10 +1722,10 @@ Stmt *flatten_rvalue(Expr ptr, Expression::FlattenContext *ctx) {
     if (ix->is_local()) {
       return flatten_local_load(ptr_stmt, ctx);
     } else {
-      return flatten_global_load(ptr_stmt, ctx);
+      return flatten_global_load(ptr_stmt, ctx, ptr->attributes.find("volatile_load") != ptr->attributes.end());
     }
   } else if (ptr.is<ArgLoadExpression>() && ptr.cast<ArgLoadExpression>()->is_ptr) {
-    return flatten_global_load(ptr_stmt, ctx);
+    return flatten_global_load(ptr_stmt, ctx, ptr->attributes.find("volatile_load") != ptr->attributes.end());
   }
 
   return ptr_stmt;

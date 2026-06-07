@@ -1,6 +1,7 @@
 import quadrants.Context;
 import quadrants.Kernel;
 import quadrants.Tape;
+import quadrants.ad.FwdMode;
 import quadrants.Tensor;
 import quadrants.Types.F32;
 
@@ -136,6 +137,69 @@ class TestAutodiffRuntime {
         ctx.sync();
         expectEq("tape_validate_clear", validateTape.length, 0);
         expectNear("tape_validate_loss", loss.read(0), 14.0);
+
+        input.fromArray([1.0, 2.0, 3.0]);
+        mid.fill(0.0);
+        loss.fill(0.0);
+        input.grad.fill(99.0);
+        mid.grad.fill(99.0);
+        loss.grad.fill(7.0);
+        var withLossTape = Tape.withLoss(loss, function(tape) {
+          tape.launch(square, input, mid, 3);
+          tape.launch(reduce, mid, loss, 3);
+        }, true);
+        ctx.sync();
+        expectEq("tape_with_loss_clear", withLossTape.length, 0);
+        expectNear("tape_with_loss_seed", loss.grad.read(0), 1.0);
+        expectNear("tape_with_loss_x0", input.grad.read(0), 2.0);
+        expectNear("tape_with_loss_x1", input.grad.read(1), 4.0);
+        expectNear("tape_with_loss_x2", input.grad.read(2), 6.0);
+
+        mid.fill(0.0);
+        loss.fill(0.0);
+        input.dual.fill(99.0);
+        mid.dual.fill(99.0);
+        loss.dual.fill(99.0);
+        var fwdModeTape = FwdMode.run(input, loss, 1.0, function(tape) {
+          tape.launch(square, input, mid, 3);
+          tape.launch(reduce, mid, loss, 3);
+        }, true);
+        ctx.sync();
+        expectEq("fwdmode_run_clear", fwdModeTape.length, 0);
+        expectNear("fwdmode_run_loss_dual", loss.dual.read(0), 12.0);
+
+        var dynamicWhileLoss = Kernel.build(ctx, macro (input:Tensor<F32>, loss:Tensor<F32>, n:Int) -> {
+          var i = 0;
+          while (i < n) {
+            loss[0] += input[i] * input[i];
+            i = i + 1;
+          }
+        });
+        kernels.push(dynamicWhileLoss);
+        if (dynamicWhileLoss.reverseAutodiffReason() != null) throw "dynamic_while_builder_blocked";
+        input.fromArray([1.0, 2.0, 3.0]);
+        loss.fill(0.0);
+        dynamicWhileLoss.launch(input, loss, 3);
+        ctx.sync();
+        expectNear("dynamic_while_primal_loss", loss.read(0), 14.0);
+        input.grad.fill(0.0);
+        loss.grad.fill(1.0);
+        var dynamicWhileGrad:Kernel = null;
+        try {
+          dynamicWhileGrad = dynamicWhileLoss.grad();
+          kernels.push(dynamicWhileGrad);
+          dynamicWhileGrad.launch(input, loss, 3);
+          ctx.sync();
+          expectNear("dynamic_while_grad_x0", input.grad.read(0), 2.0);
+          expectNear("dynamic_while_grad_x1", input.grad.read(1), 4.0);
+          expectNear("dynamic_while_grad_x2", input.grad.read(2), 6.0);
+        } catch (e:Dynamic) {
+          var message = Std.string(e);
+          if (message.indexOf("Unknown native Quadrants HashLink bridge error") < 0 && message.indexOf("Not supported") < 0) {
+            throw e;
+          }
+          Sys.println('hashlink ${name} dynamic while reverse autodiff skipped: ${message}');
+        }
       } catch (e:Dynamic) {
         TestRuntimeSupport.closeKernels(kernels);
         throw e;

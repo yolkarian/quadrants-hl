@@ -327,7 +327,9 @@ class TaskCodeGenAMDGPU : public TaskCodeGenLLVM {
       auto get_ch = stmt->src->as<GetChStmt>();
       auto physical_type = tlctx->get_data_type(get_ch->input_snode->physical_type);
       auto [byte_ptr, bit_offset] = load_bit_ptr(ptr);
-      auto physical_value = builder->CreateLoad(physical_type, byte_ptr);
+      auto *physical_load = builder->CreateLoad(physical_type, byte_ptr);
+      physical_load->setVolatile(stmt->is_volatile);
+      auto physical_value = static_cast<llvm::Value *>(physical_load);
       if (auto qit = val_type->cast<QuantIntType>()) {
         llvm_val[stmt] = extract_quant_int(physical_value, bit_offset, qit);
       } else if (auto qfxt = val_type->cast<QuantFixedType>()) {
@@ -342,7 +344,9 @@ class TaskCodeGenAMDGPU : public TaskCodeGenLLVM {
       }
     } else {
       // Byte pointer case.
-      llvm_val[stmt] = builder->CreateLoad(tlctx->get_data_type(stmt->ret_type), ptr);
+      auto *load = builder->CreateLoad(tlctx->get_data_type(stmt->ret_type), ptr);
+      load->setVolatile(stmt->is_volatile);
+      llvm_val[stmt] = load;
     }
   }
 

@@ -35,6 +35,7 @@ enum class DescriptorDType : std::uint8_t {
 enum class ParameterKind : std::uint8_t {
   scalar = 0,
   ndarray = 1,
+  field = 2,
 };
 
 enum class ExprOpcode : std::uint8_t {
@@ -125,6 +126,13 @@ enum class ExprOpcode : std::uint8_t {
   atomic_compare_exchange = 85,
   rand = 86,
   assume_in_range = 87,
+  volatile_load_index = 88,
+  frexp_significand = 89,
+  frexp_exponent = 90,
+  fns_u32 = 91,
+  snode_append = 92,
+  snode_length = 93,
+  snode_is_active = 94,
 };
 
 enum class StmtOpcode : std::uint8_t {
@@ -164,6 +172,8 @@ enum class StmtOpcode : std::uint8_t {
   struct_for_external_tensor = 34,
   return_values = 35,
   mesh_for = 36,
+  snode_activate = 37,
+  snode_deactivate = 38,
 };
 
 struct ParameterDescriptor {
@@ -268,6 +278,9 @@ AutodiffMode autodiff_mode_from_bridge_id(int mode);
 
 KernelBuildResult build_kernel_from_descriptor(lang::Program &program,
                                               const KernelDescriptor &descriptor,
-                                              AutodiffMode autodiff_mode);
+                                              AutodiffMode autodiff_mode,
+                                              const std::vector<int> *field_snode_ids = nullptr,
+                                              const std::vector<int> *field_adjoint_snode_ids = nullptr,
+                                              const std::vector<int> *field_dual_snode_ids = nullptr);
 
 }  // namespace quadrants::hashlink

@@ -51,6 +51,9 @@ class ProgramImpl {
    */
   virtual void materialize_runtime(KernelProfilerBase *profiler, uint64 **result_buffer_ptr) = 0;
 
+  virtual void reset_random_states(int seed) {
+  }
+
   /**
    * JIT compiles @param tree to backend-specific data types.
    */

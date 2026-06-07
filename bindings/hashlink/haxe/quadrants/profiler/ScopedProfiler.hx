@@ -20,6 +20,14 @@ class ScopedProfiler {
     }
   }
 
+  public function clear():Void {
+    profiler.clear();
+  }
+
+  public function printInfo(mode:ProfilerPrintMode = Count):Void {
+    profiler.printInfo(mode);
+  }
+
   public static function run<T>(context:Context, name:String, body:Void->T):T {
     var scope = new ScopedProfiler(context, name);
     try {

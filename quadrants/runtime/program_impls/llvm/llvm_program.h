@@ -86,6 +86,10 @@ class LlvmProgramImpl : public ProgramImpl {
     runtime_exec_->materialize_runtime(profiler, result_buffer_ptr);
   }
 
+  void reset_random_states(int seed) override {
+    runtime_exec_->reset_random_states(seed);
+  }
+
   void destroy_snode_tree(SNodeTree *snode_tree) override {
     // Invalid corresponding snode tree cache
     if (cache_data_->fields.find(snode_tree->id()) != cache_data_->fields.end())

@@ -204,7 +204,21 @@ void TaskCodeGenLLVM::emit_extra_unary(UnaryOpStmt *stmt) {
       QD_NOT_IMPLEMENTED                                                   \
     }                                                                      \
   }
-  if (false) {
+  if (op == UnaryOpType::frexp) {
+    auto *struct_type = tlctx->get_data_type(stmt->ret_type.ptr_removed());
+    auto *result = create_entry_block_alloca(struct_type);
+    auto *significand_ptr = builder->CreateStructGEP(struct_type, result, 0);
+    auto *exponent_ptr = builder->CreateStructGEP(struct_type, result, 1);
+    llvm::Value *significand = nullptr;
+    if (input_quadrants_type->is_primitive(PrimitiveTypeID::f32)) {
+      significand = call("frexp_f32", input, exponent_ptr);
+    } else if (input_quadrants_type->is_primitive(PrimitiveTypeID::f64)) {
+      significand = call("frexp_f64", input, exponent_ptr);
+    } else {
+      QD_NOT_IMPLEMENTED
+    }
+    builder->CreateStore(significand, significand_ptr);
+    llvm_val[stmt] = result;
   }
   UNARY_STD(abs)
   UNARY_STD(exp)
@@ -579,7 +593,11 @@ void TaskCodeGenLLVM::visit(BinaryOpStmt *stmt) {
       llvm_val[stmt] = builder->CreateUDiv(llvm_val[stmt->lhs], llvm_val[stmt->rhs]);
     }
   } else if (op == BinaryOpType::mod) {
-    llvm_val[stmt] = builder->CreateSRem(llvm_val[stmt->lhs], llvm_val[stmt->rhs]);
+    if (is_signed(stmt->ret_type.get_element_type())) {
+      llvm_val[stmt] = builder->CreateSRem(llvm_val[stmt->lhs], llvm_val[stmt->rhs]);
+    } else {
+      llvm_val[stmt] = builder->CreateURem(llvm_val[stmt->lhs], llvm_val[stmt->rhs]);
+    }
   } else if (op == BinaryOpType::logical_and) {
     auto *lhs = builder->CreateIsNotNull(llvm_val[stmt->lhs]);
     auto *rhs = builder->CreateIsNotNull(llvm_val[stmt->rhs]);
@@ -1468,8 +1486,14 @@ void TaskCodeGenLLVM::create_global_load(GlobalLoadStmt *stmt, bool should_cache
     auto get_ch = stmt->src->as<GetChStmt>();
     auto physical_type = tlctx->get_data_type(get_ch->input_snode->physical_type);
     auto [byte_ptr, bit_offset] = load_bit_ptr(ptr);
-    auto physical_value = should_cache_as_read_only ? create_intrinsic_load(byte_ptr, physical_type)
-                                                    : builder->CreateLoad(physical_type, byte_ptr);
+    llvm::Value *physical_value = nullptr;
+    if (should_cache_as_read_only && !stmt->is_volatile) {
+      physical_value = create_intrinsic_load(byte_ptr, physical_type);
+    } else {
+      auto *load = builder->CreateLoad(physical_type, byte_ptr);
+      load->setVolatile(stmt->is_volatile);
+      physical_value = load;
+    }
     if (auto qit = val_type->cast<QuantIntType>()) {
       llvm_val[stmt] = extract_quant_int(physical_value, bit_offset, qit);
     } else if (auto qfxt = val_type->cast<QuantFixedType>()) {
@@ -1484,10 +1508,12 @@ void TaskCodeGenLLVM::create_global_load(GlobalLoadStmt *stmt, bool should_cache
     }
   } else {
     // Byte pointer case.
-    if (should_cache_as_read_only) {
+    if (should_cache_as_read_only && !stmt->is_volatile) {
       llvm_val[stmt] = create_intrinsic_load(ptr, tlctx->get_data_type(stmt->ret_type));
     } else {
-      llvm_val[stmt] = builder->CreateLoad(tlctx->get_data_type(stmt->ret_type), ptr);
+      auto *load = builder->CreateLoad(tlctx->get_data_type(stmt->ret_type), ptr);
+      load->setVolatile(stmt->is_volatile);
+      llvm_val[stmt] = load;
     }
   }
 }

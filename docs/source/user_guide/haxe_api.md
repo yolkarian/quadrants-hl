@@ -48,6 +48,17 @@ Explicit `Context` objects remain the ownership ground truth and are the right c
 var ctx = new Context(Arch.Cpu);
 ```
 
+Use `ContextOptions` when a context should apply native-backed settings before user code starts building kernels:
+
+```haxe
+var opts = ContextOptions.create()
+  .withProfiler(true)
+  .withOfflineCache(true, "build/qdcache")
+  .withCpuMaxNumThreads(4)
+  .withBoundsCheck(true);
+var configured = Context.fromOptions(opts, Arch.Cpu);
+```
+
 Small programs can use `quadrants.runtime.Runtime` as a default-session facade:
 
 ```haxe
@@ -63,38 +74,42 @@ Runtime.reset();
 
 | Haxe API | Purpose |
 | --- | --- |
-| `new Context(Arch.Cpu, enableProfiler = false)` | Create an explicitly owned Quadrants runtime context for a backend. |
-| `Runtime.init(Arch.Cpu, enableProfiler = false)`, `Runtime.context()`, `Runtime.sync()`, `Runtime.reset()` | Manage one default `quadrants.runtime.Session` for simple top-level programs while preserving explicit `Context` ownership. |
+| `new Context(Arch.Cpu, enableProfiler = false)` / `Context.fromOptions(ContextOptions.create()...)` | Create an explicitly owned Quadrants runtime context. `ContextOptions` applies the typed Haxe/HL setters currently backed by native APIs: profiler enable, offline cache, adstack config, random seed, CPU thread cap, fast math, bounds checks, and debug dump. |
+| `Runtime.init(Arch.Cpu, enableProfiler = false, options = null)`, `Runtime.context()`, `Runtime.sync()`, `Runtime.reset()` | Manage one default `quadrants.runtime.Session`; pass the same `ContextOptions` used by explicit contexts when a default session needs typed native-backed configuration. |
 | `Context.sync()` / `Context.close()` | Synchronize queued work and release the native context. |
-| `Context.supportsStreamEvents()` / `Context.clearOfflineCache()` | Query event support (`Cuda`/`Amdgpu`) and delete a previously configured offline-cache tree. |
+| `Context.supportsStreamEvents()` / `Context.isExtensionEnabled(Extension.MemoryProfiler)` / `Context.clearOfflineCache()` | Query typed runtime extensions and delete a previously configured offline-cache tree. |
 | `new Tensor<I32>(ctx, [n])`, `new Tensor<F32>(ctx, [m, k])` | Allocate a primitive ndarray whose dtype is fixed by the generic type parameter. |
+| `new Tensor<I32>(ctx, [])`, `TensorScalar.i32(ctx)` | Allocate a rank-0 scalar tensor containing exactly one element. |
 | `Tensor<T>.fill(value)`, `read(i)`, `write(i, value)` | Typed flat host access. `read()` returns `T`; `write()` only accepts `T`. |
 | `Tensor<T>.readAt(indices)`, `writeAt(indices, value)` | Typed multi-dimensional host indexing. |
+| `Tensor<T>.scalarRead()`, `scalarWrite(value)` | Typed host and kernel scalar access for rank-0 tensors/fields. Use these instead of `tensor[0]` when the tensor shape is `[]`. |
 | `Tensor<T>.toArray()` / `fromArray(values)` | Typed host-array transfer. |
 | `Tensor<T>.readBytes(...)`, `writeBytes(...)`, `copyToBytes(...)`, `copyFromBytes(...)` | Raw byte transport for contiguous tensor ranges. |
 | `Tensor<T>.view(flatStart, length)` / `BufferView<T>` | Checked flat view over a tensor. `BufferView<T>` kernel parameters flatten to tensor handle + start + length. |
 | `Tensor<T>.grad`, `dual`, `enableGrad()` | Typed gradient/dual storage helpers. |
 | `Tensor<T>.fromDLPack(...)`, `importDLPack(...)`, `fromExternalPointer(...)`, `importExternalPointer(...)` | Import typed tensors from contiguous DLPack capsules or external pointers on LLVM-backed backends. |
-| `new Field<T>(ctx, shape)` / `new Field<T>(ctx)` plus `ctx.root...place(field)` / `Field<T>.toTensor()` / `Field<T>.fromTensor(...)` | Typed SNode-backed field allocation, placement, host access, tensor conversion, and tensor-to-field copies. |
+| `new Field<T>(ctx, shape)` / `new Field<T>(ctx)` plus `ctx.root...place(field)` / `FieldScalar.i32(ctx)` / `Field<T>.toTensor()` / `Field<T>.fromTensor(...)` | Typed SNode-backed field allocation, scalar/root placement, host access, tensor conversion, and tensor-to-field copies. Direct `Field<T>` kernel parameters bind the placed SNode; `field[i]`, scalar read/write, dynamic `append`/`length`, and pointer/bitmasked `isActive`/`activate`/`deactivate` lower to native field/SNode IR instead of mirror tensor copies. |
 | `Tensor<T>.supportsZeroCopy()`, `supportsDLPack()`, `supportsExternalPointerImport()`, `exportDLPack()`, `exportDevicePointer()` | Capability-probed interop helpers. DLPack exports must be closed by the caller. |
 | `Kernel.build(ctx, macro (...) -> { ... }, {helpers: [MyHelpers]})` / `Template.build(DType.I32, ctx, macro (...:Tensor<TemplateDType>, ...) -> { ... })` | Build and JIT-compile a concrete kernel directly, optionally with explicit `@:qdFunc` helper classes, or specialize one typed kernel template across dtypes. |
 | `Kernel.descriptorBytes(..., {helpers: [MyHelpers]})` / `Template.descriptorBytes(...)` | Return QDHL descriptor bytes for tests/tooling. |
 | `Kernel.launch(args...)`, `launchGraph(...)`, `launchGraphWhile(...)`, `launchGraphDoWhile(...)` | Launch a compiled kernel directly or through graph execution helpers. |
 | `Kernel.launchRet(...)` / `launchRets(...)` | Launch kernels with primitive scalar or fixed tuple returns. |
 | `Kernel.grad()`, `forwardGrad()`, `validationKernel()` | Recompile the stored descriptor in reverse, forward, or validation autodiff mode. |
-| `Context.stream()`, `Runtime.stream()`, `Context.setOfflineCache(...)`, `Context.setDebugDump(...)` | Create execution streams and configure cache / debug-dump behavior for the context. |
+| `Context.stream()`, `Runtime.stream()`, `Context.setOfflineCache(...)`, `Context.setDebugDump(...)`, `Context.setRandomSeed(seed)` | Create execution streams and configure cache/debug-dump behavior. `setRandomSeed` also resets the native per-thread random states so later `rand*`/`SpecialOps.randn*` launches replay deterministically for the same seed. |
 | `Stream.createEvent()` / `Stream.recordEvent(...)` / `Stream.waitEvent(...)` / `StreamEvent.sync()` | CUDA/AMDGPU stream-event coordination helpers. |
-| `Context.profiler()`, `Runtime.profiler()`, `Profiler.recordKernel(...)`, `Profiler.min/max/avg/count(...)` | Runtime profiler queries by kernel name or kernel instance. |
-| `quadrants.algorithms.Reduce/Scan/Select/Sort/ReduceByKey`, `PrefixSumExecutor`, `Scratch` | Haxe-only scalar tensor algorithms for `I32`/`F32`: reduce add/min/max, exclusive add/min/max scans, stream compaction, simple sort/radix-sort entrypoints, reduce-by-key add, and reusable scratch storage. |
-| `Tape.run(...)`, `Tape.runBackward(...)`, `Tape.runForward(...)`, `Tape.runValidate(...)` | Convenience lifecycle wrappers over explicit tape recording and replay. |
-| `quadrants.ad.Grad`, `GradCheck`, `CustomGradient` | Gradient zeroing, finite-difference checking for F32 tensor-to-scalar kernels, and explicit custom forward/backward kernel pairing. |
+| `Context.profiler()`, `Runtime.profiler()`, `Profiler.recordKernel(...)`, `Profiler.printInfo(...)`, `Profiler.clearInfo(...)`, `quadrants.profiler.KernelProfiler`, `MemoryProfiler` | Runtime profiler queries by kernel name or kernel instance, print/clear convenience, typed CUPTI metric presets, and explicit memory-profiler availability probes. |
+| `quadrants.algorithms.Reduce/Scan/Select/Sort/ReduceByKey`, `PrefixSumExecutor`, `Scratch` | Haxe-only scalar tensor algorithms for `I32`/`U32`/`I64`/`U64`/`F32`/`F64`: reduce add/min/max, exclusive add/min/max scans, stream compaction, simple sort/radix-sort entrypoints, reduce-by-key add, and reusable scratch storage. |
+| `Tape.run(...)`, `Tape.withLoss(...)`, `Tape.withLossAndParams(...)`, `quadrants.ad.FwdMode.run(...)` | Tape lifecycle wrappers over explicit recording/replay, reverse-mode scalar-loss seed/clear helpers, and forward-mode dual seed/clear replay. |
+| `quadrants.ad.Grad`, `GradCheck`, `CustomGradient` | Typed gradient/dual zeroing and seeding, finite-difference checking for F32 tensor/field inputs to a scalar loss, and explicit custom forward/backward kernel pairing. |
 | `quadrants.coverage.Coverage`, `quadrants.compat.Diagnostics` | Kernel build/launch/source-span coverage JSON artifacts, descriptor dumps/hashes, value info, and runtime health checks. |
 | `quadrants.packed.PackedVectorTensor/Field`, `PackedMatrixTensor/Field`, `StructOfArraysField`, `PackedStructTensor`, `PackedHelpers` | Workaround containers and kernel access helpers for logical vectors, matrices, and named struct members stored in primitive tensors/fields. |
 | `VectorNdarray<T>`, `MatrixNdarray<T>`, `VectorField<T>`, `MatrixField<T>`, `StructField` | First-class compound storage containers for flat AOS vector/matrix storage and SOA struct fields. Vector/matrix containers are kernel parameters and expose `readVec*` / `writeVec*` and `readMat*` / `writeMat*` lowering. |
 | `FieldsBuilder.placeMany(...)`, `FieldsBuilder.finalize()`, `quadrants.snode.FieldPlacementPath`, `quadrants.snode.FieldTree`, `quadrants.runtime.LoopConfig` | Multi-field placement, reusable placement-path handles, lazy grad/dual field helpers, and centralized loop-control wrappers. |
-| `quadrants.linalg.SparseMatrix`, `SparseMatrixBuilder`, `SparseSolver`, `SparseCG` | Native F32 sparse matrix bridge with builder insertion, matvec, direct solve smoke path, and conjugate-gradient solve. |
-| `quadrants.profiler.ProfilerBridge`, `ScopedProfiler` | Profiler feature probes and named scoped profiler blocks. |
+| `quadrants.linalg.SparseMatrix<T>`, `SparseMatrixBuilder<T>`, `SparseSolver<T>`, `SparseCG`, `MatrixFreeCG<T>`, `MatrixFreeBICGSTAB<T>` | Typed F32/F64 host-reference sparse bridge with storage/solver/ordering enum abstracts, matrix ops, explicit host dense solver fallback, and matrix-free iterative solvers. |
+| `quadrants.profiler.ProfilerBridge`, `ScopedProfiler` | Profiler feature probes and named scoped profiler blocks; scoped and kernel helpers expose print/clear parity. |
+| `quadrants.perf.PerfDispatcher<TGeometry, TResult>` | Host-side typed perf dispatch utility with explicit registration, deterministic predicate selection, and cache keys/hits without decorators or public `Dynamic`. |
 | `CompilerHints.assumeInRange(value, base, low, high)` | Lower a scalar expression to the native range-assumption IR node when the compiler supports it. |
+| `SpecialOps.randnF32/F64`, `fnsU32`, `rawDiv/rawMod`, `frexpF32/F64`, `volatileLoad` | Typed kernel-only special/debug operations for Gaussian random values, find-nth-set-bit, truncating division/remainder, frexp decomposition, and volatile ndarray reads. |
 | `Struct.decodeSchema({field: 0, nested: {value: 0}}, kernel.launchRets(...))` | Decode flattened struct returns back into nested Haxe object literals. |
 | `Shared.array(DType.I32, size)` / `Shared.tile16(DType.F32)` | Generic shared-memory factories inside kernel bodies, alongside the dtype-specific `Shared.arrayI32(...)` / `Shared.tile16F32()` forms. |
 | `CudaGlInterop.available(ctx)` / `CudaGlInterop.registerBuffer(ctx, glBuffer, byteSize)` | Query CUDA/OpenGL interop availability and register an OpenGL buffer with CUDA. |
@@ -113,6 +128,8 @@ import quadrants.Types.F32;
 
 `DType` values are `I8`, `I16`, `I32`, `I64`, `U8`, `U16`, `U32`, `U64`, `F16`, `F32`, `F64`, and `U1`.
 
+`Extension` values are typed capability probes for `Context.isExtensionEnabled(...)`: `Cuda`, `CudaGlInterop`, `StreamEvents`, `KernelProfiler`, `ScopedProfiler`, `MemoryProfiler`, `ZeroCopy`, and `ExternalPointerImport`.
+
 The dtype types in `quadrants.Types` are distinct abstracts, so `Tensor<I8>`, `Tensor<I16>`, and `Tensor<I32>` are different Haxe types even though their host representation is integer-like. `U32` and `U64` host values use `haxe.Int64` so the full unsigned range can pass through HashLink. `F32` uses `hl.F32` and accepts `Float` literals for host convenience.
 
 ## SIMT helper modules
@@ -128,11 +145,11 @@ var k = Kernel.build(ctx, macro (input:Tensor<I32>, out:Tensor<I32>) -> {
 }, {helpers: [BlockScan]});
 ```
 
-The first tranche provides `BlockReduce` (`reduceAdd/Min/Max` for I32/F32 and tile16 I32 helpers), `BlockScan` (I32/F32 inclusive/exclusive add scan), `SubgroupCompat` wrappers, and `TileSort` tile16 I32 bitonic helpers. These helpers require backends with the corresponding SIMT/shared-memory support; tests gate runtime execution to requested device backends and always keep descriptor coverage.
+The SIMT helper tranche provides `BlockReduce` (`reduceAdd/Min/Max` for I32/U32/I64/F32/F64, add-only U64, tile16 I32/F32 shortcuts, and `reduceAll/Any/CountI32` barrier votes), `BlockScan` (I32/F32 inclusive/exclusive add plus min/max scans), `SubgroupCompat` typed shuffle/broadcast wrappers including `shuffleXor*`, `broadcastFirst*`, active-mask and lane-mask helpers, `TileSort` tile16 I32 bitonic helpers, and typed tile utility classes (`Tile16x16F32/F64`, `Tile32x32F32/F64`). Tile utilities operate on explicit flat `Tensor<F32/F64>` tile storage such as `Shared.tile16F32()` or `Shared.arrayF32(1024)` and expose suffixed qdFunc entry points (`loadTile16x16F32`, `transposeTile16x16F32`, `choleskyTile16x16F32`, `solveTriangularTile16x16F32`, etc.) so helper names remain unambiguous. Ballot-style subgroup masks still require native descriptor ABI support; use `Grid.activeMask()`/`SubgroupCompat.activeMask()` for the existing active-lane primitive. These helpers require backends with the corresponding SIMT/shared-memory support; tests gate runtime execution to requested device backends and always keep descriptor coverage.
 
 ## Algorithms module
 
-`quadrants.algorithms` derives the context from passed tensors and currently supports scalar `Tensor<I32>` and `Tensor<F32>`. Input/output dtype relationships are generic and typed: mismatched algorithm tensors fail during Haxe compilation instead of falling through to runtime dtype checks.
+`quadrants.algorithms` derives the context from passed tensors. Reference `Reduce`, `Scan`, `Select`, and `Sort.parallelSort` support scalar `Tensor<I32>`, `Tensor<U32>`, `Tensor<I64>`, `Tensor<U64>`, `Tensor<F32>`, and `Tensor<F64>` where the operation is meaningful. Input/output dtype relationships are generic and typed: mismatched algorithm tensors fail during Haxe compilation instead of falling through to runtime dtype checks.
 
 ```haxe
 var values = new Tensor<I32>(ctx, [4]);
@@ -146,15 +163,19 @@ executor.deviceExclusiveScanAdd(values, out);
 executor.close();
 ```
 
-The same typed contract is used by `Select.deviceSelect<T>(input:Tensor<T>, flags:Tensor<I32>, output:Tensor<T>, countOut:Tensor<I32>, ?n)` and `ReduceByKey.deviceReduceByKeyAdd<T>(keys:Tensor<I32>, values:Tensor<T>, outKeys:Tensor<I32>, outValues:Tensor<T>, countOut:Tensor<I32>, ?n)`.
+The same typed contract is used by `Select.deviceSelect<T>(input:Tensor<T>, flags:Tensor<I32>, output:Tensor<T>, countOut:Tensor<I32>, ?n)` and `ReduceByKey.deviceReduceByKeyAdd<T>(keys:Tensor<I32>, values:Tensor<T>, outKeys:Tensor<I32>, outValues:Tensor<T>, countOut:Tensor<I32>, ?n)`. `ReduceByKey.deviceReduceByKeyAdd` follows consecutive-run semantics: only adjacent equal keys are combined. The previous global grouping behavior is available as `ReduceByKey.reduceByKeyGlobalAdd` / `deviceReduceByKeyGlobalAdd`.
+
+Typed entry points are also available for code that wants an explicit dtype in the call name, for example `Reduce.addU32`, `Reduce.maxF64`, `Scan.exclusiveAddI64`, `Select.selectU64`, and `Sort.sortF64`.
+
+`Sort.deviceRadixSort` supports key-only I32/U32/I64/U64 radix reference sorting with optional `beginBit`/`endBit`. `Sort.deviceRadixSortPairs` preserves a scalar I32/U32/I64/U64/F32/F64 value tensor alongside I32/U32/I64/U64 keys and uses the same bit range semantics; signed key dtypes are transformed so full-range radix order matches signed numeric order.
 
 | Algorithm family | CPU | CUDA/AMDGPU/Vulkan/Metal |
 | --- | --- | --- |
-| `Reduce.deviceReduceAdd/Min/Max` | Supported and tested | Uses the same Haxe kernel path when the backend supports scalar loops; performance is a reference implementation. |
-| `Scan.deviceExclusiveScanAdd/Min/Max` / `PrefixSumExecutor` | Supported and tested | Uses the same Haxe kernel path when the backend supports scalar loops; performance is a reference implementation. |
-| `Select.deviceSelect` | Supported and tested | Uses the same Haxe kernel path when the backend supports scalar loops; output order is stable. |
-| `Sort.parallelSort` / `Sort.deviceRadixSort` | Supported and tested | Uses simple deterministic kernels; intended as an API-stabilizing reference path, not a tuned device sort. |
-| `ReduceByKey.deviceReduceByKeyAdd` | Supported and tested | Uses simple deterministic kernels; preserves first-key occurrence order. |
+| `Reduce.deviceReduceAdd/Min/Max` and typed `Reduce.add/min/max*` | Supported and tested for I32/U32/I64/U64/F32/F64 | Uses the same Haxe kernel path when the backend supports scalar loops; performance is a reference implementation. |
+| `Scan.deviceExclusiveScanAdd/Min/Max`, typed `Scan.exclusive*`, and `PrefixSumExecutor` | Supported and tested for I32/U32/I64/U64/F32/F64 | Uses the same Haxe kernel path when the backend supports scalar loops; performance is a reference implementation. |
+| `Select.deviceSelect` and typed `Select.select*` | Supported and tested for I32/U32/I64/U64/F32/F64 scalar tensors | Uses the same Haxe kernel path when the backend supports scalar loops; output order is stable. |
+| `Sort.parallelSort` / `Sort.deviceRadixSort` / `Sort.deviceRadixSortPairs` | Supported and tested; radix keys are I32/U32/I64/U64 and pair values are I32/U32/I64/U64/F32/F64 | Uses simple deterministic kernels; intended as an API-stabilizing reference path, not a tuned device sort. |
+| `ReduceByKey.deviceReduceByKeyAdd` | Supported and tested for I32 keys with I32/U32/I64/U64/F32/F64 values | Uses simple deterministic kernels; preserves consecutive key runs. |
 
 The Haxe-only implementations are deterministic reference kernels intended for small/medium tensors and API stabilization. CPU is the always-tested backend. Device backends may run these kernels where the backend supports the required control flow, but performance portability is not the contract for this first tranche.
 
@@ -189,7 +210,7 @@ var particles = new StructField()
 particles.writeMember(idMember, 0, 7);
 ```
 
-Pass struct members (`particles.memberBy(massMember)`, etc.) to kernels when device code needs them; whole-struct kernel parameters remain deferred until the descriptor ABI has heterogeneous member metadata. The old `add("name", value)`, `member("name")`, `read("name", i)`, and `write("name", i, value)` methods are compatibility shims and are listed in the retained-`Dynamic` ledger.
+Pass struct members (`particles.memberBy(massMember)`, etc.) to kernels when device code needs them; whole-struct kernel parameters remain deferred until the descriptor ABI has heterogeneous member metadata. Host code that needs typed whole-value movement can use `Struct.value1/2/3/4(...)` and `readValue*/writeValue*` on `StructField`, `StructOfArraysField`, and `PackedStructTensor`; these facades preserve member value types without exposing `Dynamic`. The old `add("name", value)`, `member("name")`, `read("name", i)`, and `write("name", i, value)` methods are compatibility shims and are listed in the retained-`Dynamic` ledger.
 
 Migration from the Phase 6 workaround layer is explicit and lossless for the supported layouts:
 
@@ -272,7 +293,7 @@ var k = Kernel.build(ctx, macro (out:Tensor<I32>) -> {
 });
 ```
 
-Compiler-hint recipes remain explicit Haxe patterns: use `CompilerHints.assumeInRange(...)` for native range assumptions, `Shared.array*` / `Shared.tile16*` for manual shared-memory staging, `kernelRead`/`kernelWrite` in helper classes for flattened helper access, and tile load/store idioms built from `Block.threadIdx()` plus `Block.sync()`. True quant placement and compiler-level `noActivate` remain deferred.
+Compiler-hint recipes remain explicit Haxe patterns: use `CompilerHints.assumeInRange(...)` for native range assumptions, `Shared.array*` / `Shared.tile16*` for manual shared-memory staging, `kernelRead`/`kernelWrite` in helper classes for flattened helper access, and tile load/store idioms built from `Block.threadIdx()` plus `Block.sync()`. In-kernel `StreamParallel.block(...)` and compiler-level `noActivate` remain explicit compile-time unsupported boundaries until the descriptor/backend has native lowering.
 
 ## Typed mesh and quant contracts
 
@@ -294,57 +315,102 @@ massAttr.write(v0, 7);
 
 The relation handle type encodes the valid source and target domains, so passing an edge to a vertex-to-face relation is a compile-time error. This is currently a typed host contract; kernel-side mesh relation access, mesh attributes, and index-conversion lowering remain explicitly deferred until the native descriptor/bridge has typed relation metadata.
 
-`quadrants.quant` provides typed storage descriptors and a Haxe-only reference quantized tensor:
+`quadrants.quant` provides typed storage descriptors, a Haxe-only reference quantized tensor, and native `quant_array` field placement for int/fixed specs:
 
 ```haxe
 var spec = Quant.fixedF32(QuantBits.Bits8, QuantSignedness.Signed, 4);
-var q = new QuantizedF32Tensor(ctx, [n], spec);
+var q = new QuantizedF32Tensor(ctx, [n], spec); // reference/debug utility
 q.write(0, 1.5);
 var raw:I32 = q.readRaw(0);
+
+var field = new Field<F32>(ctx);
+ctx.root.quantArray(Axis.i, n, QuantBits.Bits32).placeQuant(field, spec);
+field.write(0, 1.5);
 ```
 
-`QuantBits` is an enum abstract rather than an `Int`, so invalid bit-width parameters fail at compile time. Native quantized SNode placement and quantized kernel parameters are not public APIs in this release line; use the compile-fail suite as the contract for unsupported operations.
+`QuantInt<Storage, Compute>`, `QuantFixed<Storage, Compute>`, and `QuantFloat<Storage, Compute>` carry storage/compute dtype metadata without public `Dynamic`. `QuantBits` is an enum abstract rather than an `Int`, so invalid bit-width parameters fail at compile time where Haxe can type-check them; constructor/runtime validation covers ranges such as fixed fractional bits. The HashLink bridge currently lowers `quantArray(...).placeQuant(...)` for int/fixed specs. `bitStruct(...)`, quant-float placement, and native quantized kernel parameters remain explicit unsupported boundaries and fail with typed errors instead of falling back to fake tensor semantics.
 
 ## Sparse/linalg and profiler bridge
 
 `quadrants.linalg` is a native bridge namespace distinct from any host-only helper types:
 
 ```haxe
-var builder = new SparseMatrixBuilder(ctx, 2, 2);
+var builder = new SparseMatrixBuilder<F32>(ctx, 2, 2, DType.F32, SparseStorageFormat.CSR, 4);
 builder.set(0, 0, 4.0).set(0, 1, 1.0).set(1, 0, 1.0).set(1, 1, 3.0);
 var matrix = builder.build();
 var b = new Tensor<F32>(ctx, [2]);
 var x = new Tensor<F32>(ctx, [2]);
 b.fromArray([1.0, 2.0]);
-new SparseSolver(ctx).solve(matrix, b, x);
+new SparseSolver<F32>(ctx, DType.F32, SparseSolverType.LU, SparseOrdering.COLAMD, true).solve(matrix, b, x);
 SparseCG.solve(matrix, b, x, 32, 1.0e-5);
 ```
 
+`SparseBackendFeatures.probe(ctx)` reports the current bridge as `SparseBackendKind.HostReference`: sparse values are stored in the native HashLink handle, F32/F64 matvec and CG are implemented by host/reference loops, and direct solve uses the existing dense host fallback only when `allowHostDenseFallback` is passed as `true` to `SparseSolver<T>`. CUDA/other device contexts therefore do not imply a GPU sparse backend.
+
 | Bridge feature | CPU | CUDA/other device backends |
 | --- | --- | --- |
-| `SparseMatrix` / `SparseMatrixBuilder` F32 insertion, get, clear, `nnz`, and matvec | Supported and runtime-tested. | Native handle is available where a context exists; current smoke tests are CPU. |
-| `SparseSolver` direct F32 solve | Supported and runtime-tested with small square systems. | Backend-specific solver acceleration is not promised in this tranche. |
-| `SparseCG.solve` | Supported and runtime-tested with SPD systems. | Uses the bridge implementation and is validated by CPU smoke tests. |
-| `ProfilerBridge.features`, `ScopedProfiler.run` | Supported and runtime-tested with profiler-enabled CPU context. | Feature probes report availability from the native bridge. |
+| `SparseMatrix<T>` / `SparseMatrixBuilder<T>` F32/F64 insertion, get, clear, `nnz`, `matVec`, `transpose`, `add`, `sub`, and small matrix `mul` | Supported and runtime-tested through the host-reference bridge. | Feature probe reports host-reference storage; no GPU sparse storage is synthesized. |
+| `SparseSolver<T>` with `SparseSolverType.LLT/LDLT/LU` and `SparseOrdering.AMD/COLAMD/Natural` | Supported for F32/F64 small square systems only through explicit `allowHostDenseFallback=true`. | Native GPU sparse solver support is reported unavailable; fallback remains host dense and explicit. |
+| `SparseCG.solve`, `MatrixFreeCG<T>`, `MatrixFreeBICGSTAB<T>` | Supported and runtime-tested for F32/F64 sparse CG and F32 matrix-free convergence/failure paths. | Uses host-reference tensor reads/writes unless the native bridge later reports a native sparse backend. |
+| `ProfilerBridge.features`, `ScopedProfiler.run`, `Profiler.clearInfo`, `KernelProfiler.printInfo` | Supported and runtime-tested with profiler-enabled CPU context. | Feature probes report availability from the native bridge. CUPTI metric presets are typed Haxe values; applying them returns `false` unless the native backend/toolkit accepts them. |
+| `MemoryProfiler.probe` / `MemoryProfiler.printInfo` | Returns an explicit typed unavailable status. | The HashLink native bridge currently reports memory profiling as unavailable; no fake memory-profiler data is synthesized. |
 
-`ProfilerBridge.features(ctx)` returns `enabled`, `scoped`, `memory`, and `kernel` booleans. Memory profiling is reported as unavailable until a native memory-profiler surface exists.
+`ProfilerBridge.features(ctx)` returns `enabled`, `scoped`, `memory`, and `kernel` booleans. `MemoryProfiler.probe(ctx)` returns a `MemoryProfilerStatus` whose `availability` is `ProfilerAvailability.Unavailable` until the native HashLink bridge exposes a real memory-profiler surface.
+
+Use `CuptiMetric.preset(CuptiMetricPreset.GlobalAccess)` or other `CuptiMetricPreset` enum values for built-in profiler metric lists instead of passing raw metric-name strings through public APIs.
+
+## Perf dispatch host utility
+
+`PerfDispatcher<TGeometry, TResult>` is a Haxe host utility for autotuning-style selection without Python decorators. Geometry is caller-defined and typed; each candidate has a non-empty name, a typed predicate over that geometry, and a typed builder function:
+
+```haxe
+import quadrants.Types.Arch;
+import quadrants.perf.PerfDispatchContext;
+import quadrants.perf.PerfDispatcher;
+
+class Geometry {
+  public final n:Int;
+  public function new(n:Int) this.n = n;
+}
+
+var dispatcher = new PerfDispatcher<Geometry, String>(
+  function(g) return 'n=${g.n}',
+  "example-kernels"
+);
+dispatcher.register("small", function(g) return g.n <= 1024, function(g, ctx) return "small-kernel");
+dispatcher.register("fallback", function(g) return true, function(g, ctx) return "fallback-kernel");
+
+var selection = dispatcher.select(new Geometry(512), new PerfDispatchContext(Arch.Cpu, "fast-math=0"));
+var kernelName = selection.result;
+```
+
+Selection is deterministic: candidates are evaluated in registration order and the first matching predicate is chosen. The cache key is explicit (`cacheKey(geometry, arch, compileOptions)`) and includes the dispatcher's namespace, backend arch, compile-option string, and the caller-provided geometry key. Successful selections are cached in memory; failed candidate builders are not cached, so a transient compile failure does not poison later selection. When a builder needs a typed Quadrants `Context`, capture that context in the candidate closure and keep `PerfDispatchContext` for the arch and compile options that affect dispatch.
 
 ## Autodiff workflow and diagnostics
 
-Tape lifecycle helpers keep recording explicit:
+Tape lifecycle helpers keep recording explicit. Use `Tape.withLoss` when the tape represents a scalar F32 loss: it clears recorded adjoints, seeds `loss.grad` to `1.0`, replays reverse mode, and can clear the tape after replay.
 
 ```haxe
-Tape.runBackward(function(tape) {
+var tape = Tape.withLoss(loss, function(tape) {
   tape.launch(lossKernel, x, loss, n);
-  Grad.zeroTensorGrad(x);
-  Grad.zeroTensorGrad(loss);
-  loss.grad.fill(1.0);
 }, true);
 ```
 
-`GradCheck.checkTensorToScalar(kernel, args, input, loss)` compares reverse-mode gradients with central finite differences for F32 tensor inputs and a one-element F32 loss tensor. `CustomGradient` pairs caller-provided forward/backward kernels for explicit tape recording; it does not emulate Python decorators.
+Use `Tape.withLossAndParams(loss, params, body, clearAfter)` when parameters that are not part of the recorded launch arguments must also be cleared before the reverse pass.
 
-`Grad.zeroGrad`, `zeroDual`, and `clearAllGradients` remain heterogeneous compatibility helpers. Prefer `zeroTensorGrad`, `zeroFieldGrad`, `zeroTensorDual`, and `zeroFieldDual` when the value kind is statically known.
+`quadrants.ad.FwdMode.run(param, loss, seed, body, clearAfter)` records the body, clears recorded duals and the output dual, fills `param.dual` with `seed`, and replays forward mode:
+
+```haxe
+var tape = FwdMode.run(x, loss, 1.0, function(tape) {
+  tape.launch(lossKernel, x, loss, n);
+}, true);
+```
+
+Reverse/validate kernels no longer receive an extra Haxe-side rejection solely because their descriptor contains `while`, `break`, or `continue`; native descriptor validation/runtime support is authoritative for those dynamic-control-flow cases.
+
+`GradCheck.checkTensorToScalar(kernel, args, input, loss)` compares reverse-mode gradients with central finite differences for F32 tensor inputs and a one-element F32 loss tensor. `checkTensorsToScalar`, `checkFieldToScalar`, and `checkFieldsToScalar` cover multiple tensor parameters and F32 fields; mismatches report the parameter name, flat index, analytic value, numeric value, and absolute/relative errors. `CustomGradient` pairs caller-provided forward/backward kernels for explicit tape recording; it does not emulate Python decorators.
+
+`Grad.zeroGrad`, `zeroDual`, and `clearAllGradients` remain heterogeneous compatibility helpers. Prefer `zeroTensorGrad`, `zeroFieldGrad`, `zeroTensorDual`, `zeroFieldDual`, `seedTensorGrad`, `seedFieldGrad`, `seedTensorDual`, and `seedFieldDual` when the value kind is statically known.
 
 `Coverage.enable()` records kernel builds, launches, and descriptor source-span probe counts. `Coverage.flush(path)` writes JSON artifacts. `Diagnostics.descriptorDump(kernel)`, `Diagnostics.kernelInfo(kernel)`, `Diagnostics.valueInfo(value)`, and `Diagnostics.health(ctx)` are host-side inspection helpers.
 
@@ -370,7 +436,7 @@ flags.write(3, true);
 var asTensor:Tensor<U1> = flags.toTensor();
 ```
 
-Host `read`, `write`, `fill`, `toArray`, `fromArray`, `grad`, `dual`, and `toTensor()` remain typed by `T`.
+Host `read`, `write`, `fill`, `toArray`, `fromArray`, `grad`, `dual`, and `toTensor()` remain typed by `T`. In kernels, an explicitly annotated `Field<T>` parameter is a direct SNode argument: ordinary indexing reads/writes field storage, dynamic nodes support `append(indexPrefix, value)` and `length(indexPrefix)`, and pointer/hash/bitmasked nodes support `isActive(index)`, `activate(index)`, and `deactivate(index)`. Launch validates that the field is placed and that the launched SNode topology supports the operation. Use `toTensor()` / `fromTensor(...)` when a tensor mirror is required for host interop.
 
 ## Interop import/export
 
@@ -448,8 +514,8 @@ resource.dispose();
 
 ## Current feature boundary
 
-The Haxe/HashLink binding supports primitive typed ndarrays, typed SNode-backed fields and placement, scalar kernel arguments, basic control flow, n-dimensional range loops, static mesh-for over `Mesh.forVertices/forEdges/forFaces/forCells(literalCount)`, inline `@:qdFunc` helpers from the local class or explicit `Kernel.build(..., {helpers: [...]})` helper libraries, `quadrants.simt` helper classes, Haxe-only `quadrants.algorithms` for scalar I32/F32 tensors, template-specialized kernels via `Template.build(...)`, struct/vector/matrix kernel locals, flattened struct returns decoded with `Struct.decodeSchema(...)`, typed compound storage, typed host mesh relation/attribute handles, typed quant descriptors with Haxe-only reference storage, generic or dtype-specific shared-memory factories, native backend selection, primitive scalar and tuple return values, streams, stream events on CUDA/AMDGPU, graph launches including `launchGraphWhile(...)`, profiler queries, offline-cache toggles and clearing, IR/debug-dump configuration, a default runtime/session facade, native autodiff kernel build modes plus tape/grad-check/custom-gradient workflow helpers, kernel build/launch coverage artifacts, diagnostics helpers, CUDA/OpenGL interop via `CudaGlInterop` and `CudaGlResource`, and zero-copy / external-pointer / DLPack interop on LLVM-backed backends.
+The Haxe/HashLink binding supports primitive typed ndarrays, typed SNode-backed fields and placement, native `quantArray(...).placeQuant(...)` field placement for int/fixed quant specs, scalar kernel arguments, basic control flow, n-dimensional range loops, static mesh-for over `Mesh.forVertices/forEdges/forFaces/forCells(literalCount)`, inline `@:qdFunc` helpers from the local class or explicit `Kernel.build(..., {helpers: [...]})` helper libraries, `quadrants.simt` helper classes, Haxe-only `quadrants.algorithms` reference kernels for scalar I32/U32/I64/U64/F32/F64 tensors, template-specialized kernels via `Template.build(...)`, struct/vector/matrix kernel locals, flattened struct returns decoded with `Struct.decodeSchema(...)`, typed compound storage, typed host mesh relation/attribute handles, typed quant descriptors with Haxe-only reference storage, generic or dtype-specific shared-memory factories, typed host perf dispatch with explicit cache keys, native backend selection, primitive scalar and tuple return values, streams, stream events on CUDA/AMDGPU, graph launches including `launchGraphWhile(...)`, profiler queries, offline-cache toggles and clearing, IR/debug-dump configuration, a default runtime/session facade, native autodiff kernel build modes plus tape/grad-check/custom-gradient workflow helpers, kernel build/launch coverage artifacts, diagnostics helpers, CUDA/OpenGL interop via `CudaGlInterop` and `CudaGlResource`, and zero-copy / external-pointer / DLPack interop on LLVM-backed backends.
 
-Not yet exposed through the Haxe API: Python package modules, mesh relation/attribute access inside kernels, native quantized SNode placement, quantized kernel parameters, NumPy/PyTorch import, GUI/window interop, and Python decorators.
+Not yet exposed through the Haxe API: Python package modules, mesh relation/attribute access inside kernels, `bitStruct` quant placement, quant-float placement, quantized kernel parameters, in-kernel stream-parallel lowering, NumPy/PyTorch import, GUI/window interop, and Python decorators.
 
 Use [Haxe kernel language](kernel_language.md) for the exact macro-supported syntax and [Haxe/HashLink integration](hashlink.md) for build and packaging details.

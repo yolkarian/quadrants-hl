@@ -33,6 +33,11 @@ class FieldPlacementPath {
     return field;
   }
 
+  public function placeQuant<T>(field:Field<T>, spec:quadrants.quant.QuantStorageSpec<T>):Field<T> {
+    FieldsBuilder.placeQuantWithSteps(context, field, shape.copy(), copySteps(steps), spec);
+    return field;
+  }
+
   public function placeFields<T>(fields:Array<Field<T>>):Void {
     if (fields == null || fields.length == 0) {
       throw "Quadrants typed field placement path requires at least one field";

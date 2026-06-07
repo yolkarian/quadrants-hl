@@ -81,6 +81,11 @@ class QD_DLL_EXPORT Program {
     return compile_config_;
   }
 
+  void set_random_seed(int seed) {
+    compile_config_.random_seed = seed;
+    program_impl_->reset_random_states(seed);
+  }
+
   struct KernelProfilerQueryResult {
     int counter{0};
     double min{0.0};

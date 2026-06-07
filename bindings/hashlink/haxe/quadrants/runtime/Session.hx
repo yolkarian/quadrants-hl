@@ -1,6 +1,7 @@
 package quadrants.runtime;
 
 import quadrants.Context;
+import quadrants.ContextOptions;
 import quadrants.Profiler;
 import quadrants.Stream;
 import quadrants.Types.Arch;
@@ -9,8 +10,8 @@ class Session {
   final contextHandle:Context;
   var valid:Bool = true;
 
-  public function new(arch:Arch = Cpu, enableProfiler:Bool = false) {
-    contextHandle = new Context(arch, enableProfiler);
+  public function new(arch:Arch = Cpu, enableProfiler:Bool = false, options:ContextOptions = null) {
+    contextHandle = new Context(arch, enableProfiler, options);
   }
 
   public function context():Context {

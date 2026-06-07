@@ -12,4 +12,6 @@ interface TensorArg<T> extends TensorHandle {
   public function elementCount():Int;
   public function read(flatIndex:Int):T;
   public function write(flatIndex:Int, value:T):Void;
+  public function scalarRead():T;
+  public function scalarWrite(value:T):Void;
 }

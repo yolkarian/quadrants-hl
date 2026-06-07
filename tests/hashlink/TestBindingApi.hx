@@ -116,9 +116,12 @@ class TestBindingApi {
     var ctx:Context = null;
     try {
       ctx = new Context(Arch.Cpu);
-      expectThrows("empty_shape", "shape must have at least one dimension", function() {
-        new Tensor<I32>(ctx, []);
-      });
+      var scalar = new Tensor<I32>(ctx, []);
+      expectEq("scalar_shape_rank", scalar.shape.length, 0);
+      expectEq("scalar_element_count", scalar.elementCount(), 1);
+      scalar.scalarWrite(42);
+      expectEq("scalar_read", scalar.scalarRead(), 42);
+      expectEq("scalar_flat_origin", scalar.flatIndex([]), 0);
       expectThrows("zero_shape", "shape dimensions must be positive", function() {
         new Tensor<I32>(ctx, [2, 0]);
       });
@@ -470,6 +473,9 @@ class TestBindingApi {
       expectEq("sparse_add", doubled.get(0, 1, 0), 4);
       var scaled = sparse.scale(3);
       expectEq("sparse_scale", scaled.get(2, 0, 0), 12);
+      var multiplied = sparse.mul(transposed, 0);
+      expectEq("sparse_mul00", multiplied.get(0, 0, 0), 4);
+      expectEq("sparse_mul22", multiplied.get(2, 2, 0), 16);
 
       var mesh = new Mesh(3, 2, 1);
       expectEq("mesh_vertices", mesh.count(MeshElementType.Vertex), 3);

@@ -1,4 +1,4 @@
-// EXPECT_ERROR: Unsupported Quadrants HashLink dtype QuantizedF32Tensor
+// EXPECT_ERROR: native quant kernel parameters require descriptor quant type metadata
 import quadrants.Context;
 import quadrants.Kernel;
 import quadrants.Types.Arch;

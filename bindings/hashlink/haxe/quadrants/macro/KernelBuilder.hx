@@ -63,6 +63,12 @@ private typedef MeshForInfo = {
   var elementType:Int;
   var counts:Array<Int>;
 }
+
+private typedef NdrangeForInfo = {
+  var begins:Array<Expr>;
+  var ends:Array<Expr>;
+  var axes:Array<Int>;
+}
 private typedef QdFunctionInfo = {
   var name:String;
   var owner:String;
@@ -137,7 +143,7 @@ private class DescriptorBuilder {
   static inline var PARAM_UNKNOWN = -1;
   static inline var PARAM_SCALAR = 0;
   static inline var PARAM_NDARRAY = 1;
-
+  static inline var PARAM_FIELD = 2;
   static inline var DTYPE_I8 = 0;
   static inline var DTYPE_I16 = 1;
   static inline var DTYPE_I32 = 2;
@@ -238,7 +244,13 @@ private class DescriptorBuilder {
   static inline var EXPR_ATOMIC_COMPARE_EXCHANGE = 85;
   static inline var EXPR_RAND = 86;
   static inline var EXPR_ASSUME_IN_RANGE = 87;
-
+  static inline var EXPR_VOLATILE_LOAD_INDEX = 88;
+  static inline var EXPR_FREXP_SIGNIFICAND = 89;
+  static inline var EXPR_FREXP_EXPONENT = 90;
+  static inline var EXPR_FNS_U32 = 91;
+  static inline var EXPR_SNODE_APPEND = 92;
+  static inline var EXPR_SNODE_LENGTH = 93;
+  static inline var EXPR_SNODE_IS_ACTIVE = 94;
   static inline var STMT_LOCAL_ALLOC = 1;
   static inline var STMT_STORE_INDEX = 2;
   static inline var STMT_RANGE_FOR = 3;
@@ -275,6 +287,8 @@ private class DescriptorBuilder {
   static inline var STMT_STRUCT_FOR_EXTERNAL_TENSOR = 34;
   static inline var STMT_RETURN_VALUES = 35;
   static inline var STMT_MESH_FOR = 36;
+  static inline var STMT_SNODE_ACTIVATE = 37;
+  static inline var STMT_SNODE_DEACTIVATE = 38;
 
   final params:Array<ParamInfo> = [];
   final paramIds:Map<String, Int> = new Map();
@@ -608,6 +622,9 @@ private class DescriptorBuilder {
   function encodeBuiltinStatementCall(callee:Expr, args:Array<Expr>, writer:ByteWriter, pos:Position):Null<Int> {
     var name = callName(callee, pos);
     var path = callPath(callee, pos);
+    if (isStreamParallelBlock(path)) {
+      Context.error("Quadrants HashLink StreamParallel.block requires native multi-stream lowering, which is not supported by this backend", pos);
+    }
     var packedCount = encodePackedWriteStatement(path, args, writer, pos);
     if (packedCount != null) {
       return packedCount;
@@ -615,6 +632,22 @@ private class DescriptorBuilder {
     var compoundCount = encodeCompoundWriteStatement(callee, args, writer, pos);
     if (compoundCount != null) {
       return compoundCount;
+    }
+    var scalarWriteTarget = tensorMethodTarget(callee, "scalarWrite");
+    if (scalarWriteTarget == null && name == "scalarWrite" && args.length == 2) {
+      scalarWriteTarget = args[0];
+      args = [args[1]];
+    }
+    if (scalarWriteTarget != null) {
+      if (args.length != 1) {
+        Context.error("Quadrants HashLink Tensor.scalarWrite(value) expects one argument", pos);
+      }
+      writer.u8(STMT_STORE_INDEX);
+      encodeArrayBase(scalarWriteTarget, writer, 0);
+      writer.u32(0);
+      encodeArrayIndices(scalarWriteTarget, [], writer);
+      encodeExpression(args[0], writer);
+      return 1;
     }
     var writeTarget = tensorMethodTarget(callee, "write");
     if (writeTarget == null) {
@@ -634,6 +667,10 @@ private class DescriptorBuilder {
       encodeArrayIndices(writeTarget, [args[0]], writer);
       encodeExpression(args[1], writer);
       return 1;
+    }
+    var snodeStmtCount = encodeSNodeStatementCall(callee, args, writer, pos);
+    if (snodeStmtCount != null) {
+      return snodeStmtCount;
     }
     var internalStmt = internalStatementOpcode(path);
     if (internalStmt != null) {
@@ -915,30 +952,41 @@ private class DescriptorBuilder {
           case EBinop(OpInterval, begin, end):
             encodeSimpleRangeFor(loopName, loopVariable.pos, begin, end, body, writer);
             return 1;
-          case ECall(callee, args) if (isStaticRangeCall(callee)):
-            return encodeStaticRangeFor(loopName, args, body, writer, rangeExpr.pos);
-          case ECall(callee, args) if (meshForInfo(callee, args) != null):
-            encodeMeshFor(loopName, loopVariable.pos, meshForInfo(callee, args), body, writer);
-            return 1;
-          case ECall(callee, args) if (isGroupedCall(callee) && groupedStructForTarget(args) != null):
-            encodeStructForExternalTensor(loopName, loopVariable.pos, groupedStructForTarget(args), body, writer);
-            return 1;
-          case ECall(callee, args) if (isNdrangeCall(callee) || isGroupedCall(callee)):
-            encodeNdrangeFor(loopName, args, body, writer, rangeExpr.pos);
-            return 1;
-          case ECall(callee, args) if (isNdrangeRangesCall(callee)):
-            encodeNdrangeRangesFor(loopName, args, body, writer, rangeExpr.pos);
-            return 1;
+          case ECall(callee, args):
+            if (isStaticRangeCall(callee)) {
+              return encodeStaticRangeFor(loopName, args, body, writer, rangeExpr.pos);
+            }
+            var meshInfo = meshForInfo(callee, args);
+            if (meshInfo != null) {
+              encodeMeshFor(loopName, loopVariable.pos, meshInfo, body, writer);
+              return 1;
+            }
+            if (isGroupedCall(callee)) {
+              var structTarget = groupedStructForTarget(args);
+              if (structTarget != null) {
+                encodeStructForExternalTensor(loopName, loopVariable.pos, structTarget, body, writer);
+                return 1;
+              }
+              var groupedInfo = groupedNdrangeForInfo(args, rangeExpr.pos);
+              encodeNdrangeBoundsFor(loopName, groupedInfo.begins, groupedInfo.ends, groupedInfo.axes, body, writer, rangeExpr.pos);
+              return 1;
+            }
+            var ndrangeInfo = ndrangeForInfo(callee, args, rangeExpr.pos);
+            if (ndrangeInfo != null) {
+              encodeNdrangeBoundsFor(loopName, ndrangeInfo.begins, ndrangeInfo.ends, ndrangeInfo.axes, body, writer, rangeExpr.pos);
+              return 1;
+            }
+            Context.error("Quadrants HashLink range-for only supports start...end, Ndrange.of*/ranges* helpers, Grouped.of(...), Static.range(...), or Mesh.forVertices/forEdges/forFaces/forCells(...)", rangeExpr.pos);
           case EConst(CIdent(name)):
             var paramId = paramIds.get(name);
-            if (paramId != null && params[paramId].kind == PARAM_NDARRAY) {
+            if (paramId != null && (params[paramId].kind == PARAM_NDARRAY || params[paramId].kind == PARAM_FIELD)) {
               encodeStructForExternalTensor(loopName, loopVariable.pos, rangeExpr, body, writer);
               return 1;
             } else {
-              Context.error("Quadrants HashLink range-for only supports start...end, Ndrange.of(...), Ndrange.ranges(...), Grouped.of(...), Static.range(...), or Mesh.forVertices/forEdges/forFaces/forCells(...)", rangeExpr.pos);
+              Context.error("Quadrants HashLink range-for only supports start...end, Ndrange.of*/ranges* helpers, Grouped.of(...), Static.range(...), or Mesh.forVertices/forEdges/forFaces/forCells(...)", rangeExpr.pos);
             }
           default:
-            Context.error("Quadrants HashLink range-for only supports start...end, Ndrange.of(...), Ndrange.ranges(...), Grouped.of(...), Static.range(...), or Mesh.forVertices/forEdges/forFaces/forCells(...)", rangeExpr.pos);
+            Context.error("Quadrants HashLink range-for only supports start...end, Ndrange.of*/ranges* helpers, Grouped.of(...), Static.range(...), or Mesh.forVertices/forEdges/forFaces/forCells(...)", rangeExpr.pos);
         }
       default:
         Context.error("Quadrants HashLink only supports for (i in start...end)", pos);
@@ -1085,9 +1133,18 @@ private class DescriptorBuilder {
     writer.append(bodyBytes.bytes);
   }
 
-  function encodeNdrangeFor(loopName:String, bounds:Array<Expr>, body:Expr, writer:ByteWriter, pos:Position):Void {
-    if (bounds.length == 0 || bounds.length > 4) {
-      Context.error("Quadrants Ndrange.of supports one to four dimensions", pos);
+  function identityAxes(rank:Int):Array<Int> {
+    return [for (axis in 0...rank) axis];
+  }
+
+  function parseNdrangeOfInfo(methodName:String, bounds:Array<Expr>, fixedRank:Int, axesExpr:Null<Expr>, pos:Position):NdrangeForInfo {
+    var rank = fixedRank == 0 ? bounds.length : fixedRank;
+    if (fixedRank == 0) {
+      if (bounds.length == 0 || bounds.length > 4) {
+        Context.error('Quadrants ${methodName} supports one to four dimensions', pos);
+      }
+    } else if (bounds.length != fixedRank) {
+      Context.error('Quadrants ${methodName} expects ${fixedRank} dimension argument(s)', pos);
     }
 
     var begins:Array<Expr> = [];
@@ -1096,23 +1153,139 @@ private class DescriptorBuilder {
       begins.push({expr: EConst(CInt("0", null)), pos: pos});
       ends.push(bound);
     }
-    encodeNdrangeBoundsFor(loopName, begins, ends, body, writer, pos);
+    return {begins: begins, ends: ends, axes: axesForExpr(methodName, rank, axesExpr)};
   }
 
-  function encodeNdrangeRangesFor(loopName:String, args:Array<Expr>, body:Expr, writer:ByteWriter, pos:Position):Void {
-    if (args.length == 0 || args.length > 8 || args.length % 2 != 0) {
-      Context.error("Quadrants Ndrange.ranges supports one to four begin/end pairs", pos);
+  function parseNdrangeRangesInfo(methodName:String, args:Array<Expr>, fixedRank:Int, axesExpr:Null<Expr>, pos:Position):NdrangeForInfo {
+    var rank = fixedRank == 0 ? Std.int(args.length / 2) : fixedRank;
+    if (fixedRank == 0) {
+      if (args.length == 0 || args.length > 8 || args.length % 2 != 0) {
+        Context.error('Quadrants ${methodName} supports one to four begin/end pairs', pos);
+      }
+    } else if (args.length != fixedRank * 2) {
+      Context.error('Quadrants ${methodName} expects ${fixedRank} begin/end pair(s)', pos);
     }
+
     var begins:Array<Expr> = [];
     var ends:Array<Expr> = [];
-    for (i in 0...Std.int(args.length / 2)) {
+    for (i in 0...rank) {
       begins.push(args[i * 2]);
       ends.push(args[i * 2 + 1]);
     }
-    encodeNdrangeBoundsFor(loopName, begins, ends, body, writer, pos);
+    return {begins: begins, ends: ends, axes: axesForExpr(methodName, rank, axesExpr)};
   }
 
-  function encodeNdrangeBoundsFor(loopName:String, begins:Array<Expr>, ends:Array<Expr>, body:Expr, writer:ByteWriter, pos:Position):Void {
+  function ndrangeForInfo(callee:Expr, args:Array<Expr>, pos:Position):Null<NdrangeForInfo> {
+    var path = callPath(callee, callee.pos);
+    for (rank in 1...5) {
+      var ofName = "of" + rank;
+      if (pathIs(path, "Ndrange", ofName)) {
+        return parseNdrangeOfInfo("Ndrange." + ofName, args, rank, null, pos);
+      }
+      var ofAxesName = ofName + "Axes";
+      if (pathIs(path, "Ndrange", ofAxesName)) {
+        if (args.length == 0) {
+          Context.error('Quadrants Ndrange.${ofAxesName} expects ${rank} dimension argument(s) and AxisOrder.of${rank}(...)', pos);
+        }
+        var axesExpr = args[args.length - 1];
+        return parseNdrangeOfInfo("Ndrange." + ofAxesName, args.slice(0, args.length - 1), rank, axesExpr, pos);
+      }
+      var rangesName = "ranges" + rank;
+      if (pathIs(path, "Ndrange", rangesName)) {
+        return parseNdrangeRangesInfo("Ndrange." + rangesName, args, rank, null, pos);
+      }
+      var rangesAxesName = rangesName + "Axes";
+      if (pathIs(path, "Ndrange", rangesAxesName)) {
+        if (args.length == 0) {
+          Context.error('Quadrants Ndrange.${rangesAxesName} expects ${rank} begin/end pair(s) and AxisOrder.of${rank}(...)', pos);
+        }
+        var axesExpr = args[args.length - 1];
+        return parseNdrangeRangesInfo("Ndrange." + rangesAxesName, args.slice(0, args.length - 1), rank, axesExpr, pos);
+      }
+    }
+    if (pathIs(path, "Ndrange", "of")) {
+      return parseNdrangeOfInfo("Ndrange.of", args, 0, null, pos);
+    }
+    if (pathIs(path, "Ndrange", "ranges")) {
+      return parseNdrangeRangesInfo("Ndrange.ranges", args, 0, null, pos);
+    }
+    return null;
+  }
+
+  function groupedNdrangeForInfo(args:Array<Expr>, pos:Position):NdrangeForInfo {
+    if (args.length == 0) {
+      Context.error("Quadrants Grouped.of expects a Tensor/Field parameter, Ndrange domain, or one to four dimensions", pos);
+    }
+    if (args.length == 1) {
+      switch (strip(args[0]).expr) {
+        case ECall(callee, nestedArgs):
+          var nested = ndrangeForInfo(callee, nestedArgs, args[0].pos);
+          if (nested != null) {
+            return nested;
+          }
+        default:
+      }
+    }
+    return parseNdrangeOfInfo("Grouped.of", args, 0, null, pos);
+  }
+
+  function axesForExpr(methodName:String, rank:Int, axesExpr:Null<Expr>):Array<Int> {
+    if (axesExpr == null) {
+      return identityAxes(rank);
+    }
+    var expectedName = 'of${rank}';
+    return switch (strip(axesExpr).expr) {
+      case ECall(callee, args):
+        var path = callPath(callee, callee.pos);
+        if (!pathIs(path, "AxisOrder", expectedName)) {
+          Context.error('Quadrants ${methodName} expects AxisOrder.${expectedName}(...)', axesExpr.pos);
+        }
+        if (args.length != rank) {
+          Context.error('Quadrants AxisOrder.${expectedName} expects ${rank} axis literal(s)', axesExpr.pos);
+        }
+        var seen = [for (_ in 0...rank) false];
+        var axes:Array<Int> = [];
+        for (arg in args) {
+          var axis = staticAxisLiteral(arg, arg.pos);
+          if (axis < 0 || axis >= rank || seen[axis]) {
+            Context.error('Quadrants AxisOrder.${expectedName} arguments must be a permutation of 0...${rank}', arg.pos);
+          }
+          seen[axis] = true;
+          axes.push(axis);
+        }
+        axes;
+      default:
+        Context.error('Quadrants ${methodName} expects AxisOrder.${expectedName}(...)', axesExpr.pos);
+    }
+  }
+
+  function staticAxisLiteral(expression:Expr, pos:Position):Int {
+    var expr = stripNoCasts(expression);
+    return switch (expr.expr) {
+      case EConst(CInt(value, _)):
+        var parsed = Std.parseInt(value);
+        if (parsed == null) {
+          Context.error('Invalid static axis literal ${value}', pos);
+        }
+        parsed;
+      case EUnop(OpNeg, false, inner):
+        -staticAxisLiteral(inner, inner.pos);
+      case EField(_, _):
+        var path = callPath(expr, pos);
+        switch (path) {
+          case "Axis.i" | "quadrants.Axis.i": 0;
+          case "Axis.j" | "quadrants.Axis.j": 1;
+          case "Axis.k" | "quadrants.Axis.k": 2;
+          case "Axis.l" | "quadrants.Axis.l": 3;
+          default:
+            Context.error("Quadrants AxisOrder axes must be integer literals or Axis.i/Axis.j/Axis.k/Axis.l", pos);
+        }
+      default:
+        Context.error("Quadrants AxisOrder axes must be integer literals or Axis.i/Axis.j/Axis.k/Axis.l", pos);
+    };
+  }
+
+  function encodeNdrangeBoundsFor(loopName:String, begins:Array<Expr>, ends:Array<Expr>, axes:Array<Int>, body:Expr, writer:ByteWriter, pos:Position):Void {
     var localIds:Array<Int> = [];
     var vectorScope = new Map<String, Array<Int>>();
     var bodyBytes = new ByteWriter();
@@ -1130,9 +1303,10 @@ private class DescriptorBuilder {
 
     var nestedBytes = bodyBytes;
     var nestedCount = bodyCount;
-    var dim = ends.length;
-    while (dim > 0) {
-      dim--;
+    var orderIndex = axes.length;
+    while (orderIndex > 0) {
+      orderIndex--;
+      var dim = axes[orderIndex];
       var next = new ByteWriter();
       next.u8(STMT_RANGE_FOR);
       next.u32(localIds[dim]);
@@ -1192,6 +1366,10 @@ private class DescriptorBuilder {
       if (sharedInit != null) {
         declareSharedLocal(local.name, pos, sharedInit.dtype, sharedInit.size);
         return 0;
+      }
+      var frexpInit = frexpStructInitializer(local.expr);
+      if (frexpInit != null) {
+        return encodeStructDeclaration(local.name, pos, frexpInit, writer);
       }
       var structInit = structInitializer(local.expr);
       if (structInit != null) {
@@ -1617,6 +1795,8 @@ private class DescriptorBuilder {
   }
 
   function matrixCallInitializer(callee:Expr, args:Array<Expr>, pos:Position):Null<MatrixInitInfo> {
+    var staticInit = matrixStaticCallInitializer(callee, args, pos);
+    if (staticInit != null) return staticInit;
     return switch (strip(callee).expr) {
       case EField(base, "transpose"):
         var name = directMatrixName(base);
@@ -1652,9 +1832,72 @@ private class DescriptorBuilder {
           }
           {values: values, rows: lhsMatrix.rows, cols: rhsMatrix.cols, dtype: dtype};
         }
+      case EField(base, "inverse"):
+        var name = directMatrixName(base);
+        if (name == null || args.length != 0) null else {
+          var matrix = lookupMatrix(name);
+          requireMatrixSquareSmall(matrix, "inverse", pos);
+          if (matrix.dtype != DTYPE_F32 && matrix.dtype != DTYPE_F64) {
+            Context.error("Quadrants matrix inverse in kernels requires F32 or F64 matrix values", pos);
+          }
+          var det = matrixDeterminantExpression(name, pos);
+          var values:Array<Expr> = [];
+          for (row in 0...matrix.rows) {
+            for (col in 0...matrix.cols) {
+              var cofactor = matrixCofactorExpression(name, col, row, pos);
+              values.push(binaryExpr(OpDiv, cofactor, det, pos));
+            }
+          }
+          {values: values, rows: matrix.rows, cols: matrix.cols, dtype: matrix.dtype};
+        }
+      case EField(base, "outer"):
+        var lhs = directVectorName(base);
+        var rhsInfo = args.length == 1 ? vectorValuesForExpression(args[0]) : null;
+        if (lhs == null || rhsInfo == null) null else {
+          var lhsVector = lookupVector(lhs);
+          var dtype = promoteDType(lhsVector.dtype, rhsInfo.dtype);
+          {values: [
+            for (row in 0...lhsVector.localIds.length)
+              for (col in 0...rhsInfo.values.length)
+                binaryExpr(OpMult, vectorComponentExpr(lhs, row, pos), rhsInfo.values[col], pos)
+          ], rows: lhsVector.localIds.length, cols: rhsInfo.values.length, dtype: dtype};
+        }
       default:
         null;
     };
+  }
+
+  function matrixStaticCallInitializer(callee:Expr, args:Array<Expr>, pos:Position):Null<MatrixInitInfo> {
+    var path = callPath(callee, pos);
+    if (path == "Matrix.diag" || path == "quadrants.Matrix.diag") {
+      if (args.length != 1) {
+        Context.error("Quadrants Matrix.diag expects one vector argument", pos);
+      }
+      var vector = vectorValuesForExpression(args[0]);
+      if (vector == null) return null;
+      var values:Array<Expr> = [];
+      for (row in 0...vector.values.length) {
+        for (col in 0...vector.values.length) {
+          values.push(row == col ? vector.values[row] : typedZeroExpr(vector.dtype, pos));
+        }
+      }
+      return {values: values, rows: vector.values.length, cols: vector.values.length, dtype: vector.dtype};
+    }
+    if (path == "Matrix.outer" || path == "quadrants.Matrix.outer") {
+      if (args.length != 2) {
+        Context.error("Quadrants Matrix.outer expects two vector arguments", pos);
+      }
+      var lhs = vectorValuesForExpression(args[0]);
+      var rhs = vectorValuesForExpression(args[1]);
+      if (lhs == null || rhs == null) return null;
+      var dtype = promoteDType(lhs.dtype, rhs.dtype);
+      return {values: [
+        for (row in 0...lhs.values.length)
+          for (col in 0...rhs.values.length)
+            binaryExpr(OpMult, lhs.values[row], rhs.values[col], pos)
+      ], rows: lhs.values.length, cols: rhs.values.length, dtype: dtype};
+    }
+    return null;
   }
 
   function directMatrixName(expression:Expr):Null<String> {
@@ -1679,6 +1922,114 @@ private class DescriptorBuilder {
       ),
       pos: pos
     };
+  }
+
+  function typedZeroExpr(dtype:Int, pos:Position):Expr {
+    return intLiteralExpr(0, pos);
+  }
+
+  function vectorValuesForExpression(expression:Expr):Null<VectorInitInfo> {
+    var name = directVectorName(expression);
+    if (name != null) {
+      var vector = lookupVector(name);
+      return {values: [for (i in 0...vector.localIds.length) vectorComponentExpr(name, i, expression.pos)], dtype: vector.dtype};
+    }
+    return vectorInitializer(expression);
+  }
+
+  function requireMatrixSquareSmall(matrix:MatrixLocalInfo, operation:String, pos:Position):Void {
+    if (matrix.rows != matrix.cols) {
+      Context.error('Quadrants matrix ${operation} requires a square matrix', pos);
+    }
+    if (matrix.rows < 1 || matrix.rows > 4) {
+      Context.error('Quadrants matrix ${operation} supports sizes 1x1 through 4x4', pos);
+    }
+  }
+
+  function matrixValues(name:String, pos:Position):Array<Expr> {
+    var matrix = lookupMatrix(name);
+    return [for (row in 0...matrix.rows) for (col in 0...matrix.cols) matrixElementExpr(name, row, col, pos)];
+  }
+
+  function matrixTraceExpression(name:String, pos:Position):Expr {
+    var matrix = lookupMatrix(name);
+    requireMatrixSquareSmall(matrix, "trace", pos);
+    var expr = matrixElementExpr(name, 0, 0, pos);
+    for (i in 1...matrix.rows) {
+      expr = binaryExpr(OpAdd, expr, matrixElementExpr(name, i, i, pos), pos);
+    }
+    return expr;
+  }
+
+  function matrixFrobeniusSquaredExpression(name:String, pos:Position):Expr {
+    var matrix = lookupMatrix(name);
+    var expr = binaryExpr(OpMult, matrixElementExpr(name, 0, 0, pos), matrixElementExpr(name, 0, 0, pos), pos);
+    for (row in 0...matrix.rows) {
+      for (col in 0...matrix.cols) {
+        if (row != 0 || col != 0) {
+          var value = matrixElementExpr(name, row, col, pos);
+          expr = binaryExpr(OpAdd, expr, binaryExpr(OpMult, value, value, pos), pos);
+        }
+      }
+    }
+    return expr;
+  }
+
+  function matrixFrobeniusNormExpression(name:String, pos:Position):Expr {
+    return {expr: ECall({expr: EConst(CIdent("sqrt")), pos: pos}, [matrixFrobeniusSquaredExpression(name, pos)]), pos: pos};
+  }
+
+  function matrixDeterminantExpression(name:String, pos:Position):Expr {
+    var matrix = lookupMatrix(name);
+    requireMatrixSquareSmall(matrix, "determinant", pos);
+    return determinantExpressionFromValues(matrixValues(name, pos), matrix.rows, pos);
+  }
+
+  function matrixCofactorExpression(name:String, row:Int, col:Int, pos:Position):Expr {
+    var matrix = lookupMatrix(name);
+    if (matrix.rows == 1) {
+      return typedOneExpr(matrix.dtype, pos);
+    }
+    var minor = minorValues(matrixValues(name, pos), matrix.rows, row, col);
+    var value = determinantExpressionFromValues(minor, matrix.rows - 1, pos);
+    return ((row + col) & 1) == 0 ? value : {expr: EUnop(OpNeg, false, value), pos: pos};
+  }
+
+  function determinantExpressionFromValues(values:Array<Expr>, dim:Int, pos:Position):Expr {
+    if (dim == 1) {
+      return values[0];
+    }
+    if (dim == 2) {
+      return binaryExpr(OpSub,
+        binaryExpr(OpMult, values[0], values[3], pos),
+        binaryExpr(OpMult, values[1], values[2], pos),
+        pos);
+    }
+    var result:Expr = null;
+    for (col in 0...dim) {
+      var term = binaryExpr(OpMult, values[col], determinantExpressionFromValues(minorValues(values, dim, 0, col), dim - 1, pos), pos);
+      if (result == null) {
+        result = (col & 1) == 0 ? term : {expr: EUnop(OpNeg, false, term), pos: pos};
+      } else {
+        result = (col & 1) == 0 ? binaryExpr(OpAdd, result, term, pos) : binaryExpr(OpSub, result, term, pos);
+      }
+    }
+    return result;
+  }
+
+  function minorValues(values:Array<Expr>, dim:Int, skipRow:Int, skipCol:Int):Array<Expr> {
+    var out:Array<Expr> = [];
+    for (row in 0...dim) {
+      if (row == skipRow) continue;
+      for (col in 0...dim) {
+        if (col != skipCol) out.push(values[row * dim + col]);
+      }
+    }
+    return out;
+  }
+
+  function typedOneExpr(dtype:Int, pos:Position):Expr {
+    return intLiteralExpr(1, pos);
   }
 
   function matrixElementLocalId(expression:Expr):Null<Int> {
@@ -1886,6 +2237,32 @@ private class DescriptorBuilder {
           var norm = {expr: ECall({expr: EField({expr: EConst(CIdent(name)), pos: pos}, "norm"), pos: pos}, []), pos: pos};
           {values: [for (i in 0...vector.localIds.length) binaryExpr(OpDiv, vectorComponentExpr(name, i, pos), norm, pos)], dtype: DTYPE_F32};
         }
+      case EField(base, "diagonal"):
+        var name = directMatrixName(base);
+        if (name == null || args.length != 0) null else {
+          var matrix = lookupMatrix(name);
+          requireMatrixSquareSmall(matrix, "diagonal", pos);
+          {values: [for (i in 0...matrix.rows) matrixElementExpr(name, i, i, pos)], dtype: matrix.dtype};
+        }
+      case EField(base, "matvec") | EField(base, "multiplyVector"):
+        var matrixName = directMatrixName(base);
+        var vectorInfo = args.length == 1 ? vectorValuesForExpression(args[0]) : null;
+        if (matrixName == null || vectorInfo == null) null else {
+          var matrix = lookupMatrix(matrixName);
+          if (matrix.cols != vectorInfo.values.length) {
+            Context.error("Quadrants matrix-vector multiply shape mismatch", pos);
+          }
+          var dtype = promoteDType(matrix.dtype, vectorInfo.dtype);
+          {values: [
+            for (row in 0...matrix.rows) {
+              var sum = binaryExpr(OpMult, matrixElementExpr(matrixName, row, 0, pos), vectorInfo.values[0], pos);
+              for (col in 1...matrix.cols) {
+                sum = binaryExpr(OpAdd, sum, binaryExpr(OpMult, matrixElementExpr(matrixName, row, col, pos), vectorInfo.values[col], pos), pos);
+              }
+              sum;
+            }
+          ], dtype: dtype};
+        }
       default:
         null;
     };
@@ -1989,6 +2366,57 @@ private class DescriptorBuilder {
       expr = binaryExpr(OpAdd, expr, binaryExpr(OpMult, vectorComponentExpr(lhs, i, pos), vectorComponentExpr(rhs, i, pos), pos), pos);
     }
     return expr;
+  }
+
+  function encodeMatrixScalarCall(callee:Expr, args:Array<Expr>, writer:ByteWriter, pos:Position):Bool {
+    switch (strip(callee).expr) {
+      case EField(base, "trace"):
+        var name = directMatrixName(base);
+        if (name == null || args.length != 0) return false;
+        encodeMatrixScalarExpression(matrixTraceExpression(name, pos), lookupMatrix(name).dtype, writer);
+        return true;
+      case EField(base, "determinant"):
+        var name = directMatrixName(base);
+        if (name == null || args.length != 0) return false;
+        encodeMatrixScalarExpression(matrixDeterminantExpression(name, pos), lookupMatrix(name).dtype, writer);
+        return true;
+      case EField(base, "frobeniusSquared"):
+        var name = directMatrixName(base);
+        if (name == null || args.length != 0) return false;
+        encodeMatrixScalarExpression(matrixFrobeniusSquaredExpression(name, pos), lookupMatrix(name).dtype, writer);
+        return true;
+      case EField(base, "frobeniusNorm") | EField(base, "frobenius"):
+        var name = directMatrixName(base);
+        if (name == null || args.length != 0) return false;
+        encodeMatrixScalarExpression(matrixFrobeniusNormExpression(name, pos), lookupMatrix(name).dtype, writer);
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  function encodeMatrixScalarExpression(expression:Expr, sourceDType:Int, writer:ByteWriter):Void {
+    var resultDType = sourceDType == DTYPE_F64 ? DTYPE_F64 : DTYPE_F32;
+    if (sourceDType == resultDType) {
+      encodeExpression(expression, writer);
+      return;
+    }
+    writer.u8(EXPR_CAST);
+    writer.u8(resultDType);
+    encodeExpression(expression, writer);
+  }
+
+  function matrixScalarCallDType(callee:Expr, args:Array<Expr>):Null<Int> {
+    return switch (strip(callee).expr) {
+      case EField(base, "trace") | EField(base, "determinant") | EField(base, "frobeniusSquared") | EField(base, "frobeniusNorm") | EField(base, "frobenius"):
+        var name = directMatrixName(base);
+        if (name == null || args.length != 0) null else {
+          var dtype = lookupMatrix(name).dtype;
+          (dtype == DTYPE_F64) ? DTYPE_F64 : DTYPE_F32;
+        }
+      default:
+        null;
+    };
   }
 
   function encodeVectorScalarCall(callee:Expr, args:Array<Expr>, writer:ByteWriter, pos:Position):Bool {
@@ -2153,7 +2581,7 @@ private class DescriptorBuilder {
         writer.u8(unaryOpcode(op, expr.pos));
         encodeExpression(operand, writer);
       case EField(_, _):
-        if (!encodeVectorAccess(expr, writer) && !encodeStructFieldAccess(expr, writer)) {
+        if (!encodeFrexpFieldAccess(expr, writer) && !encodeVectorAccess(expr, writer) && !encodeStructFieldAccess(expr, writer)) {
           Context.error("Unsupported Quadrants HashLink kernel expression: " + new haxe.macro.Printer().printExpr(expr), expr.pos);
         }
       case ECall(callee, args):
@@ -2199,7 +2627,11 @@ private class DescriptorBuilder {
         if (paramId == null) {
           Context.error('Quadrants ndarray ${name} is not a kernel parameter', expr.pos);
         }
-        markParamNdarray(paramId, rank, expr.pos);
+        if (params[paramId].kind == PARAM_FIELD) {
+          markParamField(paramId, rank, expr.pos);
+        } else {
+          markParamNdarray(paramId, rank, expr.pos);
+        }
         writer.u8(EXPR_ARG_LOAD);
         writer.u32(paramId);
       default:
@@ -2435,11 +2867,17 @@ private class DescriptorBuilder {
   }
 
   function encodeCall(callee:Expr, args:Array<Expr>, writer:ByteWriter, pos:Position):Void {
+    if (encodeMatrixScalarCall(callee, args, writer, pos)) {
+      return;
+    }
     if (encodeVectorScalarCall(callee, args, writer, pos)) {
       return;
     }
     var name = callName(callee, pos);
     var path = callPath(callee, pos);
+    if (isStreamParallelBlock(path)) {
+      Context.error("Quadrants HashLink StreamParallel.block requires native multi-stream lowering, which is not supported by this backend", pos);
+    }
     var atomicOpcode = atomicExpressionOpcode(name);
     if (atomicOpcode != null) {
       encodeAtomicCall(name, atomicOpcode, args, writer, pos);
@@ -2461,6 +2899,11 @@ private class DescriptorBuilder {
       return;
     }
     var internalOpcode = internalExpressionOpcode(path);
+    var scalarReadBase = tensorMethodTarget(callee, "scalarRead");
+    if (scalarReadBase == null && name == "scalarRead" && args.length == 1) {
+      scalarReadBase = args[0];
+      args = [];
+    }
     var readMethodBase = tensorMethodTarget(callee, "read");
     if (readMethodBase == null) {
       readMethodBase = tensorMethodTarget(callee, "kernelRead");
@@ -2469,9 +2912,22 @@ private class DescriptorBuilder {
       readMethodBase = args[0];
       args = [args[1]];
     }
-
     var shapeMethodBase = shapeMethodTarget(callee);
     if (encodePackedMemberReadCall(path, args, writer, pos)) {
+      return;
+    }
+    if (scalarReadBase != null) {
+      if (args.length != 0) {
+        Context.error("Quadrants HashLink Tensor.scalarRead() expects no arguments", pos);
+      }
+      writer.u8(EXPR_LOAD_INDEX);
+      encodeArrayBase(scalarReadBase, writer, 0);
+      writer.u32(0);
+      encodeArrayIndices(scalarReadBase, [], writer);
+      return;
+    }
+    var snodeExprEncoded = encodeSNodeExpressionCall(callee, args, writer, pos);
+    if (snodeExprEncoded) {
       return;
     }
     if (readMethodBase != null) {
@@ -2509,6 +2965,25 @@ private class DescriptorBuilder {
     if (name == "bitCast") {
       encodeBitCastCall(args, writer, pos);
       return;
+    }
+    if (name == "volatileLoad") {
+      encodeVolatileLoadCall(args, writer, pos);
+      return;
+    }
+    if (name == "rawDiv" || name == "rawMod") {
+      encodeRawDivModCall(name, args, writer, pos);
+      return;
+    }
+    if (name == "fnsU32") {
+      encodeFnsU32Call(args, writer, pos);
+      return;
+    }
+    if (name == "randnF32" || name == "randnF64") {
+      encodeRandnCall(name, args, writer, pos);
+      return;
+    }
+    if (frexpCallDType(name) != null) {
+      Context.error('Quadrants HashLink ${name} returns a struct; assign it to a local and read .significand/.exponent, or read a field directly', pos);
     }
     if (name == "select") {
       encodeSelectCall(args, writer, pos);
@@ -2585,6 +3060,165 @@ private class DescriptorBuilder {
       case "randF64": DTYPE_F64;
       default: null;
     };
+  }
+
+  function randnCallDType(name:String):Null<Int> {
+    return switch (name) {
+      case "randnF32": DTYPE_F32;
+      case "randnF64": DTYPE_F64;
+      default: null;
+    };
+  }
+
+  function frexpCallDType(name:String):Null<Int> {
+    return switch (name) {
+      case "frexpF32": DTYPE_F32;
+      case "frexpF64": DTYPE_F64;
+      default: null;
+    };
+  }
+
+  function frexpCallInfo(expression:Expr):Null<{dtype:Int, args:Array<Expr>, pos:Position}> {
+    var expr = stripNoCasts(expression);
+    return switch (expr.expr) {
+      case ECall(callee, args):
+        var dtype = frexpCallDType(callName(callee, expr.pos));
+        if (dtype == null) {
+          null;
+        } else {
+          if (args.length != 1) {
+            Context.error("Quadrants HashLink frexpF32/frexpF64 expect one argument", expr.pos);
+          }
+          {dtype: dtype, args: args, pos: expr.pos};
+        }
+      default:
+        null;
+    };
+  }
+
+  function frexpStructInitializer(expression:Expr):Null<Array<{name:String, value:Expr, dtype:Int}>> {
+    var info = frexpCallInfo(expression);
+    if (info == null) {
+      return null;
+    }
+    return [
+      {name: "significand", value: {expr: EField(expression, "significand"), pos: info.pos}, dtype: info.dtype},
+      {name: "exponent", value: {expr: EField(expression, "exponent"), pos: info.pos}, dtype: DTYPE_I32}
+    ];
+  }
+
+  function frexpFieldAccessDType(expression:Expr):Null<Int> {
+    return switch (stripNoCasts(expression).expr) {
+      case EField(base, field):
+        var info = frexpCallInfo(base);
+        if (info == null) {
+          null;
+        } else {
+          switch (field) {
+            case "significand" | "mantissa": info.dtype;
+            case "exponent": DTYPE_I32;
+            default: Context.error("Quadrants frexp result exposes .significand and .exponent", expression.pos);
+          }
+        }
+      default:
+        null;
+    };
+  }
+
+  function encodeFrexpFieldAccess(expression:Expr, writer:ByteWriter):Bool {
+    switch (stripNoCasts(expression).expr) {
+      case EField(base, field):
+        var info = frexpCallInfo(base);
+        if (info == null) {
+          return false;
+        }
+        switch (field) {
+          case "significand" | "mantissa":
+            writer.u8(EXPR_FREXP_SIGNIFICAND);
+          case "exponent":
+            writer.u8(EXPR_FREXP_EXPONENT);
+          default:
+            Context.error("Quadrants frexp result exposes .significand and .exponent", expression.pos);
+        }
+        encodeExpressionWithExpectedDType(info.args[0], info.dtype, writer);
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  function writeFloatConstant(dtype:Int, value:Float, writer:ByteWriter):Void {
+    if (dtype == DTYPE_F32) {
+      writer.u8(EXPR_CONST_F32);
+      writer.f32(value);
+    } else {
+      writer.u8(EXPR_CONST_F64);
+      writer.f64(value);
+    }
+  }
+
+  function encodeRandnCall(name:String, args:Array<Expr>, writer:ByteWriter, pos:Position):Void {
+    if (args.length != 0) {
+      Context.error('Quadrants HashLink function ${name} expects no arguments', pos);
+    }
+    var dtype = randnCallDType(name);
+    writer.u8(EXPR_BINARY_MUL);
+    writer.u8(EXPR_SQRT);
+    writer.u8(EXPR_BINARY_MUL);
+    writeFloatConstant(dtype, -2.0, writer);
+    writer.u8(EXPR_LOG);
+    writer.u8(EXPR_BINARY_SUB);
+    writeFloatConstant(dtype, 1.0, writer);
+    writer.u8(EXPR_RAND);
+    writer.u8(dtype);
+    writer.u8(EXPR_COS);
+    writer.u8(EXPR_BINARY_MUL);
+    writeFloatConstant(dtype, 6.283185307179586, writer);
+    writer.u8(EXPR_RAND);
+    writer.u8(dtype);
+  }
+
+  function encodeRawDivModCall(name:String, args:Array<Expr>, writer:ByteWriter, pos:Position):Void {
+    if (args.length != 2) {
+      Context.error('Quadrants HashLink function ${name} expects two arguments', pos);
+    }
+    writer.u8(name == "rawDiv" ? EXPR_BINARY_DIV : EXPR_BINARY_MOD);
+    encodeExpression(args[0], writer);
+    encodeExpression(args[1], writer);
+  }
+
+  function encodeFnsU32Call(args:Array<Expr>, writer:ByteWriter, pos:Position):Void {
+    if (args.length != 3) {
+      Context.error("Quadrants HashLink function fnsU32 expects mask, base, and offset", pos);
+    }
+    writer.u8(EXPR_FNS_U32);
+    encodeExpressionWithExpectedDType(args[0], DTYPE_U32, writer);
+    encodeExpressionWithExpectedDType(args[1], DTYPE_U32, writer);
+    encodeExpressionWithExpectedDType(args[2], DTYPE_I32, writer);
+  }
+
+  function encodeVolatileLoadCall(args:Array<Expr>, writer:ByteWriter, pos:Position):Void {
+    if (args.length != 1) {
+      Context.error("Quadrants HashLink function volatileLoad expects one ndarray element argument", pos);
+    }
+    switch (strip(args[0]).expr) {
+      case EArray(_, _):
+      default:
+        Context.error("Quadrants HashLink volatileLoad target must be an ndarray element", args[0].pos);
+    }
+    var access = collectArrayAccess(args[0]);
+    switch (strip(access.base).expr) {
+      case EConst(CIdent(name)):
+        var localId = lookupLocal(name);
+        if (localId != null && locals[localId].sharedSize > 0) {
+          Context.error("Quadrants HashLink volatileLoad on shared locals is not yet supported by the HashLink descriptor backend", args[0].pos);
+        }
+      default:
+    }
+    writer.u8(EXPR_VOLATILE_LOAD_INDEX);
+    encodeArrayBase(access.base, writer, access.indices.length);
+    writer.u32(access.indices.length);
+    encodeArrayIndices(access.base, access.indices, writer);
   }
 
   function builtinCallOpcode(name:String):Null<Int> {
@@ -2750,7 +3384,10 @@ private class DescriptorBuilder {
   }
 
   function tensorReadDType(callee:Expr):Null<Int> {
-    var target = tensorMethodTarget(callee, "read");
+    var target = tensorMethodTarget(callee, "scalarRead");
+    if (target == null) {
+      target = tensorMethodTarget(callee, "read");
+    }
     if (target == null) {
       target = tensorMethodTarget(callee, "kernelRead");
     }
@@ -3002,6 +3639,10 @@ private class DescriptorBuilder {
     return path == suffix || path == "quadrants." + suffix;
   }
 
+  function isStreamParallelBlock(path:String):Bool {
+    return pathIs(path, "StreamParallel", "block");
+  }
+
   function internalStatementOpcode(path:String):Null<Int> {
     if (pathIs(path, "Block", "sync") || pathIs(path, "Block", "barrier")) return STMT_BLOCK_BARRIER;
     if (pathIs(path, "Block", "memFence")) return STMT_BLOCK_MEM_FENCE;
@@ -3013,16 +3654,6 @@ private class DescriptorBuilder {
     if (pathIs(path, "Subgroup", "sync") || pathIs(path, "Subgroup", "barrier")) return STMT_SUBGROUP_BARRIER;
     if (pathIs(path, "Subgroup", "memFence")) return STMT_SUBGROUP_MEMORY_BARRIER;
     return null;
-  }
-
-  function isNdrangeCall(callee:Expr):Bool {
-    var path = callPath(callee, callee.pos);
-    return path == "Ndrange.of" || path == "quadrants.Ndrange.of";
-  }
-
-  function isNdrangeRangesCall(callee:Expr):Bool {
-    var path = callPath(callee, callee.pos);
-    return path == "Ndrange.ranges" || path == "quadrants.Ndrange.ranges";
   }
 
   function isGroupedCall(callee:Expr):Bool {
@@ -3037,7 +3668,7 @@ private class DescriptorBuilder {
     return switch (target.expr) {
       case EConst(CIdent(name)):
         var paramId = paramIds.get(name);
-        if (paramId != null && params[paramId].kind == PARAM_NDARRAY) target else null;
+        if (paramId != null && (params[paramId].kind == PARAM_NDARRAY || params[paramId].kind == PARAM_FIELD)) target else null;
       default:
         null;
     };
@@ -3054,10 +3685,93 @@ private class DescriptorBuilder {
     return path == "Static.value" || path == "quadrants.Static.value";
   }
 
+  function encodeSNodeStatementCall(callee:Expr, args:Array<Expr>, writer:ByteWriter, pos:Position):Null<Int> {
+    var activateTarget = tensorMethodTarget(callee, "activate");
+    if (activateTarget != null) {
+      if (args.length != 1) {
+        Context.error("Quadrants Field.activate(index) expects one argument", pos);
+      }
+      writer.u8(STMT_SNODE_ACTIVATE);
+      encodeFieldBase(activateTarget, writer, args.length, pos);
+      writer.u32(1);
+      encodeArrayIndices(activateTarget, [args[0]], writer);
+      return 1;
+    }
+    var deactivateTarget = tensorMethodTarget(callee, "deactivate");
+    if (deactivateTarget != null) {
+      if (args.length != 1) {
+        Context.error("Quadrants Field.deactivate(index) expects one argument", pos);
+      }
+      writer.u8(STMT_SNODE_DEACTIVATE);
+      encodeFieldBase(deactivateTarget, writer, args.length, pos);
+      writer.u32(1);
+      encodeArrayIndices(deactivateTarget, [args[0]], writer);
+      return 1;
+    }
+    return null;
+  }
+
+  function encodeSNodeExpressionCall(callee:Expr, args:Array<Expr>, writer:ByteWriter, pos:Position):Bool {
+    var appendTarget = tensorMethodTarget(callee, "append");
+    if (appendTarget != null) {
+      if (args.length != 2) {
+        Context.error("Quadrants Field.append(index, value) expects two arguments", pos);
+      }
+      writer.u8(EXPR_SNODE_APPEND);
+      encodeFieldBase(appendTarget, writer, args.length, pos);
+      writer.u32(1);
+      encodeArrayIndices(appendTarget, [args[0]], writer);
+      encodeExpression(args[1], writer);
+      return true;
+    }
+    var lengthTarget = tensorMethodTarget(callee, "length");
+    if (lengthTarget != null) {
+      if (args.length != 1) {
+        Context.error("Quadrants Field.length(index) expects one argument", pos);
+      }
+      writer.u8(EXPR_SNODE_LENGTH);
+      encodeFieldBase(lengthTarget, writer, args.length + 1, pos);
+      writer.u32(1);
+      encodeArrayIndices(lengthTarget, [args[0]], writer);
+      return true;
+    }
+    var activeTarget = tensorMethodTarget(callee, "isActive");
+    if (activeTarget != null) {
+      if (args.length != 1) {
+        Context.error("Quadrants Field.isActive(index) expects one argument", pos);
+      }
+      writer.u8(EXPR_SNODE_IS_ACTIVE);
+      encodeFieldBase(activeTarget, writer, args.length, pos);
+      writer.u32(1);
+      encodeArrayIndices(activeTarget, [args[0]], writer);
+      return true;
+    }
+    return false;
+  }
+
+  function encodeFieldBase(base:Expr, writer:ByteWriter, rank:Int, pos:Position):Void {
+    var expr = strip(base);
+    switch (expr.expr) {
+      case EConst(CIdent(name)):
+        var paramId = paramIds.get(name);
+        if (paramId == null) {
+          Context.error('Quadrants field ${name} is not a kernel parameter', expr.pos);
+        }
+        markParamField(paramId, rank, pos);
+        writer.u8(EXPR_ARG_LOAD);
+        writer.u32(paramId);
+      default:
+        Context.error("Quadrants SNode operations require a direct Field kernel parameter", expr.pos);
+    }
+  }
+
   function markParamScalar(paramId:Int, pos:Position):Void {
     var param = params[paramId];
     if (param.kind == PARAM_NDARRAY) {
       Context.error('Quadrants parameter ${param.name} is used as both ndarray and scalar', pos);
+    }
+    if (param.kind == PARAM_FIELD) {
+      Context.error('Quadrants parameter ${param.name} is used as both field and scalar', pos);
     }
     param.kind = PARAM_SCALAR;
     param.rank = 0;
@@ -3066,6 +3780,9 @@ private class DescriptorBuilder {
 
   function markParamNdarray(paramId:Int, rank:Int, pos:Position):Void {
     var param = params[paramId];
+    if (param.kind == PARAM_FIELD) {
+      Context.error('Quadrants Field parameter ${param.name} cannot be used as a Tensor ndarray', pos);
+    }
     if (param.kind == PARAM_SCALAR) {
       Context.error('Quadrants parameter ${param.name} is used as both scalar and ndarray', pos);
     }
@@ -3078,6 +3795,28 @@ private class DescriptorBuilder {
       }
     }
     param.kind = PARAM_NDARRAY;
+    param.rank = rank;
+    param.needsGrad = needsGradForDType(param.dtype);
+    param.rankFromShape = false;
+  }
+
+  function markParamField(paramId:Int, rank:Int, pos:Position):Void {
+    var param = params[paramId];
+    if (param.kind == PARAM_NDARRAY) {
+      Context.error('Quadrants Tensor parameter ${param.name} cannot be used as a Field SNode', pos);
+    }
+    if (param.kind == PARAM_SCALAR) {
+      Context.error('Quadrants parameter ${param.name} is used as both scalar and field', pos);
+    }
+    if (param.kind == PARAM_FIELD && param.rank != 0 && param.rank != rank) {
+      if (!param.rankFromShape) {
+        Context.error('Quadrants field parameter ${param.name} is used with inconsistent rank', pos);
+      }
+      if (rank < param.rank) {
+        Context.error('Quadrants field parameter ${param.name} is used with inconsistent rank', pos);
+      }
+    }
+    param.kind = PARAM_FIELD;
     param.rank = rank;
     param.needsGrad = needsGradForDType(param.dtype);
     param.rankFromShape = false;
@@ -3215,9 +3954,12 @@ private class DescriptorBuilder {
         if (readDType != null) {
           readDType;
         } else {
+          var matrixDType = matrixScalarCallDType(callee, args);
           var vectorDType = vectorScalarCallDType(callee, args);
           if (shapeMethodTarget(callee) != null) {
             DTYPE_I32;
+          } else if (matrixDType != null) {
+            matrixDType;
           } else if (vectorDType != null) {
             vectorDType;
           } else {
@@ -3229,12 +3971,20 @@ private class DescriptorBuilder {
               inferExpressionDType(args[0]);
             } else if ((path == "CompilerHints.assumeInRange" || path == "quadrants.CompilerHints.assumeInRange") && args.length > 0) {
               inferExpressionDType(args[0]);
+            } else if ((name == "rawDiv" || name == "rawMod") && args.length == 2) {
+              promoteDType(inferExpressionDType(args[0]), inferExpressionDType(args[1]));
+            } else if (name == "fnsU32") {
+              DTYPE_U32;
+            } else if (name == "volatileLoad" && args.length == 1) {
+              inferExpressionDType(args[0]);
             } else if ((name == "min" || name == "max" || name == "atan2" || name == "pow") && args.length == 2) {
               promoteDType(inferExpressionDType(args[0]), inferExpressionDType(args[1]));
             } else if (name == "select" && args.length == 3) {
               promoteDType(inferExpressionDType(args[1]), inferExpressionDType(args[2]));
             } else if (name == "isnan" || name == "isinf") {
               DTYPE_U1;
+            } else if (randnCallDType(name) != null) {
+              randnCallDType(name);
             } else if (randomCallDType(name) != null) {
               randomCallDType(name);
             } else if (name == "threadIdx" || name == "shape") {
@@ -3257,17 +4007,22 @@ private class DescriptorBuilder {
           }
         }
       case EField(base, field):
-        var vectorName = directVectorName(base);
-        if (vectorName != null) {
-          var vector = lookupVector(vectorName);
-          var dim = vectorFieldIndex(field);
-          if (dim < 0 || dim >= vector.localIds.length) {
-            Context.error('Quadrants vector ${vectorName} has no component ${field}', expr.pos);
-          }
-          vector.dtype;
+        var frexpDType = frexpFieldAccessDType(expr);
+        if (frexpDType != null) {
+          frexpDType;
         } else {
-          var structDType = structFieldDType(expr);
-          structDType == null ? DTYPE_I32 : structDType;
+          var vectorName = directVectorName(base);
+          if (vectorName != null) {
+            var vector = lookupVector(vectorName);
+            var dim = vectorFieldIndex(field);
+            if (dim < 0 || dim >= vector.localIds.length) {
+              Context.error('Quadrants vector ${vectorName} has no component ${field}', expr.pos);
+            }
+            vector.dtype;
+          } else {
+            var structDType = structFieldDType(expr);
+            structDType == null ? DTYPE_I32 : structDType;
+          }
         }
       default:
         DTYPE_I32;
@@ -3516,9 +4271,16 @@ private class DescriptorBuilder {
       return {kind: PARAM_UNKNOWN, dtype: DTYPE_I32, needsGrad: false};
     }
     return switch (type) {
+      case TPath(path) if (isFieldPath(path)):
+        var dtype = tensorElementDType(path, pos);
+        {kind: PARAM_FIELD, dtype: dtype, needsGrad: needsGradForDType(dtype)};
       case TPath(path) if (isTensorPath(path)):
         var dtype = tensorElementDType(path, pos);
         {kind: PARAM_NDARRAY, dtype: dtype, needsGrad: needsGradForDType(dtype)};
+      case TPath(path) if (isQuantKernelParameterPath(path)):
+        Context.error("Quadrants HashLink native quant kernel parameters require descriptor quant type metadata, which is not supported by this backend", pos);
+      case TPath(path) if (isMeshKernelParameterPath(path)):
+        Context.error("Quadrants HashLink kernel mesh relation/attribute access requires descriptor mesh resource metadata, which is not supported by this backend", pos);
       default:
         {kind: PARAM_SCALAR, dtype: dtypeFromComplexType(type, pos), needsGrad: false};
     }
@@ -3527,11 +4289,53 @@ private class DescriptorBuilder {
   function isTensorPath(path:TypePath):Bool {
     var fullName = typePathName(path);
     return fullName == "Tensor" || fullName == "quadrants.Tensor"
-      || fullName == "Field" || fullName == "quadrants.Field"
       || fullName == "VectorNdarray" || fullName == "quadrants.VectorNdarray"
       || fullName == "MatrixNdarray" || fullName == "quadrants.MatrixNdarray"
       || fullName == "VectorField" || fullName == "quadrants.VectorField"
-      || fullName == "MatrixField" || fullName == "quadrants.MatrixField";
+      || fullName == "MatrixField" || fullName == "quadrants.MatrixField"
+      || generatedTensorDType(path) != null;
+  }
+
+  function isFieldPath(path:TypePath):Bool {
+    var fullName = typePathName(path);
+    return fullName == "Field" || fullName == "quadrants.Field"
+      || fullName == "FieldArg" || fullName == "quadrants.FieldArg"
+      || generatedFieldDType(path) != null;
+  }
+
+  function generatedTensorDType(path:TypePath):Null<Int> {
+    var fullName = typePathName(path);
+    var prefix = "quadrants._generated.Tensor_";
+    if (StringTools.startsWith(fullName, prefix)) {
+      return dtypeFromTypeName(fullName.substr(prefix.length), Context.currentPos(), DTYPE_F32);
+    }
+    return null;
+  }
+
+  function generatedFieldDType(path:TypePath):Null<Int> {
+    var fullName = typePathName(path);
+    var prefix = "quadrants._generated.Field_";
+    if (StringTools.startsWith(fullName, prefix)) {
+      return dtypeFromTypeName(fullName.substr(prefix.length), Context.currentPos(), DTYPE_F32);
+    }
+    return null;
+  }
+
+  function isQuantKernelParameterPath(path:TypePath):Bool {
+    var fullName = typePathName(path);
+    return fullName == "QuantizedF32Tensor" || fullName == "quadrants.quant.QuantizedF32Tensor"
+      || fullName == "QuantStorageSpec" || fullName == "quadrants.quant.QuantStorageSpec"
+      || fullName == "QuantInt" || fullName == "quadrants.quant.QuantInt"
+      || fullName == "QuantFixed" || fullName == "quadrants.quant.QuantFixed"
+      || fullName == "QuantFloat" || fullName == "quadrants.quant.QuantFloat";
+  }
+
+  function isMeshKernelParameterPath(path:TypePath):Bool {
+    var fullName = typePathName(path);
+    return fullName == "MeshRelation" || fullName == "quadrants.mesh.MeshRelation"
+      || fullName == "MeshAttribute" || fullName == "quadrants.mesh.MeshAttribute"
+      || fullName == "MeshDomain" || fullName == "quadrants.mesh.MeshDomain"
+      || fullName == "MeshElement" || fullName == "quadrants.mesh.MeshElement";
   }
 
   function isBufferViewComplexType(type:Null<ComplexType>):Bool {
@@ -3556,6 +4360,13 @@ private class DescriptorBuilder {
   }
 
   function tensorElementDType(path:TypePath, pos:Position):Int {
+    var generated = generatedTensorDType(path);
+    if (generated == null) {
+      generated = generatedFieldDType(path);
+    }
+    if (generated != null) {
+      return generated;
+    }
     if (path.params == null || path.params.length == 0) {
       Context.error("Quadrants Tensor/Field kernel parameter requires an explicit dtype type parameter", pos);
     }
@@ -3792,79 +4603,9 @@ class KernelBuilder {
   }
 
   static function reverseAutodiffBlockedReason(functionBody:Expr):Null<String> {
-    if (containsReverseUnsupportedControlFlow(functionBody)) {
-      return "Quadrants HashLink reverse/validate autodiff does not support while, break, or continue; split the control flow into separate kernels or use forward autodiff";
-    }
-    var roots = topLevelStatements(functionBody);
-    var hasFor = false;
-    var hasNonFor = false;
-    for (statement in roots) {
-      switch (DescriptorBuilder.strip(statement).expr) {
-        case EFor(_, _):
-          hasFor = true;
-        default:
-          hasNonFor = true;
-      }
-    }
-    if (hasFor && hasNonFor) {
-      return "Quadrants HashLink reverse/validate autodiff does not support mixing top-level for-loops with non-loop statements; split them into separate kernels";
-    }
     return null;
   }
 
-  static function topLevelStatements(expression:Expr):Array<Expr> {
-    return switch (DescriptorBuilder.strip(expression).expr) {
-      case EBlock(expressions): expressions;
-      default: [expression];
-    };
-  }
-
-  static function containsReverseUnsupportedControlFlow(expression:Expr):Bool {
-    return switch (DescriptorBuilder.strip(expression).expr) {
-      case EWhile(_, _, _), EBreak, EContinue:
-        true;
-      case EBlock(expressions):
-        Lambda.exists(expressions, containsReverseUnsupportedControlFlow);
-      case EIf(cond, eif, eelse):
-        containsReverseUnsupportedControlFlow(cond)
-          || containsReverseUnsupportedControlFlow(eif)
-          || (eelse != null && containsReverseUnsupportedControlFlow(eelse));
-      case EFor(it, body):
-        containsReverseUnsupportedControlFlow(it) || containsReverseUnsupportedControlFlow(body);
-      case EFunction(_, f):
-        f.expr != null && containsReverseUnsupportedControlFlow(f.expr);
-      case EReturn(value):
-        value != null && containsReverseUnsupportedControlFlow(value);
-      case EBinop(_, lhs, rhs):
-        containsReverseUnsupportedControlFlow(lhs) || containsReverseUnsupportedControlFlow(rhs);
-      case EUnop(_, _, inner), EParenthesis(inner), EMeta(_, inner), ECheckType(inner, _), ECast(inner, _):
-        containsReverseUnsupportedControlFlow(inner);
-      case EArray(base, index):
-        containsReverseUnsupportedControlFlow(base) || containsReverseUnsupportedControlFlow(index);
-      case EArrayDecl(values):
-        Lambda.exists(values, containsReverseUnsupportedControlFlow);
-      case EObjectDecl(fields):
-        Lambda.exists(fields, function(field) return containsReverseUnsupportedControlFlow(field.expr));
-      case ECall(callee, args):
-        containsReverseUnsupportedControlFlow(callee) || Lambda.exists(args, containsReverseUnsupportedControlFlow);
-      case EField(base, _):
-        containsReverseUnsupportedControlFlow(base);
-      case EVars(vars):
-        Lambda.exists(vars, function(v) return v.expr != null && containsReverseUnsupportedControlFlow(v.expr));
-      case ETernary(cond, eif, eelse):
-        containsReverseUnsupportedControlFlow(cond) || containsReverseUnsupportedControlFlow(eif) || containsReverseUnsupportedControlFlow(eelse);
-      case ESwitch(subject, cases, defaultExpr):
-        containsReverseUnsupportedControlFlow(subject)
-          || Lambda.exists(cases, function(caseExpr) return Lambda.exists(caseExpr.values, containsReverseUnsupportedControlFlow)
-            || (caseExpr.guard != null && containsReverseUnsupportedControlFlow(caseExpr.guard))
-            || containsReverseUnsupportedControlFlow(caseExpr.expr))
-          || (defaultExpr != null && containsReverseUnsupportedControlFlow(defaultExpr));
-      case ETry(body, catches):
-        containsReverseUnsupportedControlFlow(body) || Lambda.exists(catches, function(catchExpr) return containsReverseUnsupportedControlFlow(catchExpr.expr));
-      default:
-        false;
-    };
-  }
 
 
   static function autodiffModeFromOptions(options:Null<Expr>):Int {

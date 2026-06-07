@@ -110,6 +110,14 @@ DEFINE_UNARY_REAL_FUNC(asin)
 DEFINE_UNARY_REAL_FUNC(cos)
 DEFINE_UNARY_REAL_FUNC(sin)
 
+f32 frexp_f32(f32 x, i32 *exponent) {
+  return std::frexp(x, exponent);
+}
+
+f64 frexp_f64(f64 x, i32 *exponent) {
+  return std::frexp(x, exponent);
+}
+
 i32 abs_i32(i32 a) {
   return a >= 0 ? a : -a;
 }

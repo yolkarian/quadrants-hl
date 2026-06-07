@@ -1,5 +1,7 @@
 package quadrants;
 
+import quadrants.Native.QSNodeTree;
+
 typedef FieldPlacementStep = {
   var kind:Int;
   var axis:Int;
@@ -12,6 +14,7 @@ class FieldsBuilder {
   static inline var SNODE_DYNAMIC = 2;
   static inline var SNODE_POINTER = 3;
   static inline var SNODE_BITMASKED = 4;
+  static inline var SNODE_QUANT_ARRAY = 6;
   static inline var DEFAULT_DYNAMIC_CHUNK_SIZE = 128;
 
   final context:Context;
@@ -68,6 +71,18 @@ class FieldsBuilder {
     return dynamicNode(axis, size, chunkSize);
   }
 
+  public function bitStruct(maxBits:Int):FieldsBuilder {
+    ensureMutable();
+    if (maxBits <= 0 || maxBits > 64) {
+      throw "Quadrants bitStruct maxBits must be in 1...64";
+    }
+    throw "Quadrants HashLink native bitStruct placement is not supported; use quantArray(axis, size, maxNumBits) for native quantized array placement";
+  }
+
+  public function quantArray(axis:Axis, size:Int, maxNumBits:quadrants.quant.QuantBits):FieldsBuilder {
+    return add(SNODE_QUANT_ARRAY, axis, size, maxNumBits);
+  }
+
   static function copySteps(steps:Array<FieldPlacementStep>):Array<FieldPlacementStep> {
     return [for (step in steps) {kind: step.kind, axis: step.axis, size: step.size, chunkSize: step.chunkSize}];
   }
@@ -87,6 +102,30 @@ class FieldsBuilder {
     }
   }
 
+  static function hasQuantArrayStep(steps:Array<FieldPlacementStep>):Bool {
+    for (step in steps) {
+      if (step.kind == SNODE_QUANT_ARRAY) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static function placeStructuralSteps(tree:QSNodeTree, parent:Int, steps:Array<FieldPlacementStep>):Int {
+    var current = parent;
+    for (step in steps) {
+      current = Native.snode_tree_child(
+        tree,
+        current,
+        step.kind,
+        TensorStorage.nativeIntArray([step.axis]),
+        TensorStorage.nativeIntArray([step.size]),
+        step.chunkSize
+      );
+    }
+    return current;
+  }
+
   public static function placeDense(context:Context, field:FieldRuntime, shape:Array<Int>):Void {
     var checkedShape = TensorStorage.validateShape(shape);
     var denseSteps = [
@@ -97,30 +136,79 @@ class FieldsBuilder {
   }
 
   public static function placeWithSteps(context:Context, field:FieldRuntime, shape:Array<Int>, steps:Array<FieldPlacementStep>):Void {
-    if (steps.length == 0) {
-      throw "Quadrants field placement requires at least one SNode dimension";
-    }
     field.ensurePlaceable();
-    var tree = Native.snode_tree_create(context.nativeHandle());
-    var parent = Native.snode_tree_root_id(tree);
     var checkedShape = TensorStorage.validateShape(shape);
     var checkedSteps = copySteps(steps);
     validateStepsMatchShape(checkedShape, checkedSteps);
+    if (hasQuantArrayStep(checkedSteps)) {
+      throw "Quadrants quantArray placement requires placeQuant(field, quantSpec)";
+    }
+    var tree = Native.snode_tree_create(context.nativeHandle());
+    var parent = Native.snode_tree_root_id(tree);
     try {
-      for (step in checkedSteps) {
-        parent = Native.snode_tree_child(
-          tree,
-          parent,
-          step.kind,
-          TensorStorage.nativeIntArray([step.axis]),
-          TensorStorage.nativeIntArray([step.size]),
-          step.chunkSize
-        );
-      }
+      parent = placeStructuralSteps(tree, parent, checkedSteps);
       var name = @:privateAccess "".toUtf8();
       var snodeId = Native.snode_tree_place(tree, parent, field.dtype, name);
       var treeId = Native.snode_tree_commit(context.nativeHandle(), tree);
       field.placeSNode(quadrants.TensorStorage.copyIntArray(checkedShape), snodeId, treeId, checkedSteps);
+    } catch (e:Dynamic) {
+      Native.snode_tree_close(tree);
+      throw e;
+    }
+    Native.snode_tree_close(tree);
+  }
+
+  public static function placeQuantWithSteps<T>(context:Context,
+      field:Field<T>,
+      shape:Array<Int>,
+      steps:Array<FieldPlacementStep>,
+      spec:quadrants.quant.QuantStorageSpec<T>):Void {
+    if (spec == null) {
+      throw "Quadrants quant field placement requires a quant storage spec";
+    }
+    if (field == null) {
+      throw "Quadrants quant field placement requires a Field";
+    }
+    var runtime:FieldRuntime = cast field;
+    runtime.ensurePlaceable();
+    if (runtime.dtype != spec.computeDType) {
+      throw "Quadrants quant field compute dtype must match the Field dtype";
+    }
+    var checkedShape = TensorStorage.validateShape(shape);
+    var checkedSteps = copySteps(steps);
+    validateStepsMatchShape(checkedShape, checkedSteps);
+    if (!hasQuantArrayStep(checkedSteps)) {
+      throw "Quadrants placeQuant requires a quantArray placement step";
+    }
+    for (step in checkedSteps) {
+      if (step.kind == SNODE_QUANT_ARRAY && spec.bits > step.chunkSize) {
+        throw "Quadrants quant spec bit width exceeds quantArray maxNumBits";
+      }
+    }
+    if (spec.kind == quadrants.quant.QuantKind.FloatStorage) {
+      throw "Quadrants quant float placement requires bitStruct lowering, which is not supported by the HashLink bridge";
+    }
+    if (spec.offset != 0.0) {
+      throw "Quadrants quant fixed offset placement is not supported by the HashLink bridge";
+    }
+    var tree = Native.snode_tree_create(context.nativeHandle());
+    var parent = Native.snode_tree_root_id(tree);
+    try {
+      parent = placeStructuralSteps(tree, parent, checkedSteps);
+      var name = @:privateAccess "".toUtf8();
+      var snodeId = Native.snode_tree_place_quant(
+        tree,
+        parent,
+        runtime.dtype,
+        spec.kind,
+        spec.bits,
+        spec.signed ? 1 : 0,
+        spec.fractionalBits,
+        spec.scale,
+        name
+      );
+      var treeId = Native.snode_tree_commit(context.nativeHandle(), tree);
+      runtime.placeSNode(quadrants.TensorStorage.copyIntArray(checkedShape), snodeId, treeId, checkedSteps);
     } catch (e:Dynamic) {
       Native.snode_tree_close(tree);
       throw e;
@@ -143,6 +231,11 @@ class FieldsBuilder {
   public function place(field:FieldRuntime):Void {
     ensureMutable();
     path().place(field);
+  }
+
+  public function placeQuant<T>(field:Field<T>, spec:quadrants.quant.QuantStorageSpec<T>):Void {
+    ensureMutable();
+    path().placeQuant(field, spec);
   }
 
   public function placeMany(fields:Array<FieldRuntime>):quadrants.snode.FieldPlacementPath {

@@ -181,7 +181,7 @@ std::vector<std::unique_ptr<ExpressionDescriptor>> parse_indices(DescriptorReade
                                                                  const KernelDescriptor &descriptor,
                                                                  int depth) {
   const std::uint32_t count = reader.read_u32();
-  if (count == 0 || count > 8) {
+  if (count > 8) {
     throw std::runtime_error("HashLink kernel descriptor index count is out of range");
   }
   std::vector<std::unique_ptr<ExpressionDescriptor>> indices;
@@ -243,6 +243,17 @@ std::unique_ptr<ExpressionDescriptor> parse_expression(DescriptorReader &reader,
       }
       break;
     case ExprOpcode::load_index:
+    case ExprOpcode::volatile_load_index:
+      expr->target = parse_expression(reader, descriptor, depth + 1);
+      expr->indices = parse_indices(reader, descriptor, depth + 1);
+      break;
+    case ExprOpcode::snode_append:
+      expr->target = parse_expression(reader, descriptor, depth + 1);
+      expr->indices = parse_indices(reader, descriptor, depth + 1);
+      expr->value = parse_expression(reader, descriptor, depth + 1);
+      break;
+    case ExprOpcode::snode_length:
+    case ExprOpcode::snode_is_active:
       expr->target = parse_expression(reader, descriptor, depth + 1);
       expr->indices = parse_indices(reader, descriptor, depth + 1);
       break;
@@ -308,6 +319,11 @@ std::unique_ptr<ExpressionDescriptor> parse_expression(DescriptorReader &reader,
       expr->lhs = parse_expression(reader, descriptor, depth + 1);
       expr->rhs = parse_expression(reader, descriptor, depth + 1);
       break;
+    case ExprOpcode::fns_u32:
+      expr->lhs = parse_expression(reader, descriptor, depth + 1);
+      expr->rhs = parse_expression(reader, descriptor, depth + 1);
+      expr->operand = parse_expression(reader, descriptor, depth + 1);
+      break;
     case ExprOpcode::cast:
     case ExprOpcode::bit_cast:
       expr->cast_dtype = parse_dtype(reader.read_u8());
@@ -341,6 +357,8 @@ std::unique_ptr<ExpressionDescriptor> parse_expression(DescriptorReader &reader,
     case ExprOpcode::unary_sgn:
     case ExprOpcode::unary_neg:
     case ExprOpcode::unary_bit_not:
+    case ExprOpcode::frexp_significand:
+    case ExprOpcode::frexp_exponent:
     case ExprOpcode::block_barrier_and:
     case ExprOpcode::block_barrier_or:
     case ExprOpcode::block_barrier_count:
@@ -458,6 +476,11 @@ std::unique_ptr<StatementDescriptor> parse_statement(DescriptorReader &reader,
       stmt->indices = parse_indices(reader, descriptor, depth + 1);
       stmt->value = parse_expression(reader, descriptor, depth + 1);
       break;
+    case StmtOpcode::snode_activate:
+    case StmtOpcode::snode_deactivate:
+      stmt->target = parse_expression(reader, descriptor, depth + 1);
+      stmt->indices = parse_indices(reader, descriptor, depth + 1);
+      break;
     case StmtOpcode::loop_block_dim:
     case StmtOpcode::loop_parallelize:
     case StmtOpcode::loop_serialize:
@@ -529,6 +552,46 @@ class LoweringContext {
     return type_checked(lang::Expr::make<lang::InternalFuncCallExpression>(lang::Operations::get(opcode), args));
   }
 
+  lang::ExprGroup lower_indices(const std::vector<std::unique_ptr<ExpressionDescriptor>> &indices) {
+    lang::ExprGroup lowered;
+    lowered.exprs.reserve(indices.size());
+    for (const auto &index : indices) {
+      lowered.push_back(lower_expression(*index));
+    }
+    return lowered;
+  }
+
+  lang::SNode *field_snode_from_expression(const lang::Expr &expr) {
+    if (!expr.is<lang::FieldExpression>()) {
+      throw std::runtime_error("HashLink SNode operation target must be a Field parameter");
+    }
+    lang::SNode *snode = expr.snode();
+    if (snode == nullptr) {
+      throw std::runtime_error("HashLink Field parameter is not placed in an SNode tree");
+    }
+    return snode;
+  }
+
+  lang::SNode *field_parent_snode(const lang::Expr &expr, lang::SNodeType expected, const char *operation) {
+    lang::SNode *place = field_snode_from_expression(expr);
+    lang::SNode *parent = place->parent;
+    if (parent == nullptr || parent->type != expected) {
+      throw std::runtime_error(std::string("HashLink Field.") + operation + " target does not have the required SNode parent");
+    }
+    return parent;
+  }
+
+  lang::SNode *activation_snode(const lang::Expr &expr, const char *operation) {
+    lang::SNode *place = field_snode_from_expression(expr);
+    lang::SNode *parent = place->parent;
+    if (parent == nullptr ||
+        (parent->type != lang::SNodeType::pointer && parent->type != lang::SNodeType::hash &&
+         parent->type != lang::SNodeType::bitmasked)) {
+      throw std::runtime_error(std::string("HashLink Field.") + operation + " target does not have a pointer/hash/bitmasked SNode parent");
+    }
+    return parent;
+  }
+
   void ensure_local_allocated(std::uint32_t local_id) {
     const auto &local = local_descriptors_->at(local_id);
     if (local.shared_size != 0 || !local.allocate || local_allocated_.at(local_id)) {
@@ -570,6 +633,105 @@ class LoweringContext {
     return mesh_ptr;
   }
 
+  lang::Expr const_i32(std::int32_t value) {
+    return type_checked(lang::Expr::make<lang::ConstExpression>(lang::PrimitiveType::i32, static_cast<int32>(value)));
+  }
+
+  lang::Expr const_u32(std::uint32_t value) {
+    return type_checked(lang::Expr::make<lang::ConstExpression>(lang::PrimitiveType::u32, static_cast<uint32>(value)));
+  }
+
+  lang::Expr cast_to(lang::Expr expr, lang::DataType dtype) {
+    return type_checked(lang::cast(expr, dtype));
+  }
+
+  lang::Expr binary(lang::BinaryOpType op, lang::Expr lhs, lang::Expr rhs) {
+    return type_checked(lang::Expr::make<lang::BinaryOpExpression>(op, lhs, rhs));
+  }
+
+  lang::Expr select(lang::Expr condition, lang::Expr if_true, lang::Expr if_false) {
+    return type_checked(lang::Expr::make<lang::TernaryOpExpression>(lang::TernaryOpType::select,
+                                                                    condition,
+                                                                    if_true,
+                                                                    if_false));
+  }
+
+  lang::Expr logic_and(lang::Expr lhs, lang::Expr rhs) {
+    return binary(lang::BinaryOpType::logical_and, lhs, rhs);
+  }
+
+  lang::Expr bit_set_at(lang::Expr mask, std::uint32_t pos) {
+    auto shifted = binary(lang::BinaryOpType::bit_shr, mask, const_u32(pos));
+    auto low_bit = binary(lang::BinaryOpType::bit_and, shifted, const_u32(1));
+    return binary(lang::BinaryOpType::cmp_ne, low_bit, const_u32(0));
+  }
+
+  lang::Expr fns_scan_result(lang::Expr mask, lang::Expr base, lang::Expr remaining, int begin, int end, int step) {
+    auto result = builder_.make_var(const_u32(std::numeric_limits<std::uint32_t>::max()), debug_info_);
+    result.set_dbg_info(debug_info_);
+    for (int pos = begin; pos != end; pos += step) {
+      const auto pos_u32 = static_cast<std::uint32_t>(pos);
+      auto result_not_found =
+          binary(lang::BinaryOpType::cmp_eq, result, const_u32(std::numeric_limits<std::uint32_t>::max()));
+      auto in_range = step > 0 ? binary(lang::BinaryOpType::cmp_le, base, const_u32(pos_u32))
+                               : binary(lang::BinaryOpType::cmp_ge, base, const_u32(pos_u32));
+      auto active = logic_and(logic_and(result_not_found, in_range), bit_set_at(mask, pos_u32));
+      auto take = logic_and(active, binary(lang::BinaryOpType::cmp_eq, remaining, const_i32(0)));
+      builder_.expr_assign(result, select(take, const_u32(pos_u32), result), debug_info_);
+      auto decrement = logic_and(active, binary(lang::BinaryOpType::cmp_gt, remaining, const_i32(0)));
+      builder_.expr_assign(remaining,
+                           select(decrement,
+                                  binary(lang::BinaryOpType::sub, remaining, const_i32(1)),
+                                  remaining),
+                           debug_info_);
+    }
+    return result;
+  }
+
+  lang::Expr lower_fns_u32(const ExpressionDescriptor &expr) {
+    auto mask = cast_to(lower_expression(*expr.lhs), lang::PrimitiveType::u32);
+    auto base = cast_to(lower_expression(*expr.rhs), lang::PrimitiveType::u32);
+    auto offset = cast_to(lower_expression(*expr.operand), lang::PrimitiveType::i32);
+    if (arch_is_cuda(compile_config_->arch)) {
+      return lower_internal_call(lang::InternalOp::cuda_fns_u32, {mask, base, offset});
+    }
+
+    auto offset_is_zero = binary(lang::BinaryOpType::cmp_eq, offset, const_i32(0));
+    auto zero_result = builder_.make_var(const_u32(std::numeric_limits<std::uint32_t>::max()), debug_info_);
+    zero_result.set_dbg_info(debug_info_);
+    for (std::uint32_t pos = 0; pos < 32; ++pos) {
+      auto take = logic_and(logic_and(offset_is_zero, binary(lang::BinaryOpType::cmp_eq, base, const_u32(pos))),
+                            bit_set_at(mask, pos));
+      builder_.expr_assign(zero_result, select(take, const_u32(pos), zero_result), debug_info_);
+    }
+
+    auto forward_remaining = builder_.make_var(binary(lang::BinaryOpType::sub, offset, const_i32(1)), debug_info_);
+    forward_remaining.set_dbg_info(debug_info_);
+    auto forward = fns_scan_result(mask, base, forward_remaining, 0, 32, 1);
+
+    auto neg_offset = type_checked(lang::Expr::make<lang::UnaryOpExpression>(lang::UnaryOpType::neg,
+                                                                            offset,
+                                                                            debug_info_));
+    auto backward_remaining =
+        builder_.make_var(binary(lang::BinaryOpType::sub, neg_offset, const_i32(1)), debug_info_);
+    backward_remaining.set_dbg_info(debug_info_);
+    auto backward = fns_scan_result(mask, base, backward_remaining, 31, -1, -1);
+
+    return select(binary(lang::BinaryOpType::cmp_gt, offset, const_i32(0)),
+                  forward,
+                  select(binary(lang::BinaryOpType::cmp_lt, offset, const_i32(0)), backward, zero_result));
+  }
+
+  lang::Expr lower_frexp_component(const ExpressionDescriptor &expr, int component) {
+    if (arch_is_amdgpu(compile_config_->arch)) {
+      throw std::runtime_error("HashLink frexpF32/frexpF64 is not supported on AMDGPU backend yet");
+    }
+    auto frexp = type_checked(lang::Expr::make<lang::UnaryOpExpression>(lang::UnaryOpType::frexp,
+                                                                        lower_expression(*expr.operand),
+                                                                        debug_info_));
+    return type_checked(lang::Expr::make<lang::GetElementExpression>(frexp, std::vector<int>{component}, debug_info_));
+  }
+
   lang::Expr lower_expression(const ExpressionDescriptor &expr) {
     switch (expr.opcode) {
       case ExprOpcode::const_i32:
@@ -604,13 +766,34 @@ class LoweringContext {
         return locals_.at(expr.index);
       case ExprOpcode::rand:
         return type_checked(lang::expr_rand(lower_dtype(expr.cast_dtype)));
-      case ExprOpcode::load_index: {
-        lang::ExprGroup indices;
-        indices.exprs.reserve(expr.indices.size());
-        for (const auto &index : expr.indices) {
-          indices.push_back(lower_expression(*index));
+      case ExprOpcode::load_index:
+      case ExprOpcode::volatile_load_index: {
+        auto indices = lower_indices(expr.indices);
+        auto indexed = builder_.expr_subscript(lower_expression(*expr.target), indices, debug_info_);
+        if (expr.opcode == ExprOpcode::volatile_load_index) {
+          if (arch_uses_spirv(compile_config_->arch)) {
+            throw std::runtime_error("HashLink volatileLoad is not supported on SPIR-V backends yet");
+          }
+          indexed->attributes["volatile_load"] = "1";
         }
-        return type_checked(builder_.expr_subscript(lower_expression(*expr.target), indices, debug_info_));
+        return type_checked(indexed);
+      }
+      case ExprOpcode::snode_append: {
+        auto target = lower_expression(*expr.target);
+        auto indices = lower_indices(expr.indices);
+        auto *snode = field_parent_snode(target, lang::SNodeType::dynamic, "append");
+        return type_checked(builder_.snode_append(snode, indices, {lower_expression(*expr.value)}));
+      }
+      case ExprOpcode::snode_length: {
+        auto target = lower_expression(*expr.target);
+        auto indices = lower_indices(expr.indices);
+        auto *snode = field_parent_snode(target, lang::SNodeType::dynamic, "length");
+        return type_checked(builder_.snode_length(snode, indices));
+      }
+      case ExprOpcode::snode_is_active: {
+        auto target = lower_expression(*expr.target);
+        auto indices = lower_indices(expr.indices);
+        return type_checked(builder_.snode_is_active(activation_snode(target, "isActive"), indices));
       }
       case ExprOpcode::atomic_add:
       case ExprOpcode::atomic_sub:
@@ -649,6 +832,8 @@ class LoweringContext {
       case ExprOpcode::subgroup_broadcast:
         return lower_internal_call(lower_internal_expr_opcode(expr.opcode),
                                    {lower_expression(*expr.lhs), lower_expression(*expr.rhs)});
+      case ExprOpcode::fns_u32:
+        return lower_fns_u32(expr);
       case ExprOpcode::assume_in_range:
         return type_checked(lang::assume_range(lower_expression(*expr.operand),
                                                lower_expression(*expr.value),
@@ -697,6 +882,10 @@ class LoweringContext {
       case ExprOpcode::block_barrier_or:
       case ExprOpcode::block_barrier_count:
         return lower_internal_call(lower_internal_expr_opcode(expr.opcode), {lower_expression(*expr.operand)});
+      case ExprOpcode::frexp_significand:
+        return lower_frexp_component(expr, 0);
+      case ExprOpcode::frexp_exponent:
+        return lower_frexp_component(expr, 1);
       case ExprOpcode::logic_not:
       case ExprOpcode::unary_abs:
       case ExprOpcode::unary_sin:
@@ -740,6 +929,18 @@ class LoweringContext {
         lang::Expr lhs = builder_.expr_subscript(lower_expression(*stmt.target), indices, debug_info_);
         lhs.type_check(compile_config_);
         builder_.expr_assign(lhs, lower_expression(*stmt.value), debug_info_);
+        return;
+      }
+      case StmtOpcode::snode_activate: {
+        auto target = lower_expression(*stmt.target);
+        auto indices = lower_indices(stmt.indices);
+        builder_.insert_snode_activate(activation_snode(target, "activate"), indices, debug_info_);
+        return;
+      }
+      case StmtOpcode::snode_deactivate: {
+        auto target = lower_expression(*stmt.target);
+        auto indices = lower_indices(stmt.indices);
+        builder_.insert_snode_deactivate(activation_snode(target, "deactivate"), indices, debug_info_);
         return;
       }
       case StmtOpcode::range_for:
@@ -1033,9 +1234,6 @@ KernelDescriptor decode_descriptor(const std::uint8_t *data, std::size_t size) {
       if (param.kind == ParameterKind::scalar && param.rank != 0) {
         throw std::runtime_error("HashLink scalar parameter rank must be zero");
       }
-      if (param.kind == ParameterKind::ndarray && param.rank == 0) {
-        throw std::runtime_error("HashLink ndarray parameter rank must be positive");
-      }
       descriptor.parameters.push_back(param);
     }
     if (reader.pos() != params_end) {
@@ -1100,9 +1298,6 @@ KernelDescriptor decode_descriptor(const std::uint8_t *data, std::size_t size) {
           checked_string(descriptor, param.name_id, "function parameter name");
           if (param.kind == ParameterKind::scalar && param.rank != 0) {
             throw std::runtime_error("HashLink scalar function parameter rank must be zero");
-          }
-          if (param.kind == ParameterKind::ndarray && param.rank == 0) {
-            throw std::runtime_error("HashLink ndarray function parameter rank must be positive");
           }
           function.parameters.push_back(param);
         }
@@ -1175,9 +1370,20 @@ AutodiffMode autodiff_mode_from_bridge_id(int mode) {
 
 KernelBuildResult build_kernel_from_descriptor(lang::Program &program,
                                               const KernelDescriptor &descriptor,
-                                              AutodiffMode autodiff_mode) {
+                                              AutodiffMode autodiff_mode,
+                                              const std::vector<int> *field_snode_ids,
+                                              const std::vector<int> *field_adjoint_snode_ids,
+                                              const std::vector<int> *field_dual_snode_ids) {
   const std::string kernel_name = checked_string(descriptor, descriptor.kernel_name_id, "kernel name");
   const lang::DebugInfo debug_info = make_debug_info(descriptor);
+  const auto require_field_metadata_size = [&](const std::vector<int> *ids, const char *what) {
+    if (ids != nullptr && ids->size() != descriptor.parameters.size()) {
+      throw std::runtime_error(std::string("HashLink field ") + what + " specialization metadata has the wrong parameter count");
+    }
+  };
+  require_field_metadata_size(field_snode_ids, "SNode");
+  require_field_metadata_size(field_adjoint_snode_ids, "adjoint SNode");
+  require_field_metadata_size(field_dual_snode_ids, "dual SNode");
 
   lang::Kernel *kernel_ptr = nullptr;
   lang::Kernel &kernel = program.create_kernel(
@@ -1186,8 +1392,9 @@ KernelBuildResult build_kernel_from_descriptor(lang::Program &program,
         arg_ids.reserve(descriptor.parameters.size());
         for (const auto &param : descriptor.parameters) {
           const std::string name = checked_string(descriptor, param.name_id, "parameter name");
-          if (param.kind == ParameterKind::scalar) {
-            arg_ids.push_back(kernel->insert_scalar_param(lower_dtype(param.dtype), name));
+          if (param.kind == ParameterKind::scalar || param.kind == ParameterKind::field) {
+            const auto scalar_dtype = param.kind == ParameterKind::field ? lower_dtype(DescriptorDType::i32) : lower_dtype(param.dtype);
+            arg_ids.push_back(kernel->insert_scalar_param(scalar_dtype, name));
           } else {
             arg_ids.push_back(kernel->insert_ndarray_param(lower_dtype(param.dtype), param.rank, name, param.needs_grad()));
           }
@@ -1198,6 +1405,34 @@ KernelBuildResult build_kernel_from_descriptor(lang::Program &program,
         }
         kernel->finalize_rets();
 
+
+        auto make_field_expr = [&](lang::SNode *field_snode,
+                                   const std::string &name,
+                                   lang::DataType dtype,
+                                   SNodeGradType grad_type) -> lang::Expr {
+          auto field_expr = lang::Expr::make<lang::FieldExpression>(dtype, program.get_next_global_id(name));
+          auto field = field_expr.cast<lang::FieldExpression>();
+          field->set_snode(field_snode);
+          field->snode_grad_type = grad_type;
+          return field_expr;
+        };
+
+        auto lookup_registered_field = [&](const std::vector<int> *ids,
+                                           std::size_t index,
+                                           lang::DataType dtype,
+                                           const char *what) -> lang::SNode * {
+          if (ids == nullptr || ids->at(index) < 0) {
+            return nullptr;
+          }
+          lang::SNode *field_snode = program.get_snode_by_id(ids->at(index));
+          if (field_snode == nullptr || !field_snode->is_place()) {
+            throw std::runtime_error(std::string("HashLink registered Field ") + what + " is not a placed SNode field");
+          }
+          if (field_snode->dt->get_compute_type() != dtype) {
+            throw std::runtime_error(std::string("HashLink registered Field ") + what + " dtype mismatch");
+          }
+          return field_snode;
+        };
         std::vector<lang::Expr> params;
         params.reserve(descriptor.parameters.size());
         for (std::size_t i = 0; i < descriptor.parameters.size(); ++i) {
@@ -1206,6 +1441,31 @@ KernelBuildResult build_kernel_from_descriptor(lang::Program &program,
           if (param.kind == ParameterKind::scalar) {
             expr = lang::Expr::make<lang::ArgLoadExpression>(arg_ids[i], lower_dtype(param.dtype), false, true,
                                                              debug_info);
+          } else if (param.kind == ParameterKind::field) {
+            if (field_snode_ids == nullptr) {
+              throw std::runtime_error("HashLink Field kernel parameter requires launch-time SNode specialization");
+            }
+            lang::SNode *snode = program.get_snode_by_id(field_snode_ids->at(i));
+            if (snode == nullptr || !snode->is_place()) {
+              throw std::runtime_error("HashLink Field kernel argument is not a placed SNode field");
+            }
+            if (snode->num_active_indices != param.rank) {
+              throw std::runtime_error("HashLink Field kernel argument rank mismatch");
+            }
+            const auto dtype = lower_dtype(param.dtype);
+            if (snode->dt->get_compute_type() != dtype) {
+              throw std::runtime_error("HashLink Field kernel argument dtype mismatch");
+            }
+            const std::string name = checked_string(descriptor, param.name_id, "parameter name");
+            expr = make_field_expr(snode, name, dtype, SNodeGradType::kPrimal);
+            if (lang::SNode *adjoint = lookup_registered_field(field_adjoint_snode_ids, i, dtype, "adjoint")) {
+              expr.cast<lang::FieldExpression>()->adjoint =
+                  make_field_expr(adjoint, name + "_grad", dtype, SNodeGradType::kAdjoint);
+            }
+            if (lang::SNode *dual = lookup_registered_field(field_dual_snode_ids, i, dtype, "dual")) {
+              expr.cast<lang::FieldExpression>()->dual =
+                  make_field_expr(dual, name + "_dual", dtype, SNodeGradType::kDual);
+            }
           } else {
             expr = lang::Expr::make<lang::ExternalTensorExpression>(lower_dtype(param.dtype), param.rank, arg_ids[i],
                                                                     param.needs_grad(), BoundaryMode::kUnsafe);

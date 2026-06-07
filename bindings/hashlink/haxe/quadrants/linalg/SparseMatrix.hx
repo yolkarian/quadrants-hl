@@ -6,22 +6,30 @@ import quadrants.Native.QSparseMatrix;
 import quadrants.Tensor;
 import quadrants.TensorRuntime;
 import quadrants.Types.DType;
-import quadrants.Types.F32;
 
-class SparseMatrix {
+class SparseMatrix<T> implements LinearOperator<T> {
   public final context:Context;
   public final rows:Int;
   public final cols:Int;
   public final dtype:DType;
+  public final storageFormat:SparseStorageFormat;
   final handle:QSparseMatrix;
   var closed:Bool = false;
 
-  public function new(context:Context, rows:Int, cols:Int, dtype:DType = DType.F32) {
+  public function new(context:Context,
+      rows:Int,
+      cols:Int,
+      dtype:DType = DType.F32,
+      storageFormat:SparseStorageFormat = SparseStorageFormat.CSR) {
+    if (!SparseBackendFeatures.probe(context).supportsDType(dtype)) {
+      throw "Quadrants sparse matrix bridge supports only F32 and F64";
+    }
     this.context = context;
     this.rows = rows;
     this.cols = cols;
     this.dtype = dtype;
-    handle = Native.sparse_matrix_create(context.nativeHandle(), rows, cols, dtype);
+    this.storageFormat = storageFormat;
+    handle = Native.sparse_matrix_create(context.nativeHandle(), rows, cols, dtype, storageFormat);
   }
 
   public function nativeHandle():QSparseMatrix {
@@ -40,22 +48,134 @@ class SparseMatrix {
     Native.sparse_matrix_clear(context.nativeHandle(), nativeHandle());
   }
 
-  public function set(row:Int, col:Int, value:F32):Void {
-    Native.sparse_matrix_set_f32(context.nativeHandle(), nativeHandle(), row, col, value);
+  public function has(row:Int, col:Int):Bool {
+    return getFloat(row, col) != 0.0;
   }
 
-  public function get(row:Int, col:Int):F32 {
-    return cast Native.sparse_matrix_get_f32(context.nativeHandle(), nativeHandle(), row, col);
+  public function set(row:Int, col:Int, value:T):Void {
+    setFloat(row, col, toFloat(value));
   }
 
-  public function toDense():Array<F32> {
-    return [for (row in 0...rows) for (col in 0...cols) get(row, col)];
+  public function get(row:Int, col:Int):T {
+    return fromFloat(getFloat(row, col));
   }
 
-  public function matVec(x:Tensor<F32>, y:Tensor<F32>):Void {
-    requireTensorContext(x, "input");
-    requireTensorContext(y, "output");
-    Native.sparse_matrix_matvec_f32(context.nativeHandle(), nativeHandle(), x.nativeHandle(), y.nativeHandle());
+  public function toDense():Array<Float> {
+    var result = new Array<Float>();
+    for (row in 0...rows) {
+      for (col in 0...cols) {
+        result.push(getFloat(row, col));
+      }
+    }
+    return result;
+  }
+
+  public function copy():SparseMatrix<T> {
+    var result = new SparseMatrix<T>(context, rows, cols, dtype, storageFormat);
+    for (row in 0...rows) {
+      for (col in 0...cols) {
+        var value = getFloat(row, col);
+        if (value != 0.0) {
+          result.setFloat(row, col, value);
+        }
+      }
+    }
+    return result;
+  }
+
+  public function transpose():SparseMatrix<T> {
+    var result = new SparseMatrix<T>(context, cols, rows, dtype, storageFormat);
+    for (row in 0...rows) {
+      for (col in 0...cols) {
+        var value = getFloat(row, col);
+        if (value != 0.0) {
+          result.setFloat(col, row, value);
+        }
+      }
+    }
+    return result;
+  }
+
+  public function add(other:SparseMatrix<T>):SparseMatrix<T> {
+    checkSameShape(other);
+    var result = new SparseMatrix<T>(context, rows, cols, dtype, storageFormat);
+    for (row in 0...rows) {
+      for (col in 0...cols) {
+        var value = getFloat(row, col) + other.getFloat(row, col);
+        if (value != 0.0) {
+          result.setFloat(row, col, value);
+        }
+      }
+    }
+    return result;
+  }
+
+  public function sub(other:SparseMatrix<T>):SparseMatrix<T> {
+    checkSameShape(other);
+    var result = new SparseMatrix<T>(context, rows, cols, dtype, storageFormat);
+    for (row in 0...rows) {
+      for (col in 0...cols) {
+        var value = getFloat(row, col) - other.getFloat(row, col);
+        if (value != 0.0) {
+          result.setFloat(row, col, value);
+        }
+      }
+    }
+    return result;
+  }
+
+  public function mul(other:SparseMatrix<T>):SparseMatrix<T> {
+    if (cols != other.rows) {
+      throw "Quadrants sparse matrix multiplication shape mismatch";
+    }
+    requireCompatible(other);
+    var result = new SparseMatrix<T>(context, rows, other.cols, dtype, storageFormat);
+    for (row in 0...rows) {
+      for (col in 0...other.cols) {
+        var total = 0.0;
+        for (k in 0...cols) {
+          total += getFloat(row, k) * other.getFloat(k, col);
+        }
+        if (total != 0.0) {
+          result.setFloat(row, col, total);
+        }
+      }
+    }
+    return result;
+  }
+
+  public function scale(value:T):SparseMatrix<T> {
+    var factor = toFloat(value);
+    var result = new SparseMatrix<T>(context, rows, cols, dtype, storageFormat);
+    if (factor == 0.0) {
+      return result;
+    }
+    for (row in 0...rows) {
+      for (col in 0...cols) {
+        var scaled = getFloat(row, col) * factor;
+        if (scaled != 0.0) {
+          result.setFloat(row, col, scaled);
+        }
+      }
+    }
+    return result;
+  }
+
+  public function matVec(x:Tensor<T>, y:Tensor<T>):Void {
+    requireTensorContext(x, cols, "input");
+    requireTensorContext(y, rows, "output");
+    switch (dtype) {
+      case DType.F32:
+        Native.sparse_matrix_matvec_f32(context.nativeHandle(), nativeHandle(), (cast x : TensorRuntime).nativeHandle(), (cast y : TensorRuntime).nativeHandle());
+      case DType.F64:
+        Native.sparse_matrix_matvec_f64(context.nativeHandle(), nativeHandle(), (cast x : TensorRuntime).nativeHandle(), (cast y : TensorRuntime).nativeHandle());
+      default:
+        throw "Quadrants sparse matrix matVec supports only F32 and F64";
+    }
+  }
+
+  public inline function apply(x:Tensor<T>, y:Tensor<T>):Void {
+    matVec(x, y);
   }
 
   public function close():Void {
@@ -65,13 +185,62 @@ class SparseMatrix {
     }
   }
 
-  function requireTensorContext(tensor:Dynamic, name:String):TensorRuntime {
-    if (!Std.isOfType(tensor, TensorRuntime)) {
-      throw 'Quadrants sparse matrix ${name} must be a Tensor';
+  inline function toFloat(value:T):Float {
+    return cast value;
+  }
+
+  inline function fromFloat(value:Float):T {
+    return cast value;
+  }
+
+  function getFloat(row:Int, col:Int):Float {
+    return switch (dtype) {
+      case DType.F32:
+        Native.sparse_matrix_get_f32(context.nativeHandle(), nativeHandle(), row, col);
+      case DType.F64:
+        Native.sparse_matrix_get_f64(context.nativeHandle(), nativeHandle(), row, col);
+      default:
+        throw "Quadrants sparse matrix get supports only F32 and F64";
+    };
+  }
+
+  function setFloat(row:Int, col:Int, value:Float):Void {
+    switch (dtype) {
+      case DType.F32:
+        Native.sparse_matrix_set_f32(context.nativeHandle(), nativeHandle(), row, col, value);
+      case DType.F64:
+        Native.sparse_matrix_set_f64(context.nativeHandle(), nativeHandle(), row, col, value);
+      default:
+        throw "Quadrants sparse matrix set supports only F32 and F64";
     }
+  }
+
+  function checkSameShape(other:SparseMatrix<T>):Void {
+    requireCompatible(other);
+    if (rows != other.rows || cols != other.cols) {
+      throw "Quadrants sparse matrix shape mismatch";
+    }
+  }
+
+  function requireCompatible(other:SparseMatrix<T>):Void {
+    if (other.context != context) {
+      throw "Quadrants sparse matrix belongs to a different context";
+    }
+    if (other.dtype != dtype) {
+      throw "Quadrants sparse matrix dtype mismatch";
+    }
+  }
+
+  function requireTensorContext(tensor:Tensor<T>, minElements:Int, name:String):TensorRuntime {
     var runtime:TensorRuntime = cast tensor;
     if (runtime.context != context) {
       throw 'Quadrants sparse matrix ${name} tensor belongs to a different context';
+    }
+    if (runtime.dtype != dtype) {
+      throw 'Quadrants sparse matrix ${name} tensor dtype mismatch';
+    }
+    if (runtime.elementCount() < minElements) {
+      throw 'Quadrants sparse matrix ${name} tensor is too small';
     }
     return runtime;
   }

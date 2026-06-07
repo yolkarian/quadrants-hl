@@ -26,6 +26,7 @@ class Main {
     TestUnaryOps.run();
     TestMathModule.run();
     TestNativeFunctions.run();
+    TestSpecialOpsRuntime.run();
     TestMatrix.run();
     TestAtomic.run();
     TestFunction.run();
@@ -39,12 +40,15 @@ class Main {
     TestKernelFeatureRuntime.run();
     TestProfilerRuntime.run();
     TestAlgorithmsRuntime.run();
+    TestPerfDispatcherRuntime.run();
     TestAdCoverageDiagnosticsRuntime.run();
     TestPackedCompoundRuntime.run();
     TestBuilderControlDslRuntime.run();
     TestSparseProfilerBridgeRuntime.run();
+    TestSparseParityRuntime.run();
     TestCompoundParityRuntime.run();
     TestTypedDeepParityRuntime.run();
+    TestPerThreadLinalgRuntime.run();
     TestReleaseReadinessRuntime.run();
 
     TestRuntimeSupport.closeSharedContexts();

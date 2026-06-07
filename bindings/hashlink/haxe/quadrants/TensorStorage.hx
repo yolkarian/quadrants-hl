@@ -10,9 +10,6 @@ class TensorStorage {
   }
 
   public static function validateShape(shape:Array<Int>):Array<Int> {
-    if (shape.length == 0) {
-      throw "Quadrants ndarray shape must have at least one dimension";
-    }
     var result = copyIntArray(shape);
     for (dim in result) {
       if (dim <= 0) {

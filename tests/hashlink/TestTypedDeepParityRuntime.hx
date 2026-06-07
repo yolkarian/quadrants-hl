@@ -20,6 +20,18 @@ class TestTypedDeepParityRuntime {
     if (Math.abs(got - expected) > 0.0001) throw '${name}: ${got} != ${expected}';
   }
 
+  static function expectThrowsContains(name:String, body:()->Void, fragment:String):Void {
+    try {
+      body();
+    } catch (e:Dynamic) {
+      if (Std.string(e).indexOf(fragment) >= 0) {
+        return;
+      }
+      throw '${name}: wrong error ${Std.string(e)}';
+    }
+    throw '${name}: expected error containing ${fragment}';
+  }
+
   static function testTypedMesh(ctx:Context):Void {
     var mesh = new Mesh(3, 1, 1);
     var vertices = mesh.typedVertices();
@@ -54,6 +66,27 @@ class TestTypedDeepParityRuntime {
     expectNear("typed_quant_value_0", values.read(0), 1.5);
     expectNear("typed_quant_value_1", values.read(1), -2.0);
     values.close();
+
+    expectThrowsContains("typed_quant_invalid_fractional_bits", function() {
+      Quant.fixedF32(QuantBits.Bits8, QuantSignedness.Signed, 8);
+    }, "fractional bits");
+
+    expectThrowsContains("typed_quant_bitstruct_unsupported", function() {
+      ctx.root.bitStruct(32);
+    }, "bitStruct placement is not supported");
+
+    var nativeField = new Field<F32>(ctx);
+    ctx.root.quantArray(Axis.i, 4, QuantBits.Bits32).placeQuant(nativeField, spec);
+    var nativeRuntime:quadrants.FieldRuntime = cast nativeField;
+    if (!nativeRuntime.hasSNode()) {
+      throw "typed_quant_native_field: expected SNode placement";
+    }
+    nativeField.write(0, 1.53);
+    nativeField.write(1, -2.0);
+    expectNear("typed_quant_native_value_0", nativeField.read(0), 1.5);
+    expectNear("typed_quant_native_value_1", nativeField.read(1), -2.0);
+    nativeField.close();
+    ctx.root.destroy();
   }
 
   static function testTypedSNodePath(ctx:Context):Void {

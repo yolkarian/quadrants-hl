@@ -67,21 +67,24 @@ abstract Vector<T>(VectorData<T>) {
       return cast (da * db);
     });
   }
+
   public function dot(other:Vector<T>):Float {
     if (length != other.length) {
       throw "Quadrants vector length mismatch";
     }
     var total = 0.0;
     for (i in 0...length) {
-      var a:Dynamic = this.values[i];
-      var b:Dynamic = other.get(i);
-      total += a * b;
+      total += numeric(this.values[i]) * numeric(other.get(i));
     }
     return total;
   }
 
+  public inline function squaredNorm():Float {
+    return dot(cast this);
+  }
+
   public function norm():Float {
-    return Math.sqrt(dot(cast this));
+    return Math.sqrt(squaredNorm());
   }
 
   public function normalized():Vector<Float> {
@@ -89,22 +92,19 @@ abstract Vector<T>(VectorData<T>) {
     if (n == 0.0) {
       throw "Quadrants cannot normalize a zero-length vector";
     }
-    return new Vector([for (value in this.values) {
-      var d:Dynamic = value;
-      d / n;
-    }]);
+    return new Vector([for (value in this.values) numeric(value) / n]);
   }
 
   public function cross(other:Vector<T>):Vector<Float> {
     if (length != 3 || other.length != 3) {
       throw "Quadrants cross product requires two 3D vectors";
     }
-    var ax:Dynamic = this.values[0];
-    var ay:Dynamic = this.values[1];
-    var az:Dynamic = this.values[2];
-    var bx:Dynamic = other.get(0);
-    var by:Dynamic = other.get(1);
-    var bz:Dynamic = other.get(2);
+    var ax = numeric(this.values[0]);
+    var ay = numeric(this.values[1]);
+    var az = numeric(this.values[2]);
+    var bx = numeric(other.get(0));
+    var by = numeric(other.get(1));
+    var bz = numeric(other.get(2));
     return new Vector([
       ay * bz - az * by,
       az * bx - ax * bz,
@@ -112,4 +112,12 @@ abstract Vector<T>(VectorData<T>) {
     ]);
   }
 
+  public inline function outer(other:Vector<T>):Matrix<Float> {
+    return Matrix.outer(cast this, other);
+  }
+
+  static inline function numeric<TValue>(value:TValue):Float {
+    var d:Dynamic = value;
+    return d;
+  }
 }

@@ -1,5 +1,7 @@
 package quadrants;
 
+import quadrants.Types.F32;
+import quadrants.ad.Grad;
 import quadrants.ad.CustomGradient;
 
 private class TapeRecord {
@@ -99,6 +101,35 @@ class Tape {
     return tape;
   }
 
+  public static function withLoss(loss:Tensor<F32>, body:Tape->Void, clearAfter:Bool = true):Tape {
+    return withLossAndParams(loss, [], body, clearAfter);
+  }
+
+  public static function withLossAndParams(loss:Tensor<F32>,
+      params:Array<Tensor<F32>>,
+      body:Tape->Void,
+      clearAfter:Bool = true):Tape {
+    requireLoss(loss);
+    if (params == null) {
+      throw "Quadrants Tape.withLossAndParams requires a parameter array";
+    }
+    if (body == null) {
+      throw "Quadrants Tape.withLoss requires a body callback";
+    }
+
+    loss.enableGrad();
+    Grad.zeroTensorGrad(loss);
+    zeroTensorParams(params, loss);
+
+    var tape = new Tape();
+    body(tape);
+    tape.zeroRecordedGradients();
+    zeroTensorParams(params, loss);
+    Grad.seedTensorGrad(loss, 1.0);
+    tape.backward(clearAfter);
+    return tape;
+  }
+
   public var length(get, never):Int;
   function get_length():Int return records.length;
 
@@ -165,6 +196,50 @@ class Tape {
     }
     if (clearAfter) {
       clear();
+    }
+  }
+  function zeroRecordedGradients():Void {
+    zeroRecordedPeers("grad");
+  }
+
+  @:allow(quadrants.ad.FwdMode)
+  function zeroRecordedDuals():Void {
+    zeroRecordedPeers("dual");
+  }
+
+  function zeroRecordedPeers(peerName:String):Void {
+    for (record in records) {
+      for (arg in record.args) {
+        if (Std.isOfType(arg, TensorRuntime) || Std.isOfType(arg, FieldRuntime)) {
+          if (peerName == "grad") {
+            Grad.zeroGrad(arg);
+          } else {
+            Grad.zeroDual(arg);
+          }
+        }
+      }
+    }
+  }
+
+  static function requireLoss(loss:Tensor<F32>):Void {
+    if (loss == null) {
+      throw "Quadrants Tape.withLoss requires a scalar F32 loss tensor";
+    }
+    if (loss.elementCount() != 1) {
+      throw "Quadrants Tape.withLoss loss tensor must contain exactly one element";
+    }
+  }
+
+  static function zeroTensorParams(params:Array<Tensor<F32>>, loss:Tensor<F32>):Void {
+    for (param in params) {
+      if (param == null) {
+        throw "Quadrants Tape.withLossAndParams parameters cannot contain null";
+      }
+      if (param.context != loss.context) {
+        throw "Quadrants Tape.withLossAndParams parameters must share the loss Context";
+      }
+      param.enableGrad();
+      Grad.zeroTensorGrad(param);
     }
   }
 }

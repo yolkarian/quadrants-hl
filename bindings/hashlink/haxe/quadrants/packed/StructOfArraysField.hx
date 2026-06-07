@@ -120,6 +120,44 @@ class StructOfArraysField {
     writeField(member.name, flatIndex, value);
   }
 
+  public inline function readValue1<T0>(member0:quadrants.StructMember<T0>, flatIndex:Int):quadrants.StructValue1<T0> {
+    return quadrants.Struct.value1(member0, readMember(member0, flatIndex));
+  }
+
+  public inline function writeValue1<T0>(flatIndex:Int, value:quadrants.StructValue1<T0>):Void {
+    writeMember(value.member0, flatIndex, value.value0);
+  }
+
+  public inline function readValue2<T0, T1>(member0:quadrants.StructMember<T0>, member1:quadrants.StructMember<T1>, flatIndex:Int):quadrants.StructValue2<T0, T1> {
+    return quadrants.Struct.value2(member0, readMember(member0, flatIndex), member1, readMember(member1, flatIndex));
+  }
+
+  public inline function writeValue2<T0, T1>(flatIndex:Int, value:quadrants.StructValue2<T0, T1>):Void {
+    writeMember(value.member0, flatIndex, value.value0);
+    writeMember(value.member1, flatIndex, value.value1);
+  }
+
+  public inline function readValue3<T0, T1, T2>(member0:quadrants.StructMember<T0>, member1:quadrants.StructMember<T1>, member2:quadrants.StructMember<T2>, flatIndex:Int):quadrants.StructValue3<T0, T1, T2> {
+    return quadrants.Struct.value3(member0, readMember(member0, flatIndex), member1, readMember(member1, flatIndex), member2, readMember(member2, flatIndex));
+  }
+
+  public inline function writeValue3<T0, T1, T2>(flatIndex:Int, value:quadrants.StructValue3<T0, T1, T2>):Void {
+    writeMember(value.member0, flatIndex, value.value0);
+    writeMember(value.member1, flatIndex, value.value1);
+    writeMember(value.member2, flatIndex, value.value2);
+  }
+
+  public inline function readValue4<T0, T1, T2, T3>(member0:quadrants.StructMember<T0>, member1:quadrants.StructMember<T1>, member2:quadrants.StructMember<T2>, member3:quadrants.StructMember<T3>, flatIndex:Int):quadrants.StructValue4<T0, T1, T2, T3> {
+    return quadrants.Struct.value4(member0, readMember(member0, flatIndex), member1, readMember(member1, flatIndex), member2, readMember(member2, flatIndex), member3, readMember(member3, flatIndex));
+  }
+
+  public inline function writeValue4<T0, T1, T2, T3>(flatIndex:Int, value:quadrants.StructValue4<T0, T1, T2, T3>):Void {
+    writeMember(value.member0, flatIndex, value.value0);
+    writeMember(value.member1, flatIndex, value.value1);
+    writeMember(value.member2, flatIndex, value.value2);
+    writeMember(value.member3, flatIndex, value.value3);
+  }
+
   public function lazyGrad():StructOfArraysField {
     var grad = new StructOfArraysField();
     for (name in fieldNames) {

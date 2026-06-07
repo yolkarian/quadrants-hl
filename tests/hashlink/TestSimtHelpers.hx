@@ -1,11 +1,14 @@
 import quadrants.Block;
 import quadrants.Kernel;
+import quadrants.Shared;
 import quadrants.Tensor;
+import quadrants.Types.F32;
 import quadrants.Types.I32;
 import quadrants.simt.BlockReduce;
 import quadrants.simt.BlockScan;
 import quadrants.simt.SubgroupCompat;
 import quadrants.simt.Helpers;
+import quadrants.simt.Tile16x16F32;
 import quadrants.simt.TileSort;
 
 class TestSimtHelpers {
@@ -21,19 +24,26 @@ class TestSimtHelpers {
   }
 
   public static function run():Void {
-    expectEq("simt_helper_class_count", Helpers.classes().length, 4);
-    var descriptor = Kernel.descriptorBytes(macro (input:Tensor<I32>, out:Tensor<I32>) -> {
-      blockDim(16);
+    expectEq("simt_helper_class_count", Helpers.classes().length, 8);
+    var descriptor = Kernel.descriptorBytes(macro (input:Tensor<I32>, out:Tensor<I32>, fin:Tensor<F32>, fout:Tensor<F32>) -> {
+      blockDim(256);
       var lane = Block.threadIdx();
       var value = input[lane];
       var sum = BlockReduce.reduceAddI32Tile16(value);
       var scan = BlockScan.exclusiveAddI32Tile16(value);
       var sorted = TileSort.sortAscendingI32Tile16(value);
       var shuffled = SubgroupCompat.shuffleI32(value, lane);
+      var first = SubgroupCompat.broadcastFirstI32(value);
+      var xorValue = SubgroupCompat.shuffleXorI32(value, 1);
+      var all = BlockReduce.reduceAllI32(1);
+      var tile = Shared.tile16F32();
+      Tile16x16F32.loadTile16x16F32(tile, fin, 0, 16);
+      Tile16x16F32.transposeTile16x16F32(tile);
+      Tile16x16F32.storeTile16x16F32(tile, fout, 0, 16);
       if (lane == 0) {
-        out[0] = sum + scan + sorted + shuffled;
+        out[0] = sum + scan + sorted + shuffled + first + xorValue + all;
       }
-    }, {helpers: [BlockReduce, BlockScan, SubgroupCompat, TileSort]});
+    }, {helpers: [BlockReduce, BlockScan, SubgroupCompat, TileSort, Tile16x16F32]});
     expectEq("simt_helper_descriptor_magic", u32(descriptor, 0), 0x4c484451);
 
     TestRuntimeSupport.runEachRequestedDeviceContext(function(_name, ctx) {

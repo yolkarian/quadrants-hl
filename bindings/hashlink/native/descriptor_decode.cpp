@@ -29,6 +29,8 @@ ParameterKind parse_parameter_kind(std::uint8_t value) {
       return ParameterKind::scalar;
     case ParameterKind::ndarray:
       return ParameterKind::ndarray;
+    case ParameterKind::field:
+      return ParameterKind::field;
   }
   throw std::runtime_error("HashLink kernel descriptor uses an unsupported parameter kind");
 }
@@ -122,6 +124,13 @@ ExprOpcode parse_expr_opcode(std::uint8_t value) {
     case ExprOpcode::block_barrier_or:
     case ExprOpcode::block_barrier_count:
     case ExprOpcode::assume_in_range:
+    case ExprOpcode::volatile_load_index:
+    case ExprOpcode::frexp_significand:
+    case ExprOpcode::frexp_exponent:
+    case ExprOpcode::fns_u32:
+    case ExprOpcode::snode_append:
+    case ExprOpcode::snode_length:
+    case ExprOpcode::snode_is_active:
       return static_cast<ExprOpcode>(value);
   }
   throw std::runtime_error("HashLink kernel descriptor uses an unsupported expression opcode");
@@ -165,6 +174,8 @@ StmtOpcode parse_stmt_opcode(std::uint8_t value) {
     case StmtOpcode::struct_for_external_tensor:
     case StmtOpcode::return_values:
     case StmtOpcode::mesh_for:
+    case StmtOpcode::snode_activate:
+    case StmtOpcode::snode_deactivate:
       return static_cast<StmtOpcode>(value);
   }
   throw std::runtime_error("HashLink kernel descriptor uses an unsupported statement opcode");

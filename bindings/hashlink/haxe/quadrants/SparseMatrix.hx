@@ -132,8 +132,8 @@ class SparseMatrix<T> {
     for (i in 0...other.values.length) {
       var row = other.rowIndices[i];
       var col = other.colIndices[i];
-      var lhs:Dynamic = result.get(row, col, zero);
-      var rhs:Dynamic = other.values[i];
+      var lhs:Float = cast result.get(row, col, zero);
+      var rhs:Float = cast other.values[i];
       result.set(row, col, cast (lhs + rhs));
     }
     return result;
@@ -145,8 +145,8 @@ class SparseMatrix<T> {
     for (i in 0...other.values.length) {
       var row = other.rowIndices[i];
       var col = other.colIndices[i];
-      var lhs:Dynamic = result.get(row, col, zero);
-      var rhs:Dynamic = other.values[i];
+      var lhs:Float = cast result.get(row, col, zero);
+      var rhs:Float = cast other.values[i];
       result.set(row, col, cast (lhs - rhs));
     }
     return result;
@@ -155,9 +155,30 @@ class SparseMatrix<T> {
   public function scale(value:T):SparseMatrix<T> {
     var result = new SparseMatrix<T>(rows, cols);
     for (i in 0...values.length) {
-      var lhs:Dynamic = values[i];
-      var rhs:Dynamic = value;
+      var lhs:Float = cast values[i];
+      var rhs:Float = cast value;
       result.set(rowIndices[i], colIndices[i], cast (lhs * rhs));
+    }
+    return result;
+  }
+
+  public function mul(other:SparseMatrix<T>, zero:T):SparseMatrix<T> {
+    if (cols != other.rows) {
+      throw "Quadrants sparse matrix multiplication shape mismatch";
+    }
+    var result = new SparseMatrix<T>(rows, other.cols);
+    for (row in 0...rows) {
+      for (col in 0...other.cols) {
+        var total = 0.0;
+        for (k in 0...cols) {
+          var lhs:Float = cast get(row, k, zero);
+          var rhs:Float = cast other.get(k, col, zero);
+          total += lhs * rhs;
+        }
+        if (total != 0.0) {
+          result.set(row, col, cast total);
+        }
+      }
     }
     return result;
   }
@@ -170,9 +191,9 @@ class SparseMatrix<T> {
       result.push(zero);
     }
     for (i in 0...values.length) {
-      var acc:Dynamic = result[rowIndices[i]];
-      var value:Dynamic = values[i];
-      var rhs:Dynamic = vector[colIndices[i]];
+      var acc:Float = cast result[rowIndices[i]];
+      var value:Float = cast values[i];
+      var rhs:Float = cast vector[colIndices[i]];
       result[rowIndices[i]] = cast (acc + value * rhs);
     }
     return result;

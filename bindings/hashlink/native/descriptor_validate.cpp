@@ -17,9 +17,6 @@ void validate_parameter(const KernelDescriptor &descriptor, const ParameterDescr
   if (param.kind == ParameterKind::scalar && param.rank != 0) {
     throw std::runtime_error(std::string("HashLink ") + what + " scalar rank must be zero");
   }
-  if (param.kind == ParameterKind::ndarray && param.rank == 0) {
-    throw std::runtime_error(std::string("HashLink ") + what + " ndarray rank must be positive");
-  }
 }
 
 }  // namespace

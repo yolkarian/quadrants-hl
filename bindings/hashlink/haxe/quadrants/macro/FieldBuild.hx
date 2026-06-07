@@ -93,10 +93,10 @@ class FieldBuild {
     ], DTypeBuild.voidType(), "{ copyFromTensor(source); }"));
 
     add("lazyGrad", [APublic], fun([], self,
-      '{ if (shape == null) throw "Quadrants field has not been placed"; if (gradField == null) { if (hasSNode()) { var created = new ${fieldClassPath}(context); (cast created : quadrants.FieldRuntime).placeCloneOf(this); gradField = created; } else { gradField = new ${fieldClassPath}(context, quadrants.TensorStorage.copyIntArray(shape)); } refreshAutodiffPeerHandles(); } return cast gradField; }'));
+      '{ if (shape == null) throw "Quadrants field has not been placed"; if (gradField == null) { if (hasSNode()) { var created = new ${fieldClassPath}(context); var runtime:quadrants.FieldRuntime = cast created; runtime.placeCloneOf(this); quadrants.Native.snode_register_adjoint(context.nativeHandle(), snodeId, runtime.snodeId); gradField = created; } else { gradField = new ${fieldClassPath}(context, quadrants.TensorStorage.copyIntArray(shape)); } refreshAutodiffPeerHandles(); } return cast gradField; }'));
 
     add("lazyDual", [APublic], fun([], self,
-      '{ if (shape == null) throw "Quadrants field has not been placed"; if (dualField == null) { if (hasSNode()) { var created = new ${fieldClassPath}(context); (cast created : quadrants.FieldRuntime).placeCloneOf(this); dualField = created; } else { dualField = new ${fieldClassPath}(context, quadrants.TensorStorage.copyIntArray(shape)); } refreshAutodiffPeerHandles(); } return cast dualField; }'));
+      '{ if (shape == null) throw "Quadrants field has not been placed"; if (dualField == null) { if (hasSNode()) { var created = new ${fieldClassPath}(context); var runtime:quadrants.FieldRuntime = cast created; runtime.placeCloneOf(this); quadrants.Native.snode_register_dual(context.nativeHandle(), snodeId, runtime.snodeId); dualField = created; } else { dualField = new ${fieldClassPath}(context, quadrants.TensorStorage.copyIntArray(shape)); } refreshAutodiffPeerHandles(); } return cast dualField; }'));
 
     add("fill", [APublic], fun([
       DTypeBuild.arg("value", valueType)
@@ -116,6 +116,33 @@ class FieldBuild {
     ], DTypeBuild.voidType(), spec.typeName == "U1"
       ? '{ if (hasSNode()) quadrants.Native.snode_write_${suffix}(context.nativeHandle(), snodeId, nativeIndices(flatIndex), ((value : Bool) ? 1 : 0)); else toTensor().write(flatIndex, value); }'
       : '{ if (hasSNode()) quadrants.Native.snode_write_${suffix}(context.nativeHandle(), snodeId, nativeIndices(flatIndex), cast value); else toTensor().write(flatIndex, value); }'));
+
+    add("scalarRead", [APublic, AInline], fun([], valueType, "return read(0)"));
+
+    add("scalarWrite", [APublic, AInline], fun([
+      DTypeBuild.arg("value", valueType)
+    ], DTypeBuild.voidType(), "{ write(0, value); }"));
+
+    add("append", [APublic], fun([
+      DTypeBuild.arg("index", DTypeBuild.intType()),
+      DTypeBuild.arg("value", valueType)
+    ], DTypeBuild.intType(), "{ throw \"Quadrants Field.append(index, value) is a kernel-only SNode operation\"; }"));
+
+    add("length", [APublic], fun([
+      DTypeBuild.arg("index", DTypeBuild.intType())
+    ], DTypeBuild.intType(), "{ throw \"Quadrants Field.length(index) is a kernel-only SNode operation\"; }"));
+
+    add("isActive", [APublic], fun([
+      DTypeBuild.arg("index", DTypeBuild.intType())
+    ], macro : Bool, "{ throw \"Quadrants Field.isActive(index) is a kernel-only SNode operation\"; }"));
+
+    add("activate", [APublic], fun([
+      DTypeBuild.arg("index", DTypeBuild.intType())
+    ], DTypeBuild.voidType(), "{ throw \"Quadrants Field.activate(index) is a kernel-only SNode operation\"; }"));
+
+    add("deactivate", [APublic], fun([
+      DTypeBuild.arg("index", DTypeBuild.intType())
+    ], DTypeBuild.voidType(), "{ throw \"Quadrants Field.deactivate(index) is a kernel-only SNode operation\"; }"));
 
     add("readAt", [APublic], fun([
       DTypeBuild.arg("indices", macro : Array<Int>)

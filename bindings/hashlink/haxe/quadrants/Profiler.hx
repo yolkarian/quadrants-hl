@@ -1,5 +1,10 @@
 package quadrants;
 
+import quadrants.profiler.CuptiMetric;
+import quadrants.profiler.CuptiMetricPreset;
+import quadrants.profiler.ProfilerPrintMode;
+import quadrants.profiler.ProfilerToolkit;
+
 typedef ProfilerRecord = {
   var count:Int;
   var minTime:Float;
@@ -25,6 +30,43 @@ class Profiler {
 
   public function clear():Void {
     Native.profiler_clear(context.nativeHandle());
+  }
+
+  public function clearInfo():Void {
+    clear();
+  }
+
+  public function printInfo(mode:ProfilerPrintMode = Count):Void {
+    switch (mode) {
+      case Count:
+        Sys.println('Quadrants kernel profiler total time: ${totalTime()} s');
+      case Trace:
+        Sys.println('Quadrants HashLink profiler trace listing is unavailable; use record(...), count(...), min(...), max(...), and avg(...) for named kernels.');
+        Sys.println('Quadrants kernel profiler total time: ${totalTime()} s');
+      default:
+        Sys.println('Quadrants kernel profiler total time: ${totalTime()} s');
+    }
+  }
+
+  public function setToolkit(toolkit:ProfilerToolkit):Bool {
+    var nameBytes = @:privateAccess toolkit.nativeName().toUtf8();
+    return Native.profiler_set_toolkit(context.nativeHandle(), nameBytes) != 0;
+  }
+
+  public function setMetrics(metrics:Array<CuptiMetric>):Bool {
+    if (metrics == null || metrics.length == 0) {
+      throw "Quadrants profiler metrics must not be empty";
+    }
+    var names = new hl.NativeArray<hl.Bytes>(metrics.length);
+    for (i in 0...metrics.length) {
+      names[i] = @:privateAccess metrics[i].nativeName().toUtf8();
+    }
+    clear();
+    return Native.profiler_set_metrics(context.nativeHandle(), names) != 0;
+  }
+
+  public function setMetricPreset(preset:CuptiMetricPreset):Bool {
+    return setMetrics(CuptiMetric.preset(preset));
   }
 
   public function totalTime():Float {

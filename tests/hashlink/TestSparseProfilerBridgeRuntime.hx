@@ -1,10 +1,13 @@
 import quadrants.Context;
 import quadrants.Tensor;
 import quadrants.Types.Arch;
+import quadrants.Types.DType;
 import quadrants.Types.F32;
 import quadrants.linalg.SparseCG;
 import quadrants.linalg.SparseMatrixBuilder;
+import quadrants.linalg.SparseOrdering;
 import quadrants.linalg.SparseSolver;
+import quadrants.linalg.SparseSolverType;
 import quadrants.profiler.ProfilerBridge;
 import quadrants.profiler.ScopedProfiler;
 
@@ -19,12 +22,12 @@ class TestSparseProfilerBridgeRuntime {
   }
 
   static function testSparse(ctx:Context):Void {
-    var builder = new SparseMatrixBuilder(ctx, 2, 2);
+    var builder = new SparseMatrixBuilder<F32>(ctx, 2, 2);
     var b = new Tensor<F32>(ctx, [2]);
     var y = new Tensor<F32>(ctx, [2]);
     var x = new Tensor<F32>(ctx, [2]);
     var cg = new Tensor<F32>(ctx, [2]);
-    var solver:SparseSolver = null;
+    var solver:SparseSolver<F32> = null;
     try {
       builder.set(0, 0, 4.0).set(0, 1, 1.0).set(1, 0, 1.0).set(1, 1, 3.0);
       var matrix = builder.build();
@@ -39,7 +42,7 @@ class TestSparseProfilerBridgeRuntime {
       expectClose("sparse_matvec_0", y.read(0), 6.0);
       expectClose("sparse_matvec_1", y.read(1), 7.0);
 
-      solver = new SparseSolver(ctx);
+      solver = new SparseSolver<F32>(ctx, DType.F32, SparseSolverType.LU, SparseOrdering.COLAMD, true);
       expectTrue("sparse_compute", solver.compute(matrix));
       solver.solve(matrix, b, x);
       expectClose("sparse_solve_0", x.read(0), 1.0 / 11.0);

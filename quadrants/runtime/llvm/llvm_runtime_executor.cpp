@@ -690,6 +690,24 @@ void LlvmRuntimeExecutor::preallocate_runtime_memory() {
                                                  runtime_memory_prealloc_buffer);
 }
 
+void LlvmRuntimeExecutor::reset_random_states(int seed) {
+  if (llvm_runtime_ == nullptr) {
+    return;
+  }
+  const int starting_rand_state = seed * 1048391;
+  auto *const runtime_jit = get_runtime_jit_module();
+  if (config_.arch == Arch::cuda || config_.arch == Arch::amdgpu) {
+#if defined(QD_WITH_CUDA) || defined(QD_WITH_AMDGPU)
+    runtime_jit->launch<void *, int>("runtime_initialize_rand_states_cuda", config_.saturating_grid_dim,
+                                     config_.max_block_dim, 0, llvm_runtime_, starting_rand_state);
+#else
+    QD_NOT_IMPLEMENTED
+#endif
+  } else {
+    runtime_jit->call<void *, int>("runtime_initialize_rand_states_serial", llvm_runtime_, starting_rand_state);
+  }
+}
+
 void LlvmRuntimeExecutor::materialize_runtime(KernelProfilerBase *profiler, uint64 **result_buffer_ptr) {
   // Starting random state for the program calculated using the random seed.
   // The seed is multiplied by 1048391 so that two programs with different seeds

@@ -1,6 +1,7 @@
 package quadrants.runtime;
 
 import quadrants.Context;
+import quadrants.ContextOptions;
 import quadrants.Profiler;
 import quadrants.Stream;
 import quadrants.Types.Arch;
@@ -8,9 +9,9 @@ import quadrants.Types.Arch;
 class Runtime {
   static var defaultSession:Session = null;
 
-  public static function init(arch:Arch = Cpu, enableProfiler:Bool = false):Session {
+  public static function init(arch:Arch = Cpu, enableProfiler:Bool = false, options:ContextOptions = null):Session {
     reset();
-    defaultSession = new Session(arch, enableProfiler);
+    defaultSession = new Session(arch, enableProfiler, options);
     return defaultSession;
   }
 

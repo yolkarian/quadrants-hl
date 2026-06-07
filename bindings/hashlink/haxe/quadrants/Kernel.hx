@@ -13,6 +13,7 @@ class Kernel {
   final handle:QKernel;
   final descriptor:hl.Bytes;
   final descriptorLength:Int;
+  final paramKinds:Array<Int>;
   final autodiffMode:AutodiffMode;
   final graphLaunchByDefault:Bool;
   final name:String;
@@ -32,6 +33,7 @@ class Kernel {
     this.handle = handle;
     this.descriptor = descriptor;
     this.descriptorLength = descriptorLength;
+    this.paramKinds = decodeParamKinds(descriptor, descriptorLength);
     this.autodiffMode = autodiffMode;
     this.graphLaunchByDefault = graphLaunchByDefault;
     this.name = name;
@@ -106,19 +108,76 @@ class Kernel {
   }
 
   #if !macro
+  static inline var PARAM_KIND_NDARRAY = 1;
+  static inline var PARAM_KIND_FIELD = 2;
+  static inline var SECTION_SYMBOLS = 5;
+
+  static inline function u32(bytes:hl.Bytes, offset:Int):Int {
+    return bytes.getUI8(offset)
+      | (bytes.getUI8(offset + 1) << 8)
+      | (bytes.getUI8(offset + 2) << 16)
+      | (bytes.getUI8(offset + 3) << 24);
+  }
+
+  static function decodeParamKinds(descriptor:hl.Bytes, descriptorLength:Int):Array<Int> {
+    var sectionCount = u32(descriptor, 8);
+    var tableOffset = u32(descriptor, 12);
+    for (section in 0...sectionCount) {
+      var entry = tableOffset + section * 12;
+      if (u32(descriptor, entry) == SECTION_SYMBOLS) {
+        var symbolsOffset = u32(descriptor, entry + 4);
+        var paramsOffset = symbolsOffset + 4;
+        var paramsSize = u32(descriptor, symbolsOffset);
+        if (paramsSize < 4) {
+          return [];
+        }
+        var count = u32(descriptor, paramsOffset);
+        var kinds = new Array<Int>();
+        var offset = paramsOffset + 4;
+        for (_ in 0...count) {
+          kinds.push(descriptor.getUI8(offset));
+          offset += 8;
+        }
+        return kinds;
+      }
+    }
+    return [];
+  }
+
+  inline function paramKindAt(index:Int):Int {
+    return index >= 0 && index < paramKinds.length ? paramKinds[index] : PARAM_KIND_NDARRAY;
+  }
+
   function nativeArgs(values:Array<Dynamic>):hl.NativeArray<Dynamic> {
     var flattened:Array<Dynamic> = [];
+    var paramIndex = 0;
     for (value in values) {
       if (Std.isOfType(value, BufferView)) {
         var view:BufferView<Dynamic> = cast value;
         flattened.push(view.tensor.nativeHandle());
         flattened.push(view.flatStart);
         flattened.push(view.length);
+        paramIndex += 3;
+      } else if (Std.isOfType(value, FieldRuntime)) {
+        var field:FieldRuntime = cast value;
+        if (paramKindAt(paramIndex) == PARAM_KIND_FIELD) {
+          if (!field.hasSNode()) {
+            throw "Quadrants Field kernel arguments must be placed SNode fields";
+          }
+          flattened.push(field.snodeId);
+        } else {
+          field.syncSNodeToTensor();
+          field.syncAutodiffPeersToTensor();
+          flattened.push(field.nativeHandle());
+        }
+        paramIndex++;
       } else if (Std.isOfType(value, TensorHandle)) {
         var tensor:TensorHandle = cast value;
         flattened.push(tensor.nativeHandle());
+        paramIndex++;
       } else {
         flattened.push(value);
+        paramIndex++;
       }
     }
     var nativeArgs = new hl.NativeArray<Dynamic>(flattened.length);
@@ -135,27 +194,29 @@ class Kernel {
       Reflect.callMethod(value, method, []);
     }
   }
-
   function syncFieldArgsToTensor(values:Array<Dynamic>):Void {
     for (value in values) {
-      if (Std.isOfType(value, FieldRuntime)) {
-        var field = (cast value : FieldRuntime);
-        field.syncSNodeToTensor();
-        field.syncAutodiffPeersToTensor();
-      } else {
+      if (!Std.isOfType(value, FieldRuntime)) {
         callOptionalSync(value, "syncBeforeKernel");
       }
     }
   }
 
   function syncFieldArgsFromTensor(values:Array<Dynamic>):Void {
+    var paramIndex = 0;
     for (value in values) {
-      if (Std.isOfType(value, FieldRuntime)) {
-        var field = (cast value : FieldRuntime);
-        field.syncTensorToSNode();
-        field.syncAutodiffPeersFromTensor();
+      if (Std.isOfType(value, BufferView)) {
+        paramIndex += 3;
+      } else if (Std.isOfType(value, FieldRuntime)) {
+        if (paramKindAt(paramIndex) != PARAM_KIND_FIELD) {
+          var field:FieldRuntime = cast value;
+          field.syncTensorToSNode();
+          field.syncAutodiffPeersFromTensor();
+        }
+        paramIndex++;
       } else {
         callOptionalSync(value, "syncAfterKernel");
+        paramIndex++;
       }
     }
   }

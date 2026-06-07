@@ -37,6 +37,7 @@ class TestDescriptorSnapshot {
 
   static inline var PARAM_SCALAR = 0;
   static inline var PARAM_NDARRAY = 1;
+  static inline var PARAM_FIELD = 2;
   static inline var DTYPE_I32 = 2;
   static inline var SECTION_SYMBOLS = 5;
   static inline var SECTION_STATEMENTS = 7;
@@ -45,6 +46,9 @@ class TestDescriptorSnapshot {
   static inline var EXPR_CAST = 25;
   static inline var EXPR_ASSUME_IN_RANGE = 87;
   static inline var STMT_MESH_FOR = 36;
+  static inline var STMT_SNODE_ACTIVATE = 37;
+  static inline var EXPR_SNODE_APPEND = 92;
+  static inline var EXPR_SNODE_LENGTH = 93;
 
   static function sectionOffset(bytes:hl.Bytes, kind:Int):Int {
     var sectionCount = u32(bytes, 8);
@@ -136,6 +140,39 @@ class TestDescriptorSnapshot {
     });
     expectParam("tensor_param", tensorParamDescriptor, 0, PARAM_NDARRAY, DTYPE_I32, 1);
     expectSingleReturnDType("tensor_param", tensorParamDescriptor, DTYPE_I32);
+
+    var scalarTensorDescriptor = Kernel.descriptorBytes(macro (a:Tensor<I32>) -> {
+      return a.scalarRead();
+    });
+    expectParam("scalar_tensor_param", scalarTensorDescriptor, 0, PARAM_NDARRAY, DTYPE_I32, 0);
+    expectSingleReturnDType("scalar_tensor_param", scalarTensorDescriptor, DTYPE_I32);
+
+    var fieldParamDescriptor = Kernel.descriptorBytes(macro (field:Field<I32>) -> {
+      field[0] = field[0] + 1;
+    });
+    expectParam("field_param", fieldParamDescriptor, 0, PARAM_FIELD, DTYPE_I32, 1);
+
+    var fieldAppendDescriptor = Kernel.descriptorBytes(macro (field:Field<I32>) -> {
+      return field.append(0, 1);
+    });
+    expectParam("field_append_param", fieldAppendDescriptor, 0, PARAM_FIELD, DTYPE_I32, 2);
+    var fieldAppendStatementsOffset = sectionOffset(fieldAppendDescriptor, SECTION_STATEMENTS);
+    expectEq("field_append_return_opcode", fieldAppendDescriptor.getUI8(fieldAppendStatementsOffset + 8), STMT_RETURN_VALUE);
+    expectEq("field_append_expr_opcode", fieldAppendDescriptor.getUI8(fieldAppendStatementsOffset + 9), EXPR_SNODE_APPEND);
+
+    var fieldLengthDescriptor = Kernel.descriptorBytes(macro (field:Field<I32>) -> {
+      return field.length(0);
+    });
+    expectParam("field_length_param", fieldLengthDescriptor, 0, PARAM_FIELD, DTYPE_I32, 2);
+    var fieldLengthStatementsOffset = sectionOffset(fieldLengthDescriptor, SECTION_STATEMENTS);
+    expectEq("field_length_expr_opcode", fieldLengthDescriptor.getUI8(fieldLengthStatementsOffset + 9), EXPR_SNODE_LENGTH);
+
+    var fieldActivateDescriptor = Kernel.descriptorBytes(macro (field:Field<I32>) -> {
+      field.activate(0);
+    });
+    expectParam("field_activate_param", fieldActivateDescriptor, 0, PARAM_FIELD, DTYPE_I32, 1);
+    var fieldActivateStatementsOffset = sectionOffset(fieldActivateDescriptor, SECTION_STATEMENTS);
+    expectEq("field_activate_stmt_opcode", fieldActivateDescriptor.getUI8(fieldActivateStatementsOffset + 8), STMT_SNODE_ACTIVATE);
 
     var vectorNdarrayParamDescriptor = Kernel.descriptorBytes(macro (vectors:VectorNdarray<I32>) -> {
       var v = vectors.readVec2(0);
@@ -279,7 +316,7 @@ class TestDescriptorSnapshot {
     }, {helpers: [BlockReduce, BlockScan]});
     var helperFunctionsOffset = sectionOffset(helperExpandedDescriptor, SECTION_FUNCTIONS);
     expectEq("helper_expanded_descriptor_magic", u32(helperExpandedDescriptor, 0), 0x4c484451);
-    expectEq("helper_expanded_function_count", u32(helperExpandedDescriptor, helperFunctionsOffset), 20);
+    expectEq("helper_expanded_function_count", u32(helperExpandedDescriptor, helperFunctionsOffset), 44);
 
     var structDescriptor = Kernel.descriptorBytes(macro (out:Tensor<I32>) -> {
       var particle = Struct.of2("mass", 2, "velocity", 3);

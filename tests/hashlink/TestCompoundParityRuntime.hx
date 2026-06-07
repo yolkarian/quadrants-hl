@@ -6,6 +6,7 @@ import quadrants.Kernel;
 import quadrants.Mat2;
 import quadrants.MatrixField;
 import quadrants.MatrixNdarray;
+import quadrants.Struct;
 import quadrants.StructField;
 import quadrants.StructMember;
 import quadrants.Tensor;
@@ -52,11 +53,18 @@ class TestCompoundParityRuntime {
     var tagMember = new StructMember<I32>("tag");
     var structField = new StructField().addMember(massMember, mass).addMember(tagMember, tag);
     structField.writeMember(massMember, 0, 21);
+    structField.writeMember(tagMember, 0, 23);
     structField.writeMember(tagMember, 1, 22);
     expectEq("struct_field_mass", structField.readMember(massMember, 0), 21);
     expectEq("struct_field_tag", structField.readMember(tagMember, 1), 22);
+    var structValue = structField.readValue2(massMember, tagMember, 0);
+    expectEq("struct_field_value_mass", structValue.value0, 21);
+    expectEq("struct_field_value_tag", structValue.value1, 23);
+    structField.writeValue2(1, Struct.value2(massMember, 31, tagMember, 32));
+    expectEq("struct_field_write_value_mass", structField.readMember(massMember, 1), 31);
+    expectEq("struct_field_write_value_tag", structField.readMember(tagMember, 1), 32);
     var soa:StructOfArraysField = structField.toStructOfArrays();
-    expectEq("struct_field_to_soa", soa.readMember(tagMember, 1), 22);
+    expectEq("struct_field_to_soa", soa.readValue2(massMember, tagMember, 1).value1, 32);
 
     vectors.close();
     packed.close();
