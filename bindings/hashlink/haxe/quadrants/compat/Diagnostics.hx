@@ -53,6 +53,7 @@ class Diagnostics {
 
     var strings = parseStrings(kernel, sectionByKind(sections, 1));
     var symbols = parseSymbols(kernel, sectionByKind(sections, 5), strings);
+    var attributes = parseAttributes(kernel, sectionByKind(sections, 10));
     return {
       magic: "QDHL",
       version: version,
@@ -65,7 +66,9 @@ class Diagnostics {
       sourceSpans: parseSourceSpans(kernel, sectionByKind(sections, 2), strings),
       parameters: Reflect.field(symbols, "parameters"),
       locals: Reflect.field(symbols, "locals"),
-      statements: parseStatements(kernel, sectionByKind(sections, 7), strings)
+      statements: parseStatements(kernel, sectionByKind(sections, 7), strings),
+      attributes: attributes,
+      descriptorV2: Reflect.field(attributes, "qdhl.meta.json") == null ? null : haxe.Json.parse(cast Reflect.field(attributes, "qdhl.meta.json"))
     };
   }
 
@@ -311,6 +314,35 @@ class Diagnostics {
     var kernelNameId = readU32(kernel, section.offset);
     var statementCount = readU32(kernel, section.offset + 4);
     return {kernelName: stringAt(strings, kernelNameId), statementCount: statementCount};
+  }
+
+  static function parseAttributes(kernel:Kernel, section:Null<DescriptorSection>):Dynamic {
+    var result:Dynamic = {};
+    if (section == null || section.length < 4) {
+      return result;
+    }
+    var pos = section.offset;
+    var end = section.offset + section.length;
+    var count = readU32(kernel, pos);
+    pos += 4;
+    for (_ in 0...count) {
+      if (pos + 4 > end) {
+        throw "Quadrants descriptor attribute key length is truncated";
+      }
+      var keyLength = readU32(kernel, pos);
+      pos += 4;
+      var key = readString(kernel, pos, keyLength);
+      pos += keyLength;
+      if (pos + 4 > end) {
+        throw "Quadrants descriptor attribute value length is truncated";
+      }
+      var valueLength = readU32(kernel, pos);
+      pos += 4;
+      var value = readString(kernel, pos, valueLength);
+      pos += valueLength;
+      Reflect.setField(result, key, value);
+    }
+    return result;
   }
 
   static function readU32(kernel:Kernel, offset:Int):Int {

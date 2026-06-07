@@ -12,6 +12,7 @@ private typedef FlattenedMember = {
   var path:String;
   var type:ComplexType;
   var accessExpr:Expr;
+  var role:String;
 }
 
 class FlattenBuild {
@@ -29,6 +30,7 @@ class FlattenBuild {
     var mapping = new Map<String, String>();
     var transformedArgs = new Array<FunctionArg>();
     var appendStatements = new Array<Expr>();
+    var metadataArgs:Array<Dynamic> = [];
     var hasFlatten = false;
 
     for (arg in sourceArgs) {
@@ -39,6 +41,7 @@ class FlattenBuild {
       if (flattenClass == null) {
         transformedArgs.push({name: arg.name, opt: false, type: arg.type, value: null});
         appendStatements.push(macro quadrants.kernel.ArgEncoding.append(__qd_buf, $i{arg.name}));
+        metadataArgs.push({path: arg.name, role: "runtime", kind: paramKindForComplexType(arg.type, functionExpr.pos), dtype: dtypeForComplexType(arg.type, functionExpr.pos), rank: rankForComplexType(arg.type, functionExpr.pos)});
         continue;
       }
       hasFlatten = true;
@@ -46,6 +49,7 @@ class FlattenBuild {
       for (member in members) {
         transformedArgs.push({name: member.flatName, opt: false, type: member.type, value: null});
         appendStatements.push(macro quadrants.kernel.ArgEncoding.append(__qd_buf, $e{member.accessExpr}));
+        metadataArgs.push({path: member.path, role: member.role, kind: paramKindForComplexType(member.type, functionExpr.pos), dtype: dtypeForComplexType(member.type, functionExpr.pos), rank: rankForComplexType(member.type, functionExpr.pos)});
       }
     }
 
@@ -69,9 +73,9 @@ class FlattenBuild {
     }
 
     var wrapperType = quadrants.macro.TypedKernelBuild.wrapperComplexType([for (arg in sourceArgs) {name: arg.name, opt: false, type: arg.type, value: null}], returnType);
-    var rawBuildExpr = optionsExpr == null
-      ? macro quadrants.Kernel.buildRaw($e{ctxExpr}, $e{transformedFunction})
-      : macro quadrants.Kernel.buildRaw($e{ctxExpr}, $e{transformedFunction}, $e{optionsExpr});
+    var metadataJson = descriptorMetadataJson(metadataArgs);
+    var descriptorOptions = mergeOptionsWithMetadata(optionsExpr, metadataJson, functionExpr.pos);
+    var rawBuildExpr = macro quadrants.Kernel.buildRaw($e{ctxExpr}, $e{transformedFunction}, $e{descriptorOptions});
 
     var launchExpr = buildLaunchFunction(sourceArgs, appendStatements, returnType, false, false, functionExpr.pos);
     var launchOnExpr = buildLaunchFunction(sourceArgs, appendStatements, returnType, true, false, functionExpr.pos);
@@ -106,6 +110,195 @@ class FlattenBuild {
         expr: body,
       }),
       pos: pos,
+    };
+  }
+
+  static function descriptorMetadataJson(args:Array<Dynamic>):String {
+    var typeIds = new Map<String, Int>();
+    var types:Array<Dynamic> = [];
+    var schemaArgs:Array<Dynamic> = [];
+    var templates:Array<Dynamic> = [];
+    var resources:Array<Dynamic> = [];
+    var capabilities:Array<String> = [];
+
+    function dtypeName(dtype:Int):String {
+      return switch (dtype) {
+        case 0: "i8";
+        case 1: "i16";
+        case 2: "i32";
+        case 3: "i64";
+        case 4: "u8";
+        case 5: "u16";
+        case 6: "u32";
+        case 7: "u64";
+        case 8: "f32";
+        case 9: "f64";
+        case 10: "u1";
+        case 11: "f16";
+        default: 'unknown(${dtype})';
+      };
+    }
+
+    function kindName(kind:Int):String {
+      return switch (kind) {
+        case 0: "scalar";
+        case 1: "tensor";
+        case 2: "field";
+        default: 'unknown(${kind})';
+      };
+    }
+
+    function typeKind(kind:Int):String {
+      return switch (kind) {
+        case 0: "primitive";
+        case 1: "tensor_resource";
+        case 2: "field_resource";
+        default: "primitive";
+      };
+    }
+
+    function typeIdOf(kind:Int, dtype:Int, rank:Int):Int {
+      var key = kind + ":" + dtype + ":" + rank;
+      var existing = typeIds.get(key);
+      if (existing != null) {
+        return existing;
+      }
+      var id = types.length + 1;
+      typeIds.set(key, id);
+      types.push({id: id, kind: typeKind(kind), dtype: dtypeName(dtype), rank: rank});
+      return id;
+    }
+
+    for (index in 0...args.length) {
+      var arg = args[index];
+      var kind:Int = Reflect.field(arg, "kind");
+      var dtype:Int = Reflect.field(arg, "dtype");
+      var rank:Int = Reflect.field(arg, "rank");
+      var role:String = Reflect.field(arg, "role");
+      var path:String = Reflect.field(arg, "path");
+      var typeId = typeIdOf(kind, dtype, rank);
+      schemaArgs.push({index: index, path: path, role: role, kind: kindName(kind), typeId: typeId});
+      if (role == "template") {
+        templates.push({path: path, type: dtypeName(dtype), value: "runtime"});
+        if (capabilities.indexOf("template_constants") < 0) {
+          capabilities.push("template_constants");
+        }
+      }
+      if (kind != 0) {
+        resources.push({path: path, kind: kindName(kind), typeId: typeId});
+      }
+      if (kind == 2 && capabilities.indexOf("field_direct_param") < 0) {
+        capabilities.push("field_direct_param");
+      }
+    }
+    return haxe.Json.stringify({
+      version: 2,
+      kernelName: "flatten",
+      types: types,
+      args: schemaArgs,
+      templates: templates,
+      resources: resources,
+      capabilities: capabilities,
+    });
+  }
+
+  static function mergeOptionsWithMetadata(optionsExpr:Null<Expr>, metadataJson:String, pos:Position):Expr {
+    var metadataField:ObjectField = {field: "__qdhlMeta", expr: macro $v{metadataJson}};
+    if (optionsExpr == null) {
+      return {expr: EObjectDecl([metadataField]), pos: pos};
+    }
+    var expr = strip(optionsExpr);
+    if (isNullLiteral(expr)) {
+      return {expr: EObjectDecl([metadataField]), pos: pos};
+    }
+    return switch (expr.expr) {
+      case EObjectDecl(fields):
+        {expr: EObjectDecl(fields.concat([metadataField])), pos: pos};
+      default:
+        Context.error("quadrants.QD.kernel options must be an object literal when flatten metadata is required", expr.pos);
+    };
+  }
+
+  static function paramKindForComplexType(type:ComplexType, pos:Position):Int {
+    return switch (Context.followWithAbstracts(Context.resolveType(type, pos))) {
+      case TInst(classRef, _):
+        var name = classRef.get().name;
+        if (name == "Field" || name == "VectorField" || name == "MatrixField" || StringTools.startsWith(name, "Field_")) {
+          2;
+        } else if (name == "Tensor" || name == "BufferView" || name == "VectorNdarray" || name == "MatrixNdarray" || StringTools.startsWith(name, "Tensor_")) {
+          1;
+        } else {
+          0;
+        }
+      default:
+        0;
+    };
+  }
+
+  static function rankForComplexType(type:ComplexType, pos:Position):Int {
+    return switch (Context.followWithAbstracts(Context.resolveType(type, pos))) {
+      case TInst(classRef, _):
+        var name = classRef.get().name;
+        if (name == "Tensor" || name == "Field" || name == "BufferView" || name == "VectorNdarray" || name == "MatrixNdarray" || name == "VectorField" || name == "MatrixField" || StringTools.startsWith(name, "Tensor_") || StringTools.startsWith(name, "Field_")) {
+          1;
+        } else {
+          0;
+        }
+      default:
+        0;
+    };
+  }
+
+  static function dtypeForComplexType(type:ComplexType, pos:Position):Int {
+    return switch (stripType(type)) {
+      case TPath(path):
+        var typeName = path.name;
+        if ((typeName == "Tensor" || typeName == "Field" || typeName == "BufferView" || typeName == "VectorNdarray" || typeName == "MatrixNdarray" || typeName == "VectorField" || typeName == "MatrixField") && path.params.length > 0) {
+          dtypeFromTypeParam(path.params[0], pos);
+        } else {
+          dtypeNameToId(typeName);
+        }
+      default:
+        2;
+    };
+  }
+
+  static function stripType(type:ComplexType):ComplexType {
+    return switch (type) {
+      case TParent(inner): stripType(inner);
+      default: type;
+    };
+  }
+
+  static function dtypeFromTypeParam(param:TypeParam, pos:Position):Int {
+    return switch (param) {
+      case TPType(inner): dtypeForComplexType(inner, pos);
+      default: 2;
+    };
+  }
+
+  static function dtypeNameToId(name:String):Int {
+    return switch (name) {
+      case "I8": 0;
+      case "I16": 1;
+      case "I32": 2;
+      case "I64": 3;
+      case "U8": 4;
+      case "U16": 5;
+      case "U32": 6;
+      case "U64": 7;
+      case "F32": 8;
+      case "F64": 9;
+      case "U1": 10;
+      case "F16": 11;
+      default: 2;
+    };
+  }
+
+  static function isNullLiteral(expr:Expr):Bool {
+    return switch (expr.expr) {
+      case EConst(CIdent("null")): true;
+      default: false;
     };
   }
 
@@ -152,13 +345,13 @@ class FlattenBuild {
       if (isResourceType(field.type)) {
         var flatName = sanitizePath(fieldPath);
         mapping.set(fieldPath, flatName);
-        result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess});
+        result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: "runtime"});
         continue;
       }
       if (hasMeta(field.meta, ":template") || hasMeta(field.meta, "template") || hasMeta(field.meta, ":param") || hasMeta(field.meta, "param")) {
         var flatName = sanitizePath(fieldPath);
         mapping.set(fieldPath, flatName);
-        result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess});
+        result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: hasMeta(field.meta, ":template") || hasMeta(field.meta, "template") ? "template" : "runtime"});
         continue;
       }
       Context.error('Quadrants flatten primitive field ${fieldPath} must be marked @:template or @:param', field.pos);

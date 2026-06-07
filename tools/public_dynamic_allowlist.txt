@@ -14,6 +14,7 @@ bindings/hashlink/haxe/quadrants/flatten/Flattened.hx:
 bindings/hashlink/haxe/quadrants/flatten/SpecKey.hx:
 bindings/hashlink/haxe/quadrants/flatten/Template.hx:
 bindings/hashlink/haxe/quadrants/coverage/Coverage.hx:
+bindings/hashlink/haxe/quadrants/macro/DescriptorV2Writer.hx:
 bindings/hashlink/haxe/quadrants/kernel/ArgBuffer.hx:
 bindings/hashlink/haxe/quadrants/kernel/ArgEncoding.hx:
 bindings/hashlink/haxe/quadrants/kernel/ReturnDecoder.hx:

@@ -302,6 +302,7 @@ private class DescriptorBuilder {
   final structScopes:Array<Map<String, StructLocalInfo>> = [];
   final functions:Map<String, QdFunctionInfo>;
   final kernelName:String;
+  final descriptorMetadataJson:Null<String>;
   final inlineArgScopes:Array<Map<String, Expr>> = [];
   final inlineFunctionStack:Array<String> = [];
   final inlineReturnTargets:Array<Int> = [];
@@ -309,7 +310,7 @@ private class DescriptorBuilder {
   var hasReturn:Bool = false;
   var returnDType:Int = DTYPE_I32;
   var returnDTypes:Array<Int> = [];
-  public function new(args:Array<FunctionArg>, functions:Map<String, QdFunctionInfo>, kernelName:String) {
+  public function new(args:Array<FunctionArg>, functions:Map<String, QdFunctionInfo>, kernelName:String, ?descriptorMetadataJson:String) {
     for (arg in args) {
       if (paramIds.exists(arg.name)) {
         Context.error('Duplicate Quadrants kernel parameter ${arg.name}', arg.value == null ? Context.currentPos() : arg.value.pos);
@@ -333,6 +334,7 @@ private class DescriptorBuilder {
     }
     this.functions = functions;
     this.kernelName = kernelName;
+    this.descriptorMetadataJson = descriptorMetadataJson;
     scopes.push(new Map());
     vectorScopes.push(new Map());
     matrixScopes.push(new Map());
@@ -470,8 +472,20 @@ private class DescriptorBuilder {
     kernelsSection.u32(1);
     kernelsSection.u32(kernelNameId);
 
+    var metadataJson = descriptorMetadataJson;
+    if (metadataJson == null) {
+      metadataJson = quadrants.macro.DescriptorV2Writer.autoMetadata(kernelName, [
+        for (param in params)
+          {
+            name: param.name,
+            kind: param.kind,
+            dtype: param.dtype,
+            rank: param.rank,
+          }
+      ]);
+    }
     var attributesSection = new ByteWriter();
-    attributesSection.u32(0);
+    attributesSection.append(quadrants.macro.DescriptorV2Writer.attributesSection(metadataJson));
 
     var sections = [
       {kind: 1, bytes: stringsSection.bytes},
@@ -4454,7 +4468,7 @@ class KernelBuilder {
     }
 
     var kernelName = kernelNameFromOptions(options, functionExpr.pos);
-    var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(options), kernelName);
+    var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(options), kernelName, descriptorMetadataFromOptions(options));
     var descriptorBytes = builder.build(functionDef.expr);
     var descriptorExpr = bytesExpression(descriptorBytes, functionExpr.pos);
     var autodiffMode = autodiffModeFromOptions(options);
@@ -4477,7 +4491,7 @@ class KernelBuilder {
     }
 
     var kernelName = kernelNameFromOptions(options, functionExpr.pos);
-    var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(options), kernelName);
+    var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(options), kernelName, descriptorMetadataFromOptions(options));
     var descriptorBytes = builder.build(functionDef.expr);
     var descriptorExpr = bytesExpression(descriptorBytes, functionExpr.pos);
     var autodiffMode = autodiffModeFromOptions(options);
@@ -4498,7 +4512,7 @@ class KernelBuilder {
     if (functionDef.expr == null) {
       Context.error("Quadrants HashLink kernel function must have a body", functionExpr.pos);
     }
-    var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(options), kernelNameFromOptions(options, functionExpr.pos));
+    var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(options), kernelNameFromOptions(options, functionExpr.pos), descriptorMetadataFromOptions(options));
     var descriptorBytes = builder.build(functionDef.expr);
     return bytesExpression(descriptorBytes, functionExpr.pos);
   }
@@ -4692,6 +4706,27 @@ class KernelBuilder {
           }
         }
         enabled;
+      default:
+        Context.error("quadrants.Kernel.build options must be an object literal", expr.pos);
+    };
+  }
+
+  static function descriptorMetadataFromOptions(options:Null<Expr>):Null<String> {
+    if (options == null) {
+      return null;
+    }
+    var expr = DescriptorBuilder.strip(options);
+    if (isNullLiteral(expr)) {
+      return null;
+    }
+    return switch (expr.expr) {
+      case EObjectDecl(fields):
+        for (field in fields) {
+          if (field.field == "__qdhlMeta") {
+            return stringLiteral(field.expr);
+          }
+        }
+        null;
       default:
         Context.error("quadrants.Kernel.build options must be an object literal", expr.pos);
     };
