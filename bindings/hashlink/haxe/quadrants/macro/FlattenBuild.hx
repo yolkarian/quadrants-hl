@@ -73,7 +73,8 @@ class FlattenBuild {
     }
 
     var wrapperType = quadrants.macro.TypedKernelBuild.wrapperComplexType([for (arg in sourceArgs) {name: arg.name, opt: false, type: arg.type, value: null}], returnType);
-    var metadataJson = descriptorMetadataJson(metadataArgs);
+    var kernelName = kernelNameFromOptions(optionsExpr, functionExpr.pos);
+    var metadataJson = descriptorMetadataJson(kernelName, metadataArgs);
     var descriptorOptions = mergeOptionsWithMetadata(optionsExpr, metadataJson, functionExpr.pos);
     var rawBuildExpr = macro quadrants.Kernel.buildRaw($e{ctxExpr}, $e{transformedFunction}, $e{descriptorOptions});
 
@@ -113,7 +114,7 @@ class FlattenBuild {
     };
   }
 
-  static function descriptorMetadataJson(args:Array<Dynamic>):String {
+  static function descriptorMetadataJson(kernelName:String, args:Array<Dynamic>):String {
     var typeIds = new Map<String, Int>();
     var types:Array<Dynamic> = [];
     var schemaArgs:Array<Dynamic> = [];
@@ -193,7 +194,7 @@ class FlattenBuild {
     }
     return haxe.Json.stringify({
       version: 2,
-      kernelName: "flatten",
+      kernelName: kernelName,
       types: types,
       args: schemaArgs,
       templates: templates,
@@ -300,6 +301,38 @@ class FlattenBuild {
       case EConst(CIdent("null")): true;
       default: false;
     };
+  }
+
+  static function kernelNameFromOptions(options:Null<Expr>, pos:Position):String {
+    if (options == null) {
+      return kernelNameFromPosition(pos);
+    }
+    var expr = strip(options);
+    if (isNullLiteral(expr)) {
+      return kernelNameFromPosition(pos);
+    }
+    return switch (expr.expr) {
+      case EObjectDecl(fields):
+        for (field in fields) {
+          if (field.field == "name" || field.field == "debugName") {
+            return stringLiteral(field.expr);
+          }
+        }
+        kernelNameFromPosition(pos);
+      default:
+        Context.error("quadrants.QD.kernel options must be an object literal", expr.pos);
+    };
+  }
+
+  static function kernelNameFromPosition(pos:Position):String {
+    var info = Context.getPosInfos(pos);
+    var file = info.file;
+    var slash = file.lastIndexOf("/");
+    if (slash >= 0) {
+      file = file.substr(slash + 1);
+    }
+    file = file.split(".").join("_");
+    return 'haxe_kernel_${file}_${info.min}_${info.max}';
   }
 
   static function flattenMembers(rootName:String,
@@ -453,17 +486,139 @@ class FlattenBuild {
   }
 
   static function rewriteFlattenExpression(expr:Expr, mapping:Map<String, String>):Expr {
-    function rewrite(current:Expr):Expr {
-      var path = fieldPath(current);
-      if (path != null) {
+    var roots = new Map<String, Bool>();
+    for (path in mapping.keys()) {
+      var root = rootName(path);
+      if (root != null) {
+        roots.set(root, true);
+      }
+    }
+    return rewriteFlattenExpr(expr, mapping, roots, new Map<String, Bool>());
+  }
+
+  static function rewriteFlattenExpr(expr:Expr,
+      mapping:Map<String, String>,
+      roots:Map<String, Bool>,
+      shadowed:Map<String, Bool>):Expr {
+    if (expr == null) {
+      return null;
+    }
+
+    var path = fieldPath(expr);
+    if (path != null) {
+      var root = rootName(path);
+      if (root != null && !shadowed.exists(root)) {
         var flatName = mapping.get(path);
         if (flatName != null) {
-          return identExpr(flatName, current.pos);
+          return identExpr(flatName, expr.pos);
         }
       }
-      return ExprTools.map(current, rewrite);
     }
-    return rewrite(expr);
+
+    return switch (expr.expr) {
+      case EBlock(expressions):
+        var localShadowed = cloneScope(shadowed);
+        var rewritten = new Array<Expr>();
+        for (entry in expressions) {
+          var next = rewriteFlattenExpr(entry, mapping, roots, localShadowed);
+          rewritten.push(next);
+          shadowDeclaredNames(localShadowed, roots, next);
+        }
+        {expr: EBlock(rewritten), pos: expr.pos};
+      case EVars(vars):
+        {
+          expr: EVars([
+            for (variable in vars)
+              {
+                name: variable.name,
+                type: variable.type,
+                expr: variable.expr == null ? null : rewriteFlattenExpr(variable.expr, mapping, roots, shadowed),
+                isFinal: variable.isFinal,
+                meta: variable.meta
+              }
+          ]),
+          pos: expr.pos,
+        };
+      case EFor(iterator, body):
+        var localShadowed = cloneScope(shadowed);
+        shadowForBindings(localShadowed, roots, iterator);
+        {expr: EFor(rewriteFlattenExpr(iterator, mapping, roots, shadowed), rewriteFlattenExpr(body, mapping, roots, localShadowed)), pos: expr.pos};
+      case EFunction(kind, fun):
+        var localShadowed = cloneScope(shadowed);
+        switch (kind) {
+          case FNamed(name, _):
+            shadowName(localShadowed, roots, name);
+          default:
+        }
+        for (arg in fun.args) {
+          shadowName(localShadowed, roots, arg.name);
+        }
+        {
+          expr: EFunction(kind, {
+            args: fun.args,
+            ret: fun.ret,
+            expr: fun.expr == null ? null : rewriteFlattenExpr(fun.expr, mapping, roots, localShadowed),
+            params: fun.params,
+          }),
+          pos: expr.pos,
+        };
+      case ETry(body, catches):
+        {
+          expr: ETry(rewriteFlattenExpr(body, mapping, roots, shadowed), [
+            for (caught in catches)
+              {
+                var catchShadowed = cloneScope(shadowed);
+                shadowName(catchShadowed, roots, caught.name);
+                {
+                  name: caught.name,
+                  type: caught.type,
+                  expr: rewriteFlattenExpr(caught.expr, mapping, roots, catchShadowed)
+                };
+              }
+          ]),
+          pos: expr.pos,
+        };
+      default:
+        ExprTools.map(expr, function(next) return rewriteFlattenExpr(next, mapping, roots, shadowed));
+    };
+  }
+
+  static function shadowDeclaredNames(scope:Map<String, Bool>, roots:Map<String, Bool>, expr:Expr):Void {
+    switch (expr.expr) {
+      case EVars(vars):
+        for (variable in vars) {
+          shadowName(scope, roots, variable.name);
+        }
+      case EFunction(FNamed(name, _), _):
+        shadowName(scope, roots, name);
+      default:
+    }
+  }
+
+  static function shadowForBindings(scope:Map<String, Bool>, roots:Map<String, Bool>, iterator:Expr):Void {
+    switch (iterator.expr) {
+      case EBinop(OpIn, lhs, _):
+        switch (lhs.expr) {
+          case EConst(CIdent(name)):
+            shadowName(scope, roots, name);
+          default:
+        }
+      default:
+    }
+  }
+
+  static function shadowName(scope:Map<String, Bool>, roots:Map<String, Bool>, name:String):Void {
+    if (roots.exists(name)) {
+      scope.set(name, true);
+    }
+  }
+
+  static function cloneScope(scope:Map<String, Bool>):Map<String, Bool> {
+    var copy = new Map<String, Bool>();
+    for (name in scope.keys()) {
+      copy.set(name, true);
+    }
+    return copy;
   }
 
   static function fieldPath(expr:Expr):Null<String> {
@@ -477,6 +632,11 @@ class FlattenBuild {
       default:
         null;
     };
+  }
+
+  static function rootName(path:String):Null<String> {
+    var dot = path.indexOf(".");
+    return dot < 0 ? path : path.substr(0, dot);
   }
 
   static function strip(expression:Expr):Expr {

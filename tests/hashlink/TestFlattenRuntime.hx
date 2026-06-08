@@ -5,6 +5,7 @@ import quadrants.Types.Arch;
 import quadrants.Types.I32;
 import quadrants.flatten.DataOriented;
 import quadrants.flatten.Flattened;
+import quadrants.flatten.Template;
 
 @:rtti
 @:qdFlatten
@@ -16,6 +17,17 @@ class FlatState {
   public function new(x:Tensor<I32>, bias:I32, n:I32) {
     this.x = x;
     this.bias = bias;
+    this.n = n;
+  }
+}
+
+@:qdFlatten
+class NoRttiFlatState {
+  public final x:Tensor<I32>;
+  @:template public final n:I32;
+
+  public function new(x:Tensor<I32>, n:I32) {
+    this.x = x;
     this.n = n;
   }
 }
@@ -64,6 +76,22 @@ class TestFlattenRuntime {
     }
   }
 
+  static function expectThrowContains(name:String, needle:String, fn:Void->Void):Void {
+    var threw = false;
+    try {
+      fn();
+    } catch (e:Dynamic) {
+      threw = true;
+      var message = Std.string(e);
+      if (message.indexOf(needle) < 0) {
+        throw '${name}: expected ${needle} in ${message}';
+      }
+    }
+    if (!threw) {
+      throw '${name}: expected throw';
+    }
+  }
+
   public static function run():Void {
     var ctx:Context = null;
     try {
@@ -93,6 +121,14 @@ class TestFlattenRuntime {
       var keyA = Flattened.specKey(state).digest();
       var keyB = Flattened.specKey(new FlatState(x, 2, 8)).digest();
       expectTrue("flatten_spec_key_template_changes", keyA != keyB);
+
+      var scalarTemplateKeyA = Template.specKey(4).digest();
+      var scalarTemplateKeyB = Template.specKey(8).digest();
+      expectTrue("flatten_template_spec_key_scalar_changes", scalarTemplateKeyA != scalarTemplateKeyB);
+
+      expectThrowContains("flatten_spec_key_requires_rtti", "requires @:rtti", function() {
+        Flattened.specKey(new NoRttiFlatState(x, 4)).digest();
+      });
 
       var simTensor = new Tensor<I32>(ctx, [4]);
       simTensor.fromArray([0, 1, 2, 3]);

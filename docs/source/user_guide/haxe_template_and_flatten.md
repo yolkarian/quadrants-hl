@@ -4,7 +4,7 @@
 
 Annotate a host container class with `@:qdFlatten` so `QD.kernel(...)` can flatten its members into typed kernel arguments.
 
-Add `@:rtti` when you also want to inspect runtime template/resource digests via `quadrants.flatten.Flattened.specKey(...)`.
+Add `@:rtti` when you also want to inspect runtime template/resource digests via `quadrants.flatten.Flattened.specKey(...)`. Calling `Flattened.specKey(...)` on a flattened/data-oriented class without `@:rtti` throws.
 
 ```haxe
 @:rtti
@@ -36,7 +36,7 @@ Rules:
 - nested `@:qdFlatten` objects are supported recursively;
 - `Dynamic` members are rejected.
 
-`quadrants.flatten.Flattened.specKey(value)` exposes the template/resource digest used for migration tooling and cache-key style inspection. Because it uses runtime RTTI, flattened/data-oriented classes should be marked `@:rtti` before calling it.
+`quadrants.flatten.Flattened.specKey(value)` exposes the template/resource digest used for migration tooling and cache-key style inspection. Because it uses runtime RTTI, flattened/data-oriented classes should be marked `@:rtti` before calling it; otherwise the call throws. For scalar template constants, `quadrants.flatten.Template.specKey(value)` records the root template value directly.
 
 ## Data-oriented classes
 

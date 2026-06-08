@@ -55,7 +55,7 @@ class TestDescriptorV2Runtime {
       }, {name: "descriptor_flat"});
       var flatKernel = Kernel.fromRaw(flat.raw());
       var flatMeta = DescriptorV2.fromKernel(flatKernel);
-      expectEq("descriptor_v2_flat_kernel_name", flatMeta.kernelName, "flatten");
+      expectEq("descriptor_v2_flat_kernel_name", flatMeta.kernelName, "descriptor_flat");
       expectEq("descriptor_v2_flat_arg0", flatMeta.args[0].path, "state.x");
       expectEq("descriptor_v2_flat_arg1_role", flatMeta.args[1].role, "runtime");
       expectEq("descriptor_v2_flat_template_path", flatMeta.templates[0].path, "state.n");

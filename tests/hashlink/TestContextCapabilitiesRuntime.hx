@@ -22,6 +22,15 @@ class TestContextCapabilitiesRuntime {
     }
   }
 
+  static function containsSubstring(values:Array<String>, needle:String):Bool {
+    for (value in values) {
+      if (value.indexOf(needle) >= 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   public static function run():Void {
     var opts = ContextOptions.builder()
       .arch(Arch.Cpu)
@@ -37,12 +46,15 @@ class TestContextCapabilitiesRuntime {
     var ctx:Context = null;
     var kernel:Kernel = null;
     try {
+      // options.arch should take precedence over the positional fallback passed to fromOptions(...).
       ctx = Context.fromOptions(opts, Arch.Cuda);
       expectEq("context_builder_arch", ctx.arch, Arch.Cpu);
       expectEq("context_current_compile_threads", ctx.currentOptions().compileNumThreads, 2);
       expectEq("context_current_opt_level", ctx.currentOptions().compileOptLevel, OptLevel.O2);
       expectEq("context_current_warn_field_mirror", ctx.currentOptions().warnOnFieldMirrorFallbackEnabled, true);
-      expectTrue("context_option_warnings", ctx.optionWarnings().length >= 5);
+      expectTrue("context_option_warning_cfg", containsSubstring(ctx.optionWarnings(), "ContextOptions.compile.cfgOptimization"));
+      expectTrue("context_option_warning_threads", containsSubstring(ctx.optionWarnings(), "ContextOptions.compile.numCompileThreads"));
+      expectTrue("context_option_warning_defaults", containsSubstring(ctx.optionWarnings(), "ContextOptions.defaults"));
 
       var caps = ctx.capabilities();
       expectEq("capabilities_backend", caps.backend, Arch.Cpu);

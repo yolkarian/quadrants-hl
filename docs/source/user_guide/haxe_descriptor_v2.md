@@ -15,4 +15,4 @@ trace(meta.args[1].kind);      // "scalar"
 trace(meta.capabilities);      // e.g. ["field_direct_param"]
 ```
 
-For flatten/data-oriented kernels, the metadata preserves source paths such as `state.x` and records `@:template` members in the `templates` array.
+For flatten/data-oriented kernels, the metadata preserves the kernel's requested name, keeps source paths such as `state.x`, and records `@:template` members in the `templates` array.

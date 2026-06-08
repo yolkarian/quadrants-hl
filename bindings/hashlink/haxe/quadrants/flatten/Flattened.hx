@@ -26,6 +26,10 @@ class Flattened {
       return;
     }
     if (!Rtti.hasRtti(cls)) {
+      if (Reflect.fields(value).length > 0) {
+        var className = Type.getClassName(cls);
+        throw 'Quadrants flatten specKey requires @:rtti on class ${className == null ? "<unknown>" : className}';
+      }
       return;
     }
     var info = Rtti.getRtti(cls);
