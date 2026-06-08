@@ -76,7 +76,8 @@ class DataOrientedBuild {
     var cacheFieldExpr = memberExpr(macro this, cacheName, field.pos);
     var ctxExpr = memberExpr(macro this, ctxField, field.pos);
     var methodKernelName = className + "." + field.name;
-    var initExpr = macro $e{cacheFieldExpr} = quadrants.QD.kernel($e{ctxExpr}, $e{kernelFnExpr}, {name: $v{methodKernelName}});
+    var builtKernelExpr = quadrants.macro.FlattenBuild.build(ctxExpr, kernelFnExpr, macro {name: $v{methodKernelName}});
+    var initExpr = macro $e{cacheFieldExpr} = $e{builtKernelExpr};
     var launchArgs = [for (arg in fun.args) identExpr(arg.name, field.pos)];
     var launchExpr:Expr = {
       expr: ECall(memberExpr(cacheFieldExpr, "launch", field.pos), [macro this].concat(launchArgs)),

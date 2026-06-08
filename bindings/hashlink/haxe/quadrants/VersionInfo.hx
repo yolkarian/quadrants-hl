@@ -9,7 +9,7 @@ typedef VersionSnapshot = {
 }
 
 class VersionInfo {
-  public static inline var PACKAGE_VERSION = "0.0.0";
+  public static final PACKAGE_VERSION:String = quadrants.macro.VersionInfoBuild.packageVersion();
   public static inline var EXPECTED_HDLL_ABI = 1;
   public static inline var EXPECTED_RUNTIME_ABI = 1;
   public static inline var DESCRIPTOR_VERSION = 2;

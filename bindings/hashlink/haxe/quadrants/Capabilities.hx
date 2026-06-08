@@ -1,6 +1,8 @@
 package quadrants;
 
 import quadrants.Types.Arch;
+import quadrants.linalg.SparseBackendFeatures;
+import quadrants.profiler.ProfilerBridge;
 
 typedef StreamCapabilities = {
   var available:Bool;
@@ -76,9 +78,12 @@ class Capabilities {
 
   public function new(context:Context) {
     backend = context.arch;
+    var streamAvailable = probeStreamAvailability(context);
+    var sparseFeatures = SparseBackendFeatures.probe(context);
+    var profilerFeatures = ProfilerBridge.features(context);
     streams = {
-      available: true,
-      events: context.supportsStreamEvents(),
+      available: streamAvailable,
+      events: streamAvailable && context.supportsStreamEvents(),
       parallelBlocks: false,
     };
     graph = {
@@ -93,8 +98,8 @@ class Capabilities {
       typedMetadata: true,
     };
     sparse = {
-      hostReference: true,
-      nativeBackend: false,
+      hostReference: sparseFeatures.hostReferenceBackend,
+      nativeBackend: sparseFeatures.nativeSparseBackend,
     };
     mesh = {
       hostHandles: true,
@@ -109,13 +114,14 @@ class Capabilities {
       kernelParameters: false,
     };
     profiler = {
-      kernel: context.isExtensionEnabled(Extension.KernelProfiler),
-      scoped: context.isExtensionEnabled(Extension.ScopedProfiler),
-      memory: context.isExtensionEnabled(Extension.MemoryProfiler),
+      kernel: profilerFeatures.kernel,
+      scoped: profilerFeatures.scoped,
+      memory: profilerFeatures.memory,
     };
+    var zeroCopy = context.isExtensionEnabled(Extension.ZeroCopy);
     interop = {
-      zeroCopy: context.isExtensionEnabled(Extension.ZeroCopy),
-      dlpack: true,
+      zeroCopy: zeroCopy,
+      dlpack: zeroCopy,
       externalPointerImport: context.isExtensionEnabled(Extension.ExternalPointerImport),
       cudaGlInterop: context.isExtensionEnabled(Extension.CudaGlInterop),
     };
@@ -137,5 +143,19 @@ class Capabilities {
       version: version,
       runtimeConfigWarnings: [for (warning in runtimeConfigWarnings) warning],
     };
+  }
+
+  static function probeStreamAvailability(context:Context):Bool {
+    var stream:Stream = null;
+    try {
+      stream = context.stream();
+      stream.close();
+      return true;
+    } catch (_:Dynamic) {
+      if (stream != null) {
+        try stream.close() catch (_:Dynamic) {}
+      }
+      return false;
+    }
   }
 }

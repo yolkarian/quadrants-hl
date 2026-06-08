@@ -1,6 +1,8 @@
 import quadrants.CacheCleanPolicy;
+import haxe.Json;
 import quadrants.Context;
 import quadrants.ContextOptions;
+import quadrants.Extension;
 import quadrants.Kernel;
 import quadrants.OptLevel;
 import quadrants.Tensor;
@@ -8,6 +10,8 @@ import quadrants.Types.Arch;
 import quadrants.Types.DType;
 import quadrants.Types.I32;
 import quadrants.compat.Diagnostics;
+import quadrants.linalg.SparseBackendFeatures;
+import sys.io.File;
 
 class TestContextCapabilitiesRuntime {
   static function expectEq(name:String, got:Dynamic, expected:Dynamic):Void {
@@ -31,6 +35,11 @@ class TestContextCapabilitiesRuntime {
     return false;
   }
 
+  static function manifestVersion():String {
+    var manifest:Dynamic = Json.parse(File.getContent("bindings/hashlink/haxelib.json"));
+    return cast Reflect.field(manifest, "version");
+  }
+
   public static function run():Void {
     var opts = ContextOptions.builder()
       .arch(Arch.Cpu)
@@ -45,6 +54,7 @@ class TestContextCapabilitiesRuntime {
 
     var ctx:Context = null;
     var kernel:Kernel = null;
+    var probeTensor:Tensor<I32> = null;
     try {
       // options.arch should take precedence over the positional fallback passed to fromOptions(...).
       ctx = Context.fromOptions(opts, Arch.Cuda);
@@ -57,13 +67,27 @@ class TestContextCapabilitiesRuntime {
       expectTrue("context_option_warning_defaults", containsSubstring(ctx.optionWarnings(), "ContextOptions.defaults"));
 
       var caps = ctx.capabilities();
+      probeTensor = new Tensor<I32>(ctx, [1]);
+      var sparseFeatures = SparseBackendFeatures.probe(ctx);
       expectEq("capabilities_backend", caps.backend, Arch.Cpu);
       expectEq("capabilities_stream_available", caps.streams.available, true);
+      expectEq("capabilities_stream_events", caps.streams.events, ctx.supportsStreamEvents());
       expectEq("capabilities_descriptor_max_version", caps.descriptor.maxVersion, 2);
       expectEq("capabilities_mesh_kernel_relations", caps.mesh.kernelRelations, false);
       expectEq("capabilities_quant_kernel_parameters", caps.quant.kernelParameters, false);
+      expectEq("capabilities_profiler_kernel", caps.profiler.kernel, ctx.isExtensionEnabled(Extension.KernelProfiler));
+      expectEq("capabilities_profiler_scoped", caps.profiler.scoped, ctx.isExtensionEnabled(Extension.ScopedProfiler));
+      expectEq("capabilities_profiler_memory", caps.profiler.memory, ctx.isExtensionEnabled(Extension.MemoryProfiler));
+      expectEq("capabilities_interop_zero_copy", caps.interop.zeroCopy, ctx.isExtensionEnabled(Extension.ZeroCopy));
+      expectEq("capabilities_interop_external_pointer", caps.interop.externalPointerImport, ctx.isExtensionEnabled(Extension.ExternalPointerImport));
+      expectEq("capabilities_interop_dlpack", caps.interop.dlpack, probeTensor.supportsDLPack());
+      expectEq("capabilities_sparse_host_reference", caps.sparse.hostReference, sparseFeatures.hostReferenceBackend);
+      expectEq("capabilities_sparse_native_backend", caps.sparse.nativeBackend, sparseFeatures.nativeSparseBackend);
       expectEq("capabilities_version_descriptor", caps.version.descriptorVersion, 2);
+      expectEq("capabilities_version_package", caps.version.packageVersion, manifestVersion());
       expectEq("capabilities_runtime_warning_count", caps.runtimeConfigWarnings.length, ctx.optionWarnings().length);
+      probeTensor.close();
+      probeTensor = null;
 
       kernel = Kernel.build(ctx, macro (out:Tensor<I32>) -> {
         out[0] = 1;
@@ -78,6 +102,9 @@ class TestContextCapabilitiesRuntime {
     } catch (e:Dynamic) {
       if (kernel != null) {
         try kernel.close() catch (_:Dynamic) {}
+      }
+      if (probeTensor != null) {
+        try probeTensor.close() catch (_:Dynamic) {}
       }
       if (ctx != null) {
         try ctx.close() catch (_:Dynamic) {}

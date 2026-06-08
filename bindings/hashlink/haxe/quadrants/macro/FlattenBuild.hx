@@ -347,6 +347,10 @@ class FlattenBuild {
     }
 
     var dataOrientedCtxField = dataOrientedCtxFieldName(classType);
+    var localBuildFields = buildFieldsForClass(classType);
+    if (localBuildFields != null) {
+      return flattenBuildFields(rootName, rootExpr, mapping, localBuildFields, dataOrientedCtxField);
+    }
     for (field in classType.fields.get()) {
       switch (field.kind) {
         case FVar(_, _):
@@ -408,6 +412,105 @@ class FlattenBuild {
     };
   }
 
+  static function buildFieldsForClass(classType:ClassType):Null<Array<Field>> {
+    var localClass = Context.getLocalClass();
+    if (localClass == null) {
+      return null;
+    }
+    var localType = localClass.get();
+    if (localType.pack.join(".") != classType.pack.join(".") || localType.name != classType.name) {
+      return null;
+    }
+    try {
+      return Context.getBuildFields();
+    } catch (_:Dynamic) {
+      return null;
+    }
+  }
+
+  static function flattenBuildFields(rootName:String,
+      rootExpr:Expr,
+      mapping:Map<String, String>,
+      fields:Array<Field>,
+      dataOrientedCtxField:Null<String>):Array<FlattenedMember> {
+    var result = new Array<FlattenedMember>();
+    for (field in fields) {
+      if (!isBuildDataField(field)) {
+        continue;
+      }
+      if (field.name == dataOrientedCtxField || StringTools.startsWith(field.name, "__qd_")) {
+        continue;
+      }
+      if (buildFieldHasMeta(field.meta, ":qdIgnore") || buildFieldHasMeta(field.meta, "qdIgnore")) {
+        continue;
+      }
+      var fieldType = buildFieldType(field);
+      if (fieldType == null) {
+        Context.error('Quadrants flatten field ${field.name} requires an explicit type annotation', field.pos);
+      }
+      var fieldAccess = fieldAccessExpr(rootExpr, field.name, field.pos);
+      var fieldPath = rootName + "." + field.name;
+      var nestedClass = flattenClassType(fieldType, field.pos);
+      if (nestedClass != null) {
+        for (member in flattenMembers(fieldPath, fieldAccess, fieldType, field.pos, mapping)) {
+          result.push(member);
+        }
+        continue;
+      }
+      if (isDynamicComplexType(fieldType, field.pos)) {
+        Context.error('Quadrants flatten field ${fieldPath} cannot use Dynamic', field.pos);
+      }
+      if (isResourceComplexType(fieldType, field.pos)) {
+        var flatName = sanitizePath(fieldPath);
+        mapping.set(fieldPath, flatName);
+        result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: "runtime"});
+        continue;
+      }
+      if (buildFieldHasMeta(field.meta, ":template") || buildFieldHasMeta(field.meta, "template") || buildFieldHasMeta(field.meta, ":param") || buildFieldHasMeta(field.meta, "param")) {
+        var flatName = sanitizePath(fieldPath);
+        mapping.set(fieldPath, flatName);
+        result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: buildFieldHasMeta(field.meta, ":template") || buildFieldHasMeta(field.meta, "template") ? "template" : "runtime"});
+        continue;
+      }
+      Context.error('Quadrants flatten primitive field ${fieldPath} must be marked @:template or @:param', field.pos);
+    }
+    return result;
+  }
+
+  static function isBuildDataField(field:Field):Bool {
+    if (field.access != null) {
+      for (access in field.access) {
+        if (access == AStatic) {
+          return false;
+        }
+      }
+    }
+    return switch (field.kind) {
+      case FVar(_, _) | FProp(_, _, _, _): true;
+      default: false;
+    };
+  }
+
+  static function buildFieldType(field:Field):Null<ComplexType> {
+    return switch (field.kind) {
+      case FVar(type, _): type;
+      case FProp(_, _, type, _): type;
+      default: null;
+    };
+  }
+
+  static function buildFieldHasMeta(meta:Metadata, name:String):Bool {
+    if (meta == null) {
+      return false;
+    }
+    for (entry in meta) {
+      if (entry.name == name) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   static function dataOrientedCtxFieldName(classType:ClassType):Null<String> {
     for (entry in classType.meta.extract(":qdDataOriented")) {
       if (entry.params != null && entry.params.length == 1) {
@@ -436,6 +539,10 @@ class FlattenBuild {
     return false;
   }
 
+  static function isResourceComplexType(type:ComplexType, pos:Position):Bool {
+    return isResourceType(Context.resolveType(type, pos));
+  }
+
   static function isResourceType(type:Type):Bool {
     var followed = Context.followWithAbstracts(type);
     return switch (followed) {
@@ -453,6 +560,10 @@ class FlattenBuild {
       default:
         false;
     };
+  }
+
+  static function isDynamicComplexType(type:ComplexType, pos:Position):Bool {
+    return isDynamicType(Context.resolveType(type, pos));
   }
 
   static function isDynamicType(type:Type):Bool {

@@ -37,6 +37,11 @@ class TestKernelRawRuntime {
       expectEq("kernel_raw_launch_buffer", out.read(0), 2);
       buf.release();
 
+      var reused = ArgBuffer.acquire();
+      expectTrue("kernel_raw_arg_buffer_reused", reused == buf);
+      expectEq("kernel_raw_arg_buffer_cleared", reused.toArray().length, 0);
+      reused.release();
+
       expectTrue("kernel_raw_descriptor_hash", raw.descriptorHash().length == 8);
       raw.close();
       raw = null;
