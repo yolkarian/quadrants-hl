@@ -58,4 +58,14 @@ Algorithms.radixSort(ctx, keys, tmpKeys, scratch, {beginBit: 0, endBit: 32});
 
 Per-thread linalg entrypoints live under `quadrants.funcs.Linalg` with explicit sizes (`svd2`, `svd3`, `solve2`, `solve3`, ...).
 
+Sparse, mesh, and quant resources use typed constructors plus descriptor/capability validation:
+
+```haxe
+final A = SparseMatrix.fromCOO(ctx, rows, cols, values, nRows, nCols);
+final mesh = new Mesh(vertexCount, edgeCount);
+final qi8 = Quant.intI32({bits: 8, signed: true});
+```
+
+Unsupported native sparse/mesh/quant paths throw capability or validation errors instead of silently falling back.
+
 `Kernel.build(ctx, macro (...)->{...})` is the v3 kernel entrypoint. Give every parameter an explicit type. Raw dynamic launch remains only as a low-level/legacy escape hatch through `KernelRaw` or a value explicitly typed as `Kernel`.

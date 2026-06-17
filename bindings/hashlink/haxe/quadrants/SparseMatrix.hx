@@ -1,5 +1,10 @@
 package quadrants;
 
+import quadrants.Tensor;
+import quadrants.TensorRuntime;
+import quadrants.Types.DType;
+import quadrants.Types.I32;
+
 typedef SparseTriplet<T> = {
   var row:Int;
   var col:Int;
@@ -27,6 +32,45 @@ class SparseMatrix<T> {
       matrix.set(triplet.row, triplet.col, triplet.value);
     }
     return matrix;
+  }
+
+  public static function fromCOO<T>(ctx:Context, rowInd:Tensor<I32>, colInd:Tensor<I32>, values:Tensor<T>, nRows:Int, nCols:Int):quadrants.linalg.SparseMatrix<T> {
+    if (ctx == null) {
+      throw "Quadrants SparseMatrix.fromCOO requires a Context";
+    }
+    var valueRuntime:TensorRuntime = cast values;
+    if (valueRuntime.dtype != DType.F32 && valueRuntime.dtype != DType.F64) {
+      throw "Quadrants SparseMatrix.fromCOO supports only F32/F64 values";
+    }
+    var result = new quadrants.linalg.SparseMatrix<T>(ctx, nRows, nCols, valueRuntime.dtype, quadrants.linalg.SparseStorageFormat.COO);
+    var count = valueRuntime.elementCount();
+    if (rowInd.elementCount() < count || colInd.elementCount() < count) {
+      throw "Quadrants SparseMatrix.fromCOO index tensors are shorter than values";
+    }
+    for (i in 0...count) {
+      result.set(rowInd.read(i), colInd.read(i), values.read(i));
+    }
+    return result;
+  }
+
+  public static function fromCSR<T>(ctx:Context, rowPtr:Tensor<I32>, colInd:Tensor<I32>, values:Tensor<T>, nRows:Int, nCols:Int):quadrants.linalg.SparseMatrix<T> {
+    if (rowPtr.elementCount() < nRows + 1) {
+      throw "Quadrants SparseMatrix.fromCSR rowPtr is shorter than nRows + 1";
+    }
+    var valueRuntime:TensorRuntime = cast values;
+    var result = new quadrants.linalg.SparseMatrix<T>(ctx, nRows, nCols, valueRuntime.dtype, quadrants.linalg.SparseStorageFormat.CSR);
+    var nnz = values.elementCount();
+    for (row in 0...nRows) {
+      var begin = rowPtr.read(row);
+      var end = rowPtr.read(row + 1);
+      if (begin < 0 || end < begin || end > nnz) {
+        throw "Quadrants SparseMatrix.fromCSR rowPtr contains an invalid range";
+      }
+      for (i in begin...end) {
+        result.set(row, colInd.read(i), values.read(i));
+      }
+    }
+    return result;
   }
 
   public var nnz(get, never):Int;

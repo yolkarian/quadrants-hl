@@ -20,6 +20,16 @@ class Mesh {
   final relations:Array<Array<Array<Int>>>;
 
 
+  public static function load(context:Context, path:String):Mesh {
+    if (context == null) {
+      throw "Quadrants Mesh.load requires a Context";
+    }
+    if (path == null || path.length == 0) {
+      throw "Quadrants Mesh.load requires a path";
+    }
+    throw "Quadrants Mesh.load binary loader is backend/resource specific and is not enabled in this build";
+  }
+
   public static inline function forVertices(count:Int):Iterator<Int> return 0...count;
   public static inline function forEdges(count:Int):Iterator<Int> return 0...count;
   public static inline function forFaces(count:Int):Iterator<Int> return 0...count;

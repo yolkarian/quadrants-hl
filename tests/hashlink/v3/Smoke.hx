@@ -2,6 +2,7 @@ import quadrants.Algorithms;
 import quadrants.Context;
 import quadrants.Kernel;
 import quadrants.LayoutPolicy;
+import quadrants.Quant;
 import quadrants.Spec;
 import quadrants.StructTensor;
 import quadrants.Tape;
@@ -64,6 +65,8 @@ class Smoke {
     ctx.sync();
     if (state.out.read(0) != 0) throw "QdArgs @:kernel failed";
 
+    var qi8 = Quant.intI32({bits: 8, signed: true});
+    if (qi8 == null) throw "Quant.intI32 failed";
     var particles:StructTensor<V3Particle> = StructTensor.alloc(ctx, [2], LayoutPolicy.AOS);
     particles.writeMember("id", 0, 7);
     if (particles.readMember("id", 0) != 7) throw "QdStruct StructTensor host storage failed";
