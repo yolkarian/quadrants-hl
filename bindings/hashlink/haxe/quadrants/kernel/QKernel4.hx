@@ -47,6 +47,11 @@ class QKernel4<A, B, C, D, R> implements QKernel {
   public function validationKernel():QKernel4<A, B, C, D, R> {
     return wrapRaw(rawKernel.validationKernel());
   }
+  public function launchTape(tape:quadrants.Tape, a0:A, a1:B, a2:C, a3:D):R {
+    tape.recordKernel(this, [a0, a1, a2, a3]);
+    return launch(a0, a1, a2, a3);
+  }
+
   public function descriptorHash():String {
     return rawKernel.descriptorHash();
   }

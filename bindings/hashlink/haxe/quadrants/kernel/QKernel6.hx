@@ -47,6 +47,11 @@ class QKernel6<A, B, C, D, E, F, R> implements QKernel {
   public function validationKernel():QKernel6<A, B, C, D, E, F, R> {
     return wrapRaw(rawKernel.validationKernel());
   }
+  public function launchTape(tape:quadrants.Tape, a0:A, a1:B, a2:C, a3:D, a4:E, a5:F):R {
+    tape.recordKernel(this, [a0, a1, a2, a3, a4, a5]);
+    return launch(a0, a1, a2, a3, a4, a5);
+  }
+
   public function descriptorHash():String {
     return rawKernel.descriptorHash();
   }

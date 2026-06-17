@@ -3,6 +3,7 @@ package quadrants;
 import quadrants.Types.F32;
 import quadrants.ad.Grad;
 import quadrants.ad.CustomGradient;
+import quadrants.kernel.QKernel;
 
 private class TapeRecord {
   final kernel:Kernel;
@@ -101,15 +102,16 @@ class Tape {
     return tape;
   }
 
-  public static function withLoss(loss:Tensor<F32>, body:Tape->Void, clearAfter:Bool = true):Tape {
-    return withLossAndParams(loss, [], body, clearAfter);
+  public static function withLoss(context:Context, loss:Tensor<F32>, body:Tape->Void, clearAfter:Bool = true):Tape {
+    return withLossAndParams(context, loss, [], body, clearAfter);
   }
 
-  public static function withLossAndParams(loss:Tensor<F32>,
+  public static function withLossAndParams(context:Context,
+      loss:Tensor<F32>,
       params:Array<Tensor<F32>>,
       body:Tape->Void,
       clearAfter:Bool = true):Tape {
-    requireLoss(loss);
+    requireLoss(context, loss);
     if (params == null) {
       throw "Quadrants Tape.withLossAndParams requires a parameter array";
     }
@@ -149,6 +151,13 @@ class Tape {
     if (recording) {
       records.push(TapeRecord.fromKernel(kernel, args));
     }
+  }
+
+  public function recordKernel(kernel:QKernel, args:Array<Dynamic>):Void {
+    if (kernel == null) {
+      throw "Quadrants tape cannot record a null typed kernel";
+    }
+    record(kernel.asKernel(), args);
   }
 
   public function recordCustom(custom:CustomGradient, args:Array<Dynamic>):Void {
@@ -221,9 +230,15 @@ class Tape {
     }
   }
 
-  static function requireLoss(loss:Tensor<F32>):Void {
+  static function requireLoss(context:Context, loss:Tensor<F32>):Void {
+    if (context == null) {
+      throw "Quadrants Tape.withLoss requires a Context";
+    }
     if (loss == null) {
       throw "Quadrants Tape.withLoss requires a scalar F32 loss tensor";
+    }
+    if (loss.context != context) {
+      throw "Quadrants Tape.withLoss loss tensor must belong to the supplied Context";
     }
     if (loss.elementCount() != 1) {
       throw "Quadrants Tape.withLoss loss tensor must contain exactly one element";

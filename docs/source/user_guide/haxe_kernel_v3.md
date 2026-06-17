@@ -32,3 +32,18 @@ class Sim {
   }
 }
 ```
+
+AD uses explicit typed launches. Generated `QKernelN` wrappers expose `launchTape(tape, ...)`, `grad()`, `forwardGrad()`, and `validationKernel()`:
+
+```haxe
+Tape.withLoss(ctx, loss, tape -> {
+  forward.launchTape(tape, x, y, n);
+  reduce.launchTape(tape, y, loss, n);
+});
+
+final custom = CustomGradient.register(forward, {
+  backward: backward,
+  forwardGrad: forwardGrad,
+  validation: validation
+});
+```

@@ -3,6 +3,7 @@ import quadrants.Kernel;
 import quadrants.LayoutPolicy;
 import quadrants.Spec;
 import quadrants.StructTensor;
+import quadrants.Tape;
 import quadrants.Tensor;
 import quadrants.Types.Arch;
 import quadrants.Types.F32;
@@ -49,6 +50,9 @@ class Smoke {
     add.launch(x, y, Spec.of(4));
     ctx.sync();
     if (y.read(3) != 4) throw 'typed Kernel.build failed: ${y.read(3)}';
+    var tape = new Tape();
+    add.launchTape(tape, x, y, Spec.of(4));
+    if (tape.length != 1) throw "typed Tape launch did not record";
 
     var state = new V3SmokeState(ctx, 4);
     state.clear();

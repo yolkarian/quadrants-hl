@@ -47,6 +47,11 @@ class QKernel0<R> implements QKernel {
   public function validationKernel():QKernel0<R> {
     return wrapRaw(rawKernel.validationKernel());
   }
+  public function launchTape(tape:quadrants.Tape):R {
+    tape.recordKernel(this, []);
+    return launch();
+  }
+
   public function descriptorHash():String {
     return rawKernel.descriptorHash();
   }
