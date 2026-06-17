@@ -29,6 +29,10 @@ class StreamEvent {
     Native.stream_event_record(context.nativeHandle(), nativeHandle(), stream.nativeHandle());
   }
 
+  public inline function record(stream:Stream):Void {
+    recordOn(stream);
+  }
+
   public function sync():Void {
     Native.stream_event_sync(context.nativeHandle(), nativeHandle());
   }

@@ -116,6 +116,14 @@ class Context {
     return new Stream(this);
   }
 
+  public inline function createStream():Stream {
+    return stream();
+  }
+
+  public function createEvent():StreamEvent {
+    return new StreamEvent(this);
+  }
+
   public function profiler():Profiler {
     return new Profiler(this);
   }

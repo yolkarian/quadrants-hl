@@ -47,3 +47,18 @@ final custom = CustomGradient.register(forward, {
   validation: validation
 });
 ```
+
+Streams and graph control are explicit and typed:
+
+```haxe
+final s = ctx.createStream();
+k.launchOn(s, args...);
+
+final e = ctx.createEvent();
+e.record(s);
+other.wait(e);
+
+k.launchGraph(args...);
+k.launchGraphWhile(controlI32Tensor, args...);
+k.launchGraphDoWhile(controlI32Tensor, args...);
+```

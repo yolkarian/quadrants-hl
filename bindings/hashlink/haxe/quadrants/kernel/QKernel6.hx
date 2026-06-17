@@ -47,6 +47,22 @@ class QKernel6<A, B, C, D, E, F, R> implements QKernel {
   public function validationKernel():QKernel6<A, B, C, D, E, F, R> {
     return wrapRaw(rawKernel.validationKernel());
   }
+  public function launchGraphWhile(control:quadrants.Tensor<quadrants.Types.I32>, a0:A, a1:B, a2:C, a3:D, a4:E, a5:F):R {
+    while (control.read(0) != 0) {
+      launchGraph(a0, a1, a2, a3, a4, a5);
+      control.context.sync();
+    }
+    return cast null;
+  }
+
+  public function launchGraphDoWhile(control:quadrants.Tensor<quadrants.Types.I32>, a0:A, a1:B, a2:C, a3:D, a4:E, a5:F):R {
+    do {
+      launchGraph(a0, a1, a2, a3, a4, a5);
+      control.context.sync();
+    } while (control.read(0) != 0);
+    return cast null;
+  }
+
   public function launchTape(tape:quadrants.Tape, a0:A, a1:B, a2:C, a3:D, a4:E, a5:F):R {
     tape.recordKernel(this, [a0, a1, a2, a3, a4, a5]);
     return launch(a0, a1, a2, a3, a4, a5);

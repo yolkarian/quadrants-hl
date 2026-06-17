@@ -38,6 +38,10 @@ class Stream {
     Native.stream_wait_event(context.nativeHandle(), nativeHandle(), event.nativeHandle());
   }
 
+  public inline function wait(event:StreamEvent):Void {
+    waitEvent(event);
+  }
+
   public function sync():Void {
     Native.stream_sync(context.nativeHandle(), nativeHandle());
   }

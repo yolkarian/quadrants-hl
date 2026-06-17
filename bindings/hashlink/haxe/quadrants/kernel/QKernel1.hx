@@ -47,6 +47,22 @@ class QKernel1<A, R> implements QKernel {
   public function validationKernel():QKernel1<A, R> {
     return wrapRaw(rawKernel.validationKernel());
   }
+  public function launchGraphWhile(control:quadrants.Tensor<quadrants.Types.I32>, a0:A):R {
+    while (control.read(0) != 0) {
+      launchGraph(a0);
+      control.context.sync();
+    }
+    return cast null;
+  }
+
+  public function launchGraphDoWhile(control:quadrants.Tensor<quadrants.Types.I32>, a0:A):R {
+    do {
+      launchGraph(a0);
+      control.context.sync();
+    } while (control.read(0) != 0);
+    return cast null;
+  }
+
   public function launchTape(tape:quadrants.Tape, a0:A):R {
     tape.recordKernel(this, [a0]);
     return launch(a0);

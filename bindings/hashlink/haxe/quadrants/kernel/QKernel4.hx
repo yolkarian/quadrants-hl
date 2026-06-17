@@ -47,6 +47,22 @@ class QKernel4<A, B, C, D, R> implements QKernel {
   public function validationKernel():QKernel4<A, B, C, D, R> {
     return wrapRaw(rawKernel.validationKernel());
   }
+  public function launchGraphWhile(control:quadrants.Tensor<quadrants.Types.I32>, a0:A, a1:B, a2:C, a3:D):R {
+    while (control.read(0) != 0) {
+      launchGraph(a0, a1, a2, a3);
+      control.context.sync();
+    }
+    return cast null;
+  }
+
+  public function launchGraphDoWhile(control:quadrants.Tensor<quadrants.Types.I32>, a0:A, a1:B, a2:C, a3:D):R {
+    do {
+      launchGraph(a0, a1, a2, a3);
+      control.context.sync();
+    } while (control.read(0) != 0);
+    return cast null;
+  }
+
   public function launchTape(tape:quadrants.Tape, a0:A, a1:B, a2:C, a3:D):R {
     tape.recordKernel(this, [a0, a1, a2, a3]);
     return launch(a0, a1, a2, a3);
