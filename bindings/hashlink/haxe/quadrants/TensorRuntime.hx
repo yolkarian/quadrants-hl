@@ -69,9 +69,45 @@ class TensorRuntime implements TensorHandle {
     return new DLPackTensor(Native.ndarray_export_dlpack(context.nativeHandle(), nativeHandle()));
   }
 
+  public inline function toDLPack():DLPackTensor {
+    return exportDLPack();
+  }
 
   public function exportDevicePointer():haxe.Int64 {
     return Native.ndarray_export_device_pointer(context.nativeHandle(), nativeHandle());
+  }
+
+  public inline function devicePointer():haxe.Int64 {
+    return exportDevicePointer();
+  }
+
+  public function rank():Int {
+    return shape.length;
+  }
+
+  public function numel():Int {
+    return elementCount();
+  }
+
+  public function shapeCopy():Array<Int> {
+    return TensorStorage.copyIntArray(shape);
+  }
+
+  public function readBytes(?flatStart:Int = 0, ?count:Int = -1):hl.Bytes {
+    var actualCount = count < 0 ? elementCount() - flatStart : count;
+    TensorStorage.requireByteRange(new hl.Bytes(0), 0, actualCount);
+    var bytes = new hl.Bytes(actualCount * TensorStorage.dtypeByteSize(dtype));
+    Native.ndarray_read_bytes(context.nativeHandle(), nativeHandle(), dtype, flatStart, actualCount, bytes, 0);
+    return bytes;
+  }
+
+  public function writeBytes(bytes:hl.Bytes, ?flatStart:Int = 0, ?count:Int = -1, ?byteOffset:Int = 0):Void {
+    if (bytes == null) {
+      throw "Quadrants tensor writeBytes requires bytes";
+    }
+    var actualCount = count < 0 ? elementCount() - flatStart : count;
+    TensorStorage.requireByteRange(bytes, byteOffset, actualCount);
+    Native.ndarray_write_bytes(context.nativeHandle(), nativeHandle(), dtype, flatStart, actualCount, bytes, byteOffset);
   }
 
   public function flatIndex(indices:Array<Int>):Int {
@@ -82,12 +118,12 @@ class TensorRuntime implements TensorHandle {
     return TensorStorage.elementCount(shape);
   }
 
-  public function readBytes(out:hl.Bytes, flatStart:Int, count:Int, outByteOffset:Int = 0):Void {
+  public function readBytesInto(out:hl.Bytes, flatStart:Int, count:Int, outByteOffset:Int = 0):Void {
     TensorStorage.requireByteRange(out, outByteOffset, count);
     Native.ndarray_read_bytes(context.nativeHandle(), nativeHandle(), dtype, flatStart, count, out, outByteOffset);
   }
 
-  public function writeBytes(input:hl.Bytes, flatStart:Int, count:Int, inputByteOffset:Int = 0):Void {
+  public function writeBytesFrom(input:hl.Bytes, flatStart:Int, count:Int, inputByteOffset:Int = 0):Void {
     TensorStorage.requireByteRange(input, inputByteOffset, count);
     Native.ndarray_write_bytes(context.nativeHandle(), nativeHandle(), dtype, flatStart, count, input, inputByteOffset);
   }
@@ -95,7 +131,7 @@ class TensorRuntime implements TensorHandle {
   public function copyToBytes(out:hl.Bytes, flatStart:Int = 0, count:Int = -1, outByteOffset:Int = 0):Void {
     var elementTotal = count < 0 ? elementCount() - flatStart : count;
     TensorStorage.requireByteRange(out, outByteOffset, elementTotal);
-    readBytes(out, flatStart, elementTotal, outByteOffset);
+    readBytesInto(out, flatStart, elementTotal, outByteOffset);
   }
 
   public function copyFromBytes(input:hl.Bytes, flatStart:Int = 0, count:Int = -1, inputByteOffset:Int = 0):Void {

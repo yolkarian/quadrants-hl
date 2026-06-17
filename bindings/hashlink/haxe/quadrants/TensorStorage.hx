@@ -74,6 +74,19 @@ class TensorStorage {
     return count;
   }
 
+  public static function dtypeByteSize(dtype:DType):Int {
+    return switch (dtype) {
+      case DType.I8 | DType.U8 | DType.U1:
+        1;
+      case DType.I16 | DType.U16 | DType.F16:
+        2;
+      case DType.I32 | DType.U32 | DType.F32:
+        4;
+      case DType.I64 | DType.U64 | DType.F64:
+        8;
+    };
+  }
+
   public static function requireElementCount(shape:Array<Int>, count:Int):Void {
     if (count != elementCount(shape)) {
       throw "Quadrants tensor host array length mismatch";

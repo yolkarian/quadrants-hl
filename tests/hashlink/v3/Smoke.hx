@@ -43,6 +43,9 @@ class Smoke {
       }
     }, {name: "v3_smoke_add"});
     for (i in 0...4) x.write(i, i);
+    if (x.rank() != 1 || x.numel() != 4) throw "Tensor rank/numel failed";
+    y.copyFrom(x);
+    if (y.readAt([2]) != 2) throw "Tensor copy/readAt failed";
     add.launch(x, y, Spec.of(4));
     ctx.sync();
     if (y.read(3) != 4) throw 'typed Kernel.build failed: ${y.read(3)}';

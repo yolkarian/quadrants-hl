@@ -176,6 +176,16 @@ class TensorBuild {
     ], DTypeBuild.voidType(),
       '{ quadrants.TensorStorage.requireElementCount(shape, values.length); for (i in 0...values.length) write(i, values[i]); }'));
 
+    add("copyFrom", [APublic], fun([
+      DTypeBuild.arg("source", self)
+    ], DTypeBuild.voidType(),
+      '{ quadrants.TensorStorage.requireSameShape(shape, source.shape, "Tensor.copyFrom"); var count = elementCount(); for (i in 0...count) write(i, source.read(i)); }'));
+
+    add("copyTo", [APublic], fun([
+      DTypeBuild.arg("target", self)
+    ], DTypeBuild.voidType(),
+      '{ target.copyFrom(this); }'));
+
     add("view", [APublic], fun([
       DTypeBuild.arg("flatStart", DTypeBuild.intType()),
       DTypeBuild.arg("length", DTypeBuild.intType())

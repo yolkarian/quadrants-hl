@@ -129,6 +129,26 @@ class FieldRuntime implements TensorHandle {
     return TensorStorage.elementCount(shape);
   }
 
+  public function rank():Int {
+    ensureOpen();
+    if (shape == null) {
+      throw "Quadrants field has not been placed";
+    }
+    return shape.length;
+  }
+
+  public function numel():Int {
+    return elementCount();
+  }
+
+  public function shapeCopy():Array<Int> {
+    ensureOpen();
+    if (shape == null) {
+      throw "Quadrants field has not been placed";
+    }
+    return TensorStorage.copyIntArray(shape);
+  }
+
   public function nativeIndices(flatIndex:Int):hl.NativeArray<Int> {
     ensureOpen();
     if (shape == null) {

@@ -33,4 +33,19 @@ particles.writeMember("id", 0, 7);
 
 `QdStruct` rejects resources, `Array`, `String`, `Dynamic`, function fields, and arbitrary classes. `StructTensor` defaults to AOS; `StructField` defaults to SOA.
 
+Tensor/field host movement is method-based and typed:
+
+```haxe
+x.writeAt([i, j], value);
+final v = x.readAt([i, j]);
+x.fill(0);
+y.copyFrom(x);
+final bytes = x.readBytes();
+x.writeBytes(bytes);
+final capsule = x.toDLPack();
+final ptr = x.devicePointer();
+```
+
+`shape` and `dtype` are typed properties; `rank()`, `numel()`, and `shapeCopy()` provide stable method-style queries. Field parameters are direct SNode resources; v3 does not mirror fields through tensors on launch.
+
 `Kernel.build(ctx, macro (...)->{...})` is the v3 kernel entrypoint. Give every parameter an explicit type. Raw dynamic launch remains only as a low-level/legacy escape hatch through `KernelRaw` or a value explicitly typed as `Kernel`.
