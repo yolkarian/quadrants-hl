@@ -22,7 +22,7 @@ namespace {
 
 constexpr std::size_t kHeaderSize = 20;
 constexpr std::uint32_t kMagic = 0x4c484451;  // "QDHL", little-endian.
-constexpr std::uint32_t kVersion = 2;
+constexpr std::uint32_t kVersion = 3;
 constexpr std::uint32_t kUnknownSize = std::numeric_limits<std::uint32_t>::max();
 
 class DescriptorReader {

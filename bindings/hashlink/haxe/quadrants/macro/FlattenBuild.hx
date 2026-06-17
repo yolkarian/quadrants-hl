@@ -16,17 +16,20 @@ private typedef FlattenedMember = {
 }
 
 class FlattenBuild {
-  public static function build(ctxExpr:Expr, fnExpr:Expr, ?optionsExpr:Expr):Expr {
+  public static function build(ctxExpr:Expr, fnExpr:Expr, ?optionsExpr:Expr, allowUntypedRawFallback:Bool = false, entrypointName:String = "quadrants.QD.kernel"):Expr {
     var functionExpr = quadrants.macro.KernelBuilder.decodeMacroExpr(fnExpr);
     var functionDef = switch (functionExpr.expr) {
       case EFunction(_, f): f;
-      default: Context.error("quadrants.QD.kernel expects a macro arrow function", functionExpr.pos);
+      default: Context.error(entrypointName + " expects a macro arrow function", functionExpr.pos);
     };
     if (functionDef.expr == null) {
       Context.error("Quadrants flatten kernel function must have a body", functionExpr.pos);
     }
 
     var sourceArgs = functionDef.args;
+    if (allowUntypedRawFallback && expectedKernelType()) {
+      return quadrants.macro.KernelBuilder.build(ctxExpr, fnExpr, optionsExpr);
+    }
     var mapping = new Map<String, String>();
     var transformedArgs = new Array<FunctionArg>();
     var appendStatements = new Array<Expr>();
@@ -35,12 +38,16 @@ class FlattenBuild {
 
     for (arg in sourceArgs) {
       if (arg.type == null) {
+        if (allowUntypedRawFallback) {
+          Context.warning('Quadrants Kernel.build without explicit parameter types is a legacy raw-kernel path; add explicit Tensor<T>/Field<T>/scalar annotations for the v3 typed API.', arg.value == null ? functionExpr.pos : arg.value.pos);
+          return quadrants.macro.KernelBuilder.build(ctxExpr, fnExpr, optionsExpr);
+        }
         Context.error('Quadrants typed kernel parameter ${arg.name} requires an explicit type annotation', arg.value == null ? functionExpr.pos : arg.value.pos);
       }
       var flattenClass = flattenClassType(arg.type, functionExpr.pos);
       if (flattenClass == null) {
         transformedArgs.push({name: arg.name, opt: false, type: arg.type, value: null});
-        appendStatements.push(macro quadrants.kernel.ArgEncoding.append(__qd_buf, $i{arg.name}));
+        appendStatements.push(quadrants.macro.TypedKernelBuild.appendStatementForExpr({expr: EConst(CIdent(arg.name)), pos: functionExpr.pos}, arg.type, functionExpr.pos));
         metadataArgs.push({path: arg.name, role: "runtime", kind: paramKindForComplexType(arg.type, functionExpr.pos), dtype: dtypeForComplexType(arg.type, functionExpr.pos), rank: rankForComplexType(arg.type, functionExpr.pos)});
         continue;
       }
@@ -48,7 +55,7 @@ class FlattenBuild {
       var members = flattenMembers(arg.name, identExpr(arg.name, functionExpr.pos), arg.type, functionExpr.pos, mapping);
       for (member in members) {
         transformedArgs.push({name: member.flatName, opt: false, type: member.type, value: null});
-        appendStatements.push(macro quadrants.kernel.ArgEncoding.append(__qd_buf, $e{member.accessExpr}));
+        appendStatements.push(quadrants.macro.TypedKernelBuild.appendStatementForExpr(member.accessExpr, member.type, functionExpr.pos));
         metadataArgs.push({path: member.path, role: member.role, kind: paramKindForComplexType(member.type, functionExpr.pos), dtype: dtypeForComplexType(member.type, functionExpr.pos), rank: rankForComplexType(member.type, functionExpr.pos)});
       }
     }
@@ -95,6 +102,20 @@ class FlattenBuild {
     };
   }
 
+  static function expectedKernelType():Bool {
+    var expected = Context.getExpectedType();
+    if (expected == null) {
+      return false;
+    }
+    return switch (Context.followWithAbstracts(expected)) {
+      case TInst(classRef, _):
+        var cls = classRef.get();
+        cls.pack.join(".") == "quadrants" && cls.name == "Kernel";
+      default:
+        false;
+    };
+  }
+
   static function buildLaunchFunction(args:Array<FunctionArg>, appendStatements:Array<Expr>, returnType:ComplexType, useStream:Bool, useGraph:Bool, pos:Position):Expr {
     var closureArgs = new Array<FunctionArg>();
     if (useStream) {
@@ -115,93 +136,9 @@ class FlattenBuild {
   }
 
   static function descriptorMetadataJson(kernelName:String, args:Array<Dynamic>):String {
-    var typeIds = new Map<String, Int>();
-    var types:Array<Dynamic> = [];
-    var schemaArgs:Array<Dynamic> = [];
-    var templates:Array<Dynamic> = [];
-    var resources:Array<Dynamic> = [];
-    var capabilities:Array<String> = [];
-
-    function dtypeName(dtype:Int):String {
-      return switch (dtype) {
-        case 0: "i8";
-        case 1: "i16";
-        case 2: "i32";
-        case 3: "i64";
-        case 4: "u8";
-        case 5: "u16";
-        case 6: "u32";
-        case 7: "u64";
-        case 8: "f32";
-        case 9: "f64";
-        case 10: "u1";
-        case 11: "f16";
-        default: 'unknown(${dtype})';
-      };
-    }
-
-    function kindName(kind:Int):String {
-      return switch (kind) {
-        case 0: "scalar";
-        case 1: "tensor";
-        case 2: "field";
-        default: 'unknown(${kind})';
-      };
-    }
-
-    function typeKind(kind:Int):String {
-      return switch (kind) {
-        case 0: "primitive";
-        case 1: "tensor_resource";
-        case 2: "field_resource";
-        default: "primitive";
-      };
-    }
-
-    function typeIdOf(kind:Int, dtype:Int, rank:Int):Int {
-      var key = kind + ":" + dtype + ":" + rank;
-      var existing = typeIds.get(key);
-      if (existing != null) {
-        return existing;
-      }
-      var id = types.length + 1;
-      typeIds.set(key, id);
-      types.push({id: id, kind: typeKind(kind), dtype: dtypeName(dtype), rank: rank});
-      return id;
-    }
-
-    for (index in 0...args.length) {
-      var arg = args[index];
-      var kind:Int = Reflect.field(arg, "kind");
-      var dtype:Int = Reflect.field(arg, "dtype");
-      var rank:Int = Reflect.field(arg, "rank");
-      var role:String = Reflect.field(arg, "role");
-      var path:String = Reflect.field(arg, "path");
-      var typeId = typeIdOf(kind, dtype, rank);
-      schemaArgs.push({index: index, path: path, role: role, kind: kindName(kind), typeId: typeId});
-      if (role == "template") {
-        templates.push({path: path, type: dtypeName(dtype), value: "runtime"});
-        if (capabilities.indexOf("template_constants") < 0) {
-          capabilities.push("template_constants");
-        }
-      }
-      if (kind != 0) {
-        resources.push({path: path, kind: kindName(kind), typeId: typeId});
-      }
-      if (kind == 2 && capabilities.indexOf("field_direct_param") < 0) {
-        capabilities.push("field_direct_param");
-      }
-    }
-    return haxe.Json.stringify({
-      version: 2,
-      kernelName: kernelName,
-      types: types,
-      args: schemaArgs,
-      templates: templates,
-      resources: resources,
-      capabilities: capabilities,
-    });
+    return quadrants.macro.DescriptorWriter.metadata(kernelName, args, [], [], []);
   }
+
 
   static function mergeOptionsWithMetadata(optionsExpr:Null<Expr>, metadataJson:String, pos:Position):Expr {
     var metadataField:ObjectField = {field: "__qdhlMeta", expr: macro $v{metadataJson}};
@@ -360,7 +297,7 @@ class FlattenBuild {
       if (field.name == dataOrientedCtxField || StringTools.startsWith(field.name, "__qd_")) {
         continue;
       }
-      if (hasMeta(field.meta, ":qdIgnore") || hasMeta(field.meta, "qdIgnore")) {
+      if (hasMeta(field.meta, ":qdIgnore") || hasMeta(field.meta, "qdIgnore") || hasMeta(field.meta, ":hostOnly") || hasMeta(field.meta, "hostOnly")) {
         continue;
       }
       var fieldType = TypeTools.toComplexType(field.type);
@@ -377,7 +314,13 @@ class FlattenBuild {
         continue;
       }
       if (isDynamicType(field.type)) {
-        Context.error('Quadrants flatten field ${fieldPath} cannot use Dynamic', field.pos);
+        Context.error('Quadrants QdArgs field ${fieldPath} cannot use Dynamic', field.pos);
+      }
+      if (isArrayType(field.type)) {
+        Context.error('Quadrants QdArgs field ${fieldPath} cannot use Array<T>; mark it @:hostOnly if it is host-only state', field.pos);
+      }
+      if (isStringType(field.type)) {
+        Context.error('Quadrants QdArgs field ${fieldPath} cannot use String; mark it @:hostOnly if it is host-only state', field.pos);
       }
       if (isResourceType(field.type)) {
         var flatName = sanitizePath(fieldPath);
@@ -385,13 +328,12 @@ class FlattenBuild {
         result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: "runtime"});
         continue;
       }
-      if (hasMeta(field.meta, ":template") || hasMeta(field.meta, "template") || hasMeta(field.meta, ":param") || hasMeta(field.meta, "param")) {
-        var flatName = sanitizePath(fieldPath);
-        mapping.set(fieldPath, flatName);
-        result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: hasMeta(field.meta, ":template") || hasMeta(field.meta, "template") ? "template" : "runtime"});
-        continue;
+      if (!isAllowedSpecType(field.type)) {
+        Context.error('Quadrants QdArgs field ${fieldPath} has unsupported type; use Tensor/Field resources, primitive/enum spec constants, nested QdArgs, or @:hostOnly', field.pos);
       }
-      Context.error('Quadrants flatten primitive field ${fieldPath} must be marked @:template or @:param', field.pos);
+      var flatName = sanitizePath(fieldPath);
+      mapping.set(fieldPath, flatName);
+      result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: hasMeta(field.meta, ":param") || hasMeta(field.meta, "param") ? "runtime" : "spec"});
     }
     return result;
   }
@@ -400,7 +342,8 @@ class FlattenBuild {
     return switch (Context.followWithAbstracts(Context.resolveType(type, pos))) {
       case TInst(classRef, _):
         var classType = classRef.get();
-        if (hasMeta(classType.meta, ":qdFlatten") || hasMeta(classType.meta, "qdFlatten")
+        if (hasMeta(classType.meta, ":qdArgs") || hasMeta(classType.meta, "qdArgs")
+          || hasMeta(classType.meta, ":qdFlatten") || hasMeta(classType.meta, "qdFlatten")
           || hasMeta(classType.meta, ":qdDataOriented") || hasMeta(classType.meta, "qdDataOriented")
           || extendsDataOriented(classType)) {
           classType;
@@ -441,7 +384,7 @@ class FlattenBuild {
       if (field.name == dataOrientedCtxField || StringTools.startsWith(field.name, "__qd_")) {
         continue;
       }
-      if (buildFieldHasMeta(field.meta, ":qdIgnore") || buildFieldHasMeta(field.meta, "qdIgnore")) {
+      if (buildFieldHasMeta(field.meta, ":qdIgnore") || buildFieldHasMeta(field.meta, "qdIgnore") || buildFieldHasMeta(field.meta, ":hostOnly") || buildFieldHasMeta(field.meta, "hostOnly")) {
         continue;
       }
       var fieldType = buildFieldType(field);
@@ -458,7 +401,13 @@ class FlattenBuild {
         continue;
       }
       if (isDynamicComplexType(fieldType, field.pos)) {
-        Context.error('Quadrants flatten field ${fieldPath} cannot use Dynamic', field.pos);
+        Context.error('Quadrants QdArgs field ${fieldPath} cannot use Dynamic', field.pos);
+      }
+      if (isArrayComplexType(fieldType, field.pos)) {
+        Context.error('Quadrants QdArgs field ${fieldPath} cannot use Array<T>; mark it @:hostOnly if it is host-only state', field.pos);
+      }
+      if (isStringComplexType(fieldType, field.pos)) {
+        Context.error('Quadrants QdArgs field ${fieldPath} cannot use String; mark it @:hostOnly if it is host-only state', field.pos);
       }
       if (isResourceComplexType(fieldType, field.pos)) {
         var flatName = sanitizePath(fieldPath);
@@ -466,13 +415,12 @@ class FlattenBuild {
         result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: "runtime"});
         continue;
       }
-      if (buildFieldHasMeta(field.meta, ":template") || buildFieldHasMeta(field.meta, "template") || buildFieldHasMeta(field.meta, ":param") || buildFieldHasMeta(field.meta, "param")) {
-        var flatName = sanitizePath(fieldPath);
-        mapping.set(fieldPath, flatName);
-        result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: buildFieldHasMeta(field.meta, ":template") || buildFieldHasMeta(field.meta, "template") ? "template" : "runtime"});
-        continue;
+      if (!isAllowedSpecComplexType(fieldType, field.pos)) {
+        Context.error('Quadrants QdArgs field ${fieldPath} has unsupported type; use Tensor/Field resources, primitive/enum spec constants, nested QdArgs, or @:hostOnly', field.pos);
       }
-      Context.error('Quadrants flatten primitive field ${fieldPath} must be marked @:template or @:param', field.pos);
+      var flatName = sanitizePath(fieldPath);
+      mapping.set(fieldPath, flatName);
+      result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: buildFieldHasMeta(field.meta, ":param") || buildFieldHasMeta(field.meta, "param") ? "runtime" : "spec"});
     }
     return result;
   }
@@ -564,6 +512,40 @@ class FlattenBuild {
 
   static function isDynamicComplexType(type:ComplexType, pos:Position):Bool {
     return isDynamicType(Context.resolveType(type, pos));
+  }
+
+  static function isArrayComplexType(type:ComplexType, pos:Position):Bool {
+    return isArrayType(Context.resolveType(type, pos));
+  }
+
+  static function isArrayType(type:Type):Bool {
+    return switch (Context.followWithAbstracts(type)) {
+      case TInst(classRef, _): classRef.get().pack.join(".") == "" && classRef.get().name == "Array";
+      default: false;
+    };
+  }
+
+  static function isStringComplexType(type:ComplexType, pos:Position):Bool {
+    return isStringType(Context.resolveType(type, pos));
+  }
+
+  static function isStringType(type:Type):Bool {
+    return switch (Context.followWithAbstracts(type)) {
+      case TInst(classRef, _): classRef.get().pack.join(".") == "" && classRef.get().name == "String";
+      default: false;
+    };
+  }
+
+  static function isAllowedSpecComplexType(type:ComplexType, pos:Position):Bool {
+    return isAllowedSpecType(Context.resolveType(type, pos));
+  }
+
+  static function isAllowedSpecType(type:Type):Bool {
+    return switch (Context.followWithAbstracts(type)) {
+      case TAbstract(_, _): true;
+      case TEnum(_, _): true;
+      default: false;
+    };
   }
 
   static function isDynamicType(type:Type):Bool {

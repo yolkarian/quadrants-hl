@@ -74,6 +74,13 @@ class Capabilities {
   public final profiler:ProfilerCapabilities;
   public final interop:InteropCapabilities;
   public final version:VersionCapabilities;
+  public final fieldResourceParam:Bool;
+  public final structTensor:Bool;
+  public final meshKernelAccess:Bool;
+  public final quantKernelParam:Bool;
+  public final streamParallel:Bool;
+  public final nativeSparse:Bool;
+  public final memoryProfiler:Bool;
   public final runtimeConfigWarnings:Array<String>;
 
   public function new(context:Context) {
@@ -126,6 +133,13 @@ class Capabilities {
       cudaGlInterop: context.isExtensionEnabled(Extension.CudaGlInterop),
     };
     version = VersionInfo.current();
+    fieldResourceParam = true;
+    structTensor = false;
+    meshKernelAccess = mesh.kernelRelations && mesh.kernelAttributes;
+    quantKernelParam = quant.kernelParameters;
+    streamParallel = streams.parallelBlocks;
+    nativeSparse = sparse.nativeBackend;
+    memoryProfiler = profiler.memory;
     runtimeConfigWarnings = context.optionWarnings();
   }
 
@@ -141,6 +155,13 @@ class Capabilities {
       profiler: profiler,
       interop: interop,
       version: version,
+      fieldResourceParam: fieldResourceParam,
+      structTensor: structTensor,
+      meshKernelAccess: meshKernelAccess,
+      quantKernelParam: quantKernelParam,
+      streamParallel: streamParallel,
+      nativeSparse: nativeSparse,
+      memoryProfiler: memoryProfiler,
       runtimeConfigWarnings: [for (warning in runtimeConfigWarnings) warning],
     };
   }

@@ -1,5 +1,7 @@
 # Haxe/HashLink public API
 
+> API v3 note: new code should start with [Haxe/HashLink API v3](haxe_api_v3.md) and [Haxe kernels v3](haxe_kernel_v3.md). This page is retained for broader API background and may mention legacy helpers that are no longer the documented v3 path.
+
 This page is the Haxe/HL replacement for the former Python binding entry points. New user code should import the `quadrants` Haxe package and run through HashLink JIT bytecode (`haxe -hl ...`, then `hl ...`).
 
 ## Execution model

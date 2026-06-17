@@ -1,4 +1,4 @@
-// EXPECT_ERROR: Quadrants Tensor/Field kernel parameter requires an explicit dtype type parameter
+// EXPECT_ERROR: Not enough type parameters for quadrants.Tensor
 import quadrants.Context;
 import quadrants.Kernel;
 import quadrants.Tensor;

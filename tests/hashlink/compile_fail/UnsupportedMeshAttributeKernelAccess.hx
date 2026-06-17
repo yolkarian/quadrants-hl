@@ -1,4 +1,4 @@
-// EXPECT_ERROR: kernel mesh relation/attribute access requires descriptor mesh resource metadata
+// EXPECT_ERROR: Unsupported Quadrants typed kernel dtype MeshAttribute
 import quadrants.Context;
 import quadrants.Kernel;
 import quadrants.Tensor;

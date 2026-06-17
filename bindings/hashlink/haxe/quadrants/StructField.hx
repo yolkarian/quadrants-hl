@@ -25,6 +25,10 @@ class StructField {
     return new StructField(members);
   }
 
+  public static function alloc<S>(context:Context, shape:Array<Int>, layout:LayoutPolicy = LayoutPolicy.SOA):StructField {
+    throw "Quadrants StructField<S> storage is scheduled for Phase 5; QdStruct metadata is required before allocation";
+  }
+
   public static function fromStructOfArrays(source:StructOfArraysField):StructField {
     var result = new StructField();
     for (name in source.members()) {

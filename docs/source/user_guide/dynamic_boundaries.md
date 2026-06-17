@@ -5,7 +5,7 @@ HashLink treats `Dynamic` as an interop boundary, not a normal public API design
 | API surface | Classification | Retention reason |
 | --- | --- | --- |
 | `KernelRaw.launchDynamic(...)`, `launchOnDynamic(...)`, graph launch methods, `launchRetDynamic(...)`, `launchRetsDynamic(...)`, `kernel.ArgBuffer`, and native `hl.NativeArray<Dynamic>` launch bridge | Permanent necessary boundary | Runtime kernel calls accept heterogeneous argument lists whose arity and scalar/tensor mix are determined by the compiled descriptor. |
-| `Kernel.launch(...)`, `launchOn(...)`, graph launch methods, `launchRet(...)`, `launchRets(...)` | Compatibility shim | `Kernel` remains as a facade over `KernelRaw` so existing code keeps working while new code migrates to `KernelRaw` or typed `QD.kernel(...)` launch wrappers. |
+| `Kernel.launch(...)`, `launchOn(...)`, graph launch methods, `launchRet(...)`, `launchRets(...)` | Legacy shim | API v3 documents typed `Kernel.build(...)` wrappers. Dynamic `Kernel` launch is retained only for explicitly raw/legacy code and should not appear in new examples. |
 | `TapeRecord.args`, `Tape.record(...)`, `Tape.launch(...)`, `Tape.launchCustom(...)` | Permanent necessary boundary | Tape records the same heterogeneous launch argument lists as `Kernel.launch`. |
 | `GradCheck.check*ToScalar(..., args:Array<Dynamic>, ...)` | Permanent necessary boundary | Grad checking replays a kernel with the same heterogeneous launch argument list while separately identifying typed differentiable inputs and scalar loss. |
 | `Native.kernel_launch*`, `Native.kernel_launch_ret(s)` | Permanent necessary boundary | HashLink native ABI passes descriptor-validated heterogeneous values through `hl.NativeArray<Dynamic>`. |

@@ -170,21 +170,13 @@ class KernelRaw {
         paramIndex += 3;
       } else if (Std.isOfType(value, FieldRuntime)) {
         var field:FieldRuntime = cast value;
-        if (paramKindAt(paramIndex) == PARAM_KIND_FIELD) {
-          if (!field.hasSNode()) {
-            throw "Quadrants Field kernel arguments must be placed SNode fields";
-          }
-          flattened.push(field.snodeId);
-        } else {
-          field.syncSNodeToTensor();
-          field.syncAutodiffPeersToTensor();
-          context.recordFieldMirrorFallback(name,
-            paramIndex,
-            field,
-            field.elementCount() * dtypeByteSize(field.dtype) * 2,
-            "descriptor parameter lowered as ndarray tensor mirror");
-          flattened.push(field.nativeHandle());
+        if (paramKindAt(paramIndex) != PARAM_KIND_FIELD) {
+          throw "Field<T> parameter requires capability field_resource_param. Current descriptor expects a Tensor resource; pass a Tensor<T> explicitly instead of relying on the removed Field mirror path.";
         }
+        if (!field.hasSNode()) {
+          throw "Quadrants Field kernel arguments must be placed SNode fields";
+        }
+        flattened.push(field.snodeId);
         paramIndex++;
       } else if (Std.isOfType(value, TensorHandle)) {
         var tensor:TensorHandle = cast value;
@@ -223,11 +215,6 @@ class KernelRaw {
       if (Std.isOfType(value, BufferView)) {
         paramIndex += 3;
       } else if (Std.isOfType(value, FieldRuntime)) {
-        if (paramKindAt(paramIndex) != PARAM_KIND_FIELD) {
-          var field:FieldRuntime = cast value;
-          field.syncTensorToSNode();
-          field.syncAutodiffPeersFromTensor();
-        }
         paramIndex++;
       } else {
         callOptionalSync(value, "syncAfterKernel");

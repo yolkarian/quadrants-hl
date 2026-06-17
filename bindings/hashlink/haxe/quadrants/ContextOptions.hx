@@ -14,6 +14,7 @@ typedef OfflineCacheOptions = {
 
 typedef CompileOptions = {
   @:optional var cfgOptimization:Bool;
+  @:optional var numThreads:Int;
   @:optional var numCompileThreads:Int;
   @:optional var optLevel:OptLevel;
   @:optional var externalOptLevel:OptLevel;
@@ -44,6 +45,7 @@ typedef DebugOptions = {
   @:optional var launchDebug:Bool;
   @:optional var timeline:Bool;
 }
+
 
 @:final class ContextOptions {
   public var arch:Null<Arch> = null;
@@ -87,6 +89,47 @@ typedef DebugOptions = {
 
   public static function builder():ContextOptionsBuilder {
     return new ContextOptionsBuilder();
+  }
+
+  public static function fromCreateOptions(config:ContextCreateOptions):ContextOptions {
+    var builder = ContextOptions.builder();
+    if (config == null) {
+      return builder.build();
+    }
+    if (config.arch != null) {
+      builder.arch(config.arch);
+    }
+    if (config.profiler != null) {
+      builder.profiler(config.profiler == true);
+    }
+    if (config.fastMath != null) {
+      builder.fastMath(config.fastMath == true);
+    }
+    if (config.boundsCheck != null) {
+      builder.boundsCheck(config.boundsCheck == true);
+    }
+    if (config.randomSeed != null) {
+      builder.randomSeed(config.randomSeed);
+    }
+    if (config.cpuMaxNumThreads != null) {
+      builder.cpuMaxNumThreads(config.cpuMaxNumThreads);
+    }
+    if (config.offlineCache != null) {
+      builder.offlineCache(config.offlineCache);
+    }
+    if (config.compile != null) {
+      builder.compile(config.compile);
+    }
+    if (config.debug != null) {
+      builder.debug(config.debug);
+    }
+    if (config.ad != null) {
+      builder.ad(config.ad);
+    }
+    if (config.memory != null) {
+      builder.memory(config.memory);
+    }
+    return builder.build();
   }
 
   public static function withKernelProfiler(enabled:Bool = true):ContextOptions {
@@ -335,10 +378,11 @@ class ContextOptionsBuilder {
       throw "Quadrants ContextOptions.builder().compile requires a config object";
     }
     options.compileCfgOptimization = config.cfgOptimization;
-    if (config.numCompileThreads != null && config.numCompileThreads <= 0) {
-      throw "Quadrants numCompileThreads must be positive";
+    var compileThreads = config.numThreads != null ? config.numThreads : config.numCompileThreads;
+    if (compileThreads != null && compileThreads <= 0) {
+      throw "Quadrants numThreads must be positive";
     }
-    options.compileNumThreads = config.numCompileThreads;
+    options.compileNumThreads = compileThreads;
     options.compileOptLevel = config.optLevel;
     options.compileExternalOptLevel = config.externalOptLevel;
     return this;

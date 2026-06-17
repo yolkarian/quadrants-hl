@@ -68,6 +68,8 @@ class Diagnostics {
       locals: Reflect.field(symbols, "locals"),
       statements: parseStatements(kernel, sectionByKind(sections, 7), strings),
       attributes: attributes,
+      descriptor: Reflect.field(attributes, "qdhl.meta.json") == null ? null : haxe.Json.parse(cast Reflect.field(attributes, "qdhl.meta.json")),
+      descriptorV3: Reflect.field(attributes, "qdhl.meta.json") == null ? null : haxe.Json.parse(cast Reflect.field(attributes, "qdhl.meta.json")),
       descriptorV2: Reflect.field(attributes, "qdhl.meta.json") == null ? null : haxe.Json.parse(cast Reflect.field(attributes, "qdhl.meta.json"))
     };
   }

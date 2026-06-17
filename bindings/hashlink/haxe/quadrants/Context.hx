@@ -33,6 +33,12 @@ class Context {
     }
   }
 
+  public static function create(?options:ContextCreateOptions):Context {
+    var resolved = ContextOptions.fromCreateOptions(options);
+    var selectedArch = resolved.arch == null ? Arch.Cpu : resolved.arch;
+    return new Context(selectedArch, resolved.profilerEnabled, resolved);
+  }
+
   public static function fromOptions(options:ContextOptions, arch:Arch = Cpu):Context {
     return new Context(arch, false, options);
   }

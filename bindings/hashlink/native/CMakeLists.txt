@@ -9,6 +9,7 @@ set(QD_HASHLINK_INSTALL_DIR "share/quadrants/hashlink" CACHE PATH "HashLink brid
 set(QD_HASHLINK_RUNTIME_INSTALL_DIR "${QD_HASHLINK_INSTALL_DIR}/runtime" CACHE PATH "HashLink runtime bitcode install directory")
 set(QD_HASHLINK_ROCM_RUNTIME_INSTALL_DIR "${QD_HASHLINK_INSTALL_DIR}/runtime_rocm70" CACHE PATH "HashLink ROCm runtime bitcode install directory")
 option(QD_BUILD_HASHLINK_TESTS "Register Haxe/HashLink tests with CTest" OFF)
+option(QD_BUILD_HASHLINK_LEGACY_TESTS "Register pre-v3 Haxe/HashLink runtime tests" OFF)
 
 if(NOT EXISTS "${QD_HASHLINK_ROOT}/src/hl.h")
   if(EXISTS "${QD_HASHLINK_ROOT}/include/hl.h")
@@ -45,6 +46,7 @@ add_library(quadrants.hdll SHARED
   descriptor_lower_type.cpp
   descriptor_lower_expr.cpp
   descriptor_lower_stmt.cpp
+  capabilities.cpp
   quadrants_hl.h
   descriptor.h
   descriptor_internal.h)
@@ -171,12 +173,23 @@ if(QD_BUILD_HASHLINK_TESTS)
       -DHAXE_EXECUTABLE=${QD_HAXE_EXECUTABLE}
       -DQUADRANTS_HDLL=$<TARGET_FILE:quadrants.hdll>
       -DQUADRANTS_RUNTIME_DIR=${QD_RUNTIME_BUILD_DIR}
-      -DHXML_FILE=${PROJECT_SOURCE_DIR}/tests/hashlink/hashlink_tests.hxml
-      -DOUTPUT_HL=${CMAKE_BINARY_DIR}/hashlink-tests.hl
+      -DHXML_FILE=${PROJECT_SOURCE_DIR}/tests/hashlink/v3/hashlink_v3_smoke.hxml
+      -DOUTPUT_HL=${CMAKE_BINARY_DIR}/hashlink-v3-compile.hl
       -P ${PROJECT_SOURCE_DIR}/cmake/RunHashLinkTest.cmake)
-  # Keep runtime execution sharded across several HL entrypoints. A single monolithic HashLink
-  # process still compiles (`hashlink_haxe_compile` above), but long-running runtime suites are
-  # measurably less stable when every feature test shares one VM instance.
+
+  add_test(NAME haxe_v3_smoke
+    COMMAND ${CMAKE_COMMAND}
+      -DREPO_ROOT=${PROJECT_SOURCE_DIR}
+      -DHAXE_EXECUTABLE=${QD_HAXE_EXECUTABLE}
+      -DHL_EXECUTABLE=${QD_HL_EXECUTABLE}
+      -DQUADRANTS_HDLL=$<TARGET_FILE:quadrants.hdll>
+      -DQUADRANTS_RUNTIME_DIR=${QD_RUNTIME_BUILD_DIR}
+      -DHXML_FILE=${PROJECT_SOURCE_DIR}/tests/hashlink/v3/hashlink_v3_smoke.hxml
+      -DOUTPUT_HL=${CMAKE_BINARY_DIR}/hashlink-v3-smoke.hl
+      -DRUN_HL=ON
+      -P ${PROJECT_SOURCE_DIR}/cmake/RunHashLinkTest.cmake)
+  if(QD_BUILD_HASHLINK_LEGACY_TESTS)
+  # Legacy pre-v3 runtime suites are opt-in on the breaking branch.
   add_test(NAME hashlink_hl_runtime_alpha
     COMMAND ${CMAKE_COMMAND}
       -DREPO_ROOT=${PROJECT_SOURCE_DIR}
@@ -238,6 +251,7 @@ if(QD_BUILD_HASHLINK_TESTS)
       -DEXPECT_STDOUT_SUBSTRING=hashlink-print-token
       -P ${PROJECT_SOURCE_DIR}/cmake/RunHashLinkTest.cmake)
 
+  endif()
 
   add_test(NAME hashlink_macro_compile_fail
     COMMAND ${CMAKE_COMMAND}

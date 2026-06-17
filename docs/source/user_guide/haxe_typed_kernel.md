@@ -1,6 +1,6 @@
 # Haxe typed kernels
 
-`QD.kernel(...)` is the typed launch path layered on top of `KernelRaw`.
+API v3 promotes `Kernel.build(ctx, macro (...)->{...})` to the typed launch path. `QD.kernel(...)` remains as a compatibility alias layered on top of `KernelRaw`.
 
 ## Basic launch
 

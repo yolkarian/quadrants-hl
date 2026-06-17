@@ -4,7 +4,7 @@ class Kernel {
   #if !macro
   final rawKernel:KernelRaw;
 
-  function new(rawKernel:KernelRaw) {
+  @:noCompletion public function new(rawKernel:KernelRaw) {
     this.rawKernel = rawKernel;
   }
 
@@ -65,7 +65,7 @@ class Kernel {
   #end
 
   public static macro function build(ctx:haxe.macro.Expr, fn:haxe.macro.Expr, ?options:haxe.macro.Expr):haxe.macro.Expr {
-    return quadrants.macro.KernelBuilder.build(ctx, fn, options);
+    return quadrants.macro.FlattenBuild.build(ctx, fn, options, true, "quadrants.Kernel.build");
   }
 
   public static macro function buildRaw(ctx:haxe.macro.Expr, fn:haxe.macro.Expr, ?options:haxe.macro.Expr):haxe.macro.Expr {

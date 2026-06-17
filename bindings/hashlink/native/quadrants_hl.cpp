@@ -620,7 +620,7 @@ void finalize_snode_tree(qd_snode_tree *tree) {
   tree->~qd_snode_tree();
 }
 
-void finalize_cuda_gl_resource(qd_cuda_gl_resource *resource) {
+[[maybe_unused]] void finalize_cuda_gl_resource(qd_cuda_gl_resource *resource) {
   release_cuda_gl_resource_handle(resource);
   resource->~qd_cuda_gl_resource();
 }
@@ -1388,7 +1388,7 @@ std::size_t checked_import_byte_size(const std::vector<int> &shape, int bridge_d
   return count * element_size;
 }
 
-unsigned int checked_gl_buffer_id(vdynamic *buffer) {
+[[maybe_unused]] unsigned int checked_gl_buffer_id(vdynamic *buffer) {
   if (buffer == nullptr) {
     throw std::runtime_error("Quadrants CUDA/GL interop received a null OpenGL buffer handle");
   }

@@ -19,6 +19,7 @@ class QKernel9<A, B, C, D, E, F, G, H, I, R> implements QKernel {
     return rawKernel;
   }
 
+
   public function name():String {
     return rawKernel.kernelName();
   }
@@ -46,4 +47,28 @@ class QKernel9<A, B, C, D, E, F, G, H, I, R> implements QKernel {
   public function validationKernel():QKernel9<A, B, C, D, E, F, G, H, I, R> {
     return wrapRaw(rawKernel.validationKernel());
   }
+  public function descriptorHash():String {
+    return rawKernel.descriptorHash();
+  }
+
+  public function descriptorLengthBytes():Int {
+    return rawKernel.descriptorLengthBytes();
+  }
+
+  public function descriptorByteAt(index:Int):Int {
+    return rawKernel.descriptorByteAt(index);
+  }
+
+  public function descriptor():quadrants.Kernel {
+    return asKernel();
+  }
+
+  public function close():Void {
+    rawKernel.close();
+  }
+
+  public function asKernel():quadrants.Kernel {
+    return quadrants.Kernel.fromRaw(rawKernel);
+  }
+
 }

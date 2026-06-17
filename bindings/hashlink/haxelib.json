@@ -4,9 +4,9 @@
   "license": "Apache",
   "tags": ["quadrants", "hashlink", "gpu", "dsl"],
   "description": "Haxe/HashLink bindings for the Quadrants programming language.",
-  "version": "0.0.0",
+  "version": "0.3.0-breaking",
   "classPath": "haxe",
-  "releasenote": "Development package for the Quadrants HashLink bridge.",
+  "releasenote": "Breaking v3 Haxe/HashLink API reset with typed Kernel.build and QDHL schema v3 metadata.",
   "contributors": ["Quadrants developers"],
   "dependencies": {}
 }

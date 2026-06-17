@@ -474,10 +474,12 @@ private class DescriptorBuilder {
 
     var metadataJson = descriptorMetadataJson;
     if (metadataJson == null) {
-      metadataJson = quadrants.macro.DescriptorV2Writer.autoMetadata(kernelName, [
+      metadataJson = quadrants.macro.DescriptorWriter.autoMetadata(kernelName, [
         for (param in params)
           {
             name: param.name,
+            path: param.name,
+            role: "runtime",
             kind: param.kind,
             dtype: param.dtype,
             rank: param.rank,
@@ -485,7 +487,7 @@ private class DescriptorBuilder {
       ]);
     }
     var attributesSection = new ByteWriter();
-    attributesSection.append(quadrants.macro.DescriptorV2Writer.attributesSection(metadataJson));
+    attributesSection.append(quadrants.macro.DescriptorWriter.attributesSection(metadataJson));
 
     var sections = [
       {kind: 1, bytes: stringsSection.bytes},
@@ -514,7 +516,7 @@ private class DescriptorBuilder {
     descriptor.u8(0x44);
     descriptor.u8(0x48);
     descriptor.u8(0x4c);
-    descriptor.u32(2);
+    descriptor.u32(quadrants.macro.DescriptorWriter.SCHEMA_VERSION);
     descriptor.u32(sections.length);
     descriptor.u32(headerSize);
     descriptor.u32(offset);
@@ -4291,6 +4293,8 @@ private class DescriptorBuilder {
       case TPath(path) if (isTensorPath(path)):
         var dtype = tensorElementDType(path, pos);
         {kind: PARAM_NDARRAY, dtype: dtype, needsGrad: needsGradForDType(dtype)};
+      case TPath(path) if (isSpecPath(path)):
+        {kind: PARAM_SCALAR, dtype: specElementDType(path, pos), needsGrad: false};
       case TPath(path) if (isQuantKernelParameterPath(path)):
         Context.error("Quadrants HashLink native quant kernel parameters require descriptor quant type metadata, which is not supported by this backend", pos);
       case TPath(path) if (isMeshKernelParameterPath(path)):
@@ -4298,6 +4302,11 @@ private class DescriptorBuilder {
       default:
         {kind: PARAM_SCALAR, dtype: dtypeFromComplexType(type, pos), needsGrad: false};
     }
+  }
+
+  function isSpecPath(path:TypePath):Bool {
+    var fullName = typePathName(path);
+    return fullName == "Spec" || fullName == "quadrants.Spec";
   }
 
   function isTensorPath(path:TypePath):Bool {
@@ -4370,6 +4379,16 @@ private class DescriptorBuilder {
         tensorElementDType(path, pos);
       default:
         Context.error("Quadrants BufferView parameter requires a BufferView<T> type", pos);
+    };
+  }
+
+  function specElementDType(path:TypePath, pos:Position):Int {
+    if (path.params == null || path.params.length != 1) {
+      Context.error("Quadrants Spec<T> requires exactly one type parameter", pos);
+    }
+    return switch (path.params[0]) {
+      case TPType(type): dtypeFromComplexType(type, pos, DTYPE_I32);
+      default: Context.error("Quadrants Spec<T> type parameter must be a type", pos);
     };
   }
 
@@ -4524,7 +4543,11 @@ class KernelBuilder {
     }
     var localClass = Context.getLocalClass();
     if (localClass != null) {
-      collectClassQdFunctions(functions, localClass.get());
+      var local = localClass.get();
+      for (helperClass in helperClassesFromMetadata(local)) {
+        collectClassQdFunctions(functions, helperClass.classType);
+      }
+      collectClassQdFunctions(functions, local);
     }
     return functions;
   }
@@ -4586,6 +4609,18 @@ class KernelBuilder {
       default:
         Context.error("quadrants.Kernel.build options must be an object literal", expr.pos);
     };
+  }
+
+  static function helperClassesFromMetadata(classType:ClassType):Array<{classType:ClassType}> {
+    var helpers:Array<{classType:ClassType}> = [];
+    for (entry in classType.meta.extract(":qdHelpers").concat(classType.meta.extract("qdHelpers"))) {
+      if (entry.params != null) {
+        for (param in entry.params) {
+          helpers.push(helperClass(param));
+        }
+      }
+    }
+    return helpers;
   }
 
   static function helperClassList(expr:Expr):Array<{classType:ClassType}> {

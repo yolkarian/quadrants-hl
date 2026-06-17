@@ -1,4 +1,4 @@
-// EXPECT_ERROR: Unsupported Quadrants HashLink dtype String
+// EXPECT_ERROR: Unsupported Quadrants typed kernel dtype String
 import quadrants.Context;
 import quadrants.Kernel;
 

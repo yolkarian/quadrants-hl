@@ -1,5 +1,7 @@
 # Haxe flatten and data-oriented helpers
 
+> API v3 replacement: use `@:build(quadrants.macro.QdArgs.build())`. Resource members are runtime args and primitive/enum members are specialization constants by default; `@:qdFlatten`/`@:qdDataOriented` are legacy names.
+
 ## `@:qdFlatten`
 
 Annotate a host container class with `@:qdFlatten` so `QD.kernel(...)` can flatten its members into typed kernel arguments.

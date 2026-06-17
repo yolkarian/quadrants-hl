@@ -1,4 +1,4 @@
-// EXPECT_ERROR: Quadrants flatten primitive field state.n must be marked @:template or @:param
+// EXPECT_ERROR: Quadrants QdArgs field state.label cannot use String
 import quadrants.Context;
 import quadrants.QD;
 import quadrants.Tensor;
@@ -8,11 +8,11 @@ import quadrants.Types.I32;
 @:qdFlatten
 class FlattenPrimitiveState {
   public final x:Tensor<I32>;
-  public final n:I32;
+  public final label:String;
 
-  public function new(x:Tensor<I32>, n:I32) {
+  public function new(x:Tensor<I32>, label:String) {
     this.x = x;
-    this.n = n;
+    this.label = label;
   }
 }
 
@@ -20,7 +20,7 @@ class FlattenPrimitiveMissingMetadata {
   static function main():Void {
     var ctx = new Context(Arch.Cpu);
     QD.kernel(ctx, macro (state:FlattenPrimitiveState) -> {
-      state.x[0] = state.n;
+      state.x[0] = 1;
     });
   }
 }
