@@ -1,3 +1,4 @@
+import quadrants.Algorithms;
 import quadrants.Context;
 import quadrants.Kernel;
 import quadrants.LayoutPolicy;
@@ -53,6 +54,10 @@ class Smoke {
     var tape = new Tape();
     add.launchTape(tape, x, y, Spec.of(4));
     if (tape.length != 1) throw "typed Tape launch did not record";
+    var reduced = new Tensor<I32>(ctx, [1]);
+    Algorithms.reduceAdd(ctx, y, reduced);
+    ctx.sync();
+    if (reduced.read(0) != 10) throw 'Algorithms.reduceAdd failed: ${reduced.read(0)}';
 
     var state = new V3SmokeState(ctx, 4);
     state.clear();
@@ -67,6 +72,7 @@ class Smoke {
     add.close();
     x.close();
     y.close();
+    reduced.close();
     state.out.close();
     ctx.close();
     Sys.println("hashlink v3 smoke ok");

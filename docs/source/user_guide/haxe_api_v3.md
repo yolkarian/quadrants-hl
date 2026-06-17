@@ -48,4 +48,14 @@ final ptr = x.devicePointer();
 
 `shape` and `dtype` are typed properties; `rank()`, `numel()`, and `shapeCopy()` provide stable method-style queries. Field parameters are direct SNode resources; v3 does not mirror fields through tensors on launch.
 
+Device-wide algorithms are available through one flat facade:
+
+```haxe
+Algorithms.reduceAdd(ctx, input, output, scratch);
+Algorithms.exclusiveScanAdd(ctx, input, output, scratch);
+Algorithms.radixSort(ctx, keys, tmpKeys, scratch, {beginBit: 0, endBit: 32});
+```
+
+Per-thread linalg entrypoints live under `quadrants.funcs.Linalg` with explicit sizes (`svd2`, `svd3`, `solve2`, `solve3`, ...).
+
 `Kernel.build(ctx, macro (...)->{...})` is the v3 kernel entrypoint. Give every parameter an explicit type. Raw dynamic launch remains only as a low-level/legacy escape hatch through `KernelRaw` or a value explicitly typed as `Kernel`.
