@@ -18,4 +18,19 @@ final f = new Field<I32>(ctx, [n]);
 
 Main public resource families are `Tensor<T>`, `Field<T>`, `StructTensor<S>`, and `StructField<S>`. Rank, layout, and backend capability are validated by descriptors/runtime rather than encoded as extra type parameters.
 
+Device POD structs use one build macro:
+
+```haxe
+@:build(quadrants.macro.QdStruct.build())
+class Particle {
+  public var id:I32;
+  public var mass:F32;
+}
+
+final particles:StructTensor<Particle> = StructTensor.alloc(ctx, [n], LayoutPolicy.AOS);
+particles.writeMember("id", 0, 7);
+```
+
+`QdStruct` rejects resources, `Array`, `String`, `Dynamic`, function fields, and arbitrary classes. `StructTensor` defaults to AOS; `StructField` defaults to SOA.
+
 `Kernel.build(ctx, macro (...)->{...})` is the v3 kernel entrypoint. Give every parameter an explicit type. Raw dynamic launch remains only as a low-level/legacy escape hatch through `KernelRaw` or a value explicitly typed as `Kernel`.

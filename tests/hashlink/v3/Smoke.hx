@@ -1,8 +1,11 @@
 import quadrants.Context;
 import quadrants.Kernel;
+import quadrants.LayoutPolicy;
 import quadrants.Spec;
+import quadrants.StructTensor;
 import quadrants.Tensor;
 import quadrants.Types.Arch;
+import quadrants.Types.F32;
 import quadrants.Types.I32;
 
 @:build(quadrants.macro.QdArgs.build())
@@ -21,6 +24,12 @@ class V3SmokeState {
       out[i] = 0;
     }
   }
+}
+
+@:build(quadrants.macro.QdStruct.build())
+class V3Particle {
+  public var id:I32;
+  public var mass:F32;
 }
 
 class Smoke {
@@ -42,6 +51,11 @@ class Smoke {
     state.clear();
     ctx.sync();
     if (state.out.read(0) != 0) throw "QdArgs @:kernel failed";
+
+    var particles:StructTensor<V3Particle> = StructTensor.alloc(ctx, [2], LayoutPolicy.AOS);
+    particles.writeMember("id", 0, 7);
+    if (particles.readMember("id", 0) != 7) throw "QdStruct StructTensor host storage failed";
+    particles.close();
 
     add.close();
     x.close();
