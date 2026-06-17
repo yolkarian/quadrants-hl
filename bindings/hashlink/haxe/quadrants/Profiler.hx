@@ -12,11 +12,36 @@ typedef ProfilerRecord = {
   var averageTime:Float;
 }
 
+typedef KernelProfilerStats = {
+  var count:Int;
+  var avgMs:Float;
+  var minMs:Float;
+  var maxMs:Float;
+}
+
 class Profiler {
   final context:Context;
 
   public function new(context:Context) {
     this.context = context;
+  }
+
+  public static function withScope(context:Context, name:String, body:Void->Void):Void {
+    if (context == null) {
+      throw "Quadrants Profiler.withScope requires a Context";
+    }
+    if (body == null) {
+      throw "Quadrants Profiler.withScope requires a body";
+    }
+    var profiler = context.profiler();
+    profiler.start(name);
+    try {
+      body();
+    } catch (e:Dynamic) {
+      profiler.stop();
+      throw e;
+    }
+    profiler.stop();
   }
 
   public function start(kernelName:String):Void {
@@ -99,5 +124,36 @@ class Profiler {
 
   public function recordKernel(kernel:Kernel):ProfilerRecord {
     return record(kernel.kernelName());
+  }
+
+  public function kernel(kernelName:String):KernelProfilerStats {
+    return {
+      count: count(kernelName),
+      avgMs: avg(kernelName),
+      minMs: min(kernelName),
+      maxMs: max(kernelName),
+    };
+  }
+
+  public function traceEvents():Array<Dynamic> {
+    return [];
+  }
+
+  public function memoryStats():Dynamic {
+    if (!quadrants.profiler.ProfilerBridge.features(context).memory) {
+      throw "Quadrants memory profiler capability is not available for this backend";
+    }
+    var status = quadrants.profiler.MemoryProfiler.probe(context);
+    return {available: status.isAvailable(), reason: status.reason};
+  }
+
+  public function printMemory():Void {
+    if (!quadrants.profiler.ProfilerBridge.features(context).memory) {
+      throw "Quadrants memory profiler capability is not available for this backend";
+    }
+    var status = quadrants.profiler.MemoryProfiler.printInfo(context);
+    if (!status.isAvailable()) {
+      throw status.reason;
+    }
   }
 }

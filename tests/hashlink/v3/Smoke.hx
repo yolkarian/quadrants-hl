@@ -1,5 +1,6 @@
 import quadrants.Algorithms;
 import quadrants.Context;
+import quadrants.Diagnostics;
 import quadrants.Kernel;
 import quadrants.LayoutPolicy;
 import quadrants.Quant;
@@ -65,6 +66,8 @@ class Smoke {
     ctx.sync();
     if (state.out.read(0) != 0) throw "QdArgs @:kernel failed";
 
+    var caps:Dynamic = Diagnostics.dumpCapabilities(ctx);
+    if (!caps.fieldResourceParam) throw "Diagnostics.dumpCapabilities failed";
     var qi8 = Quant.intI32({bits: 8, signed: true});
     if (qi8 == null) throw "Quant.intI32 failed";
     var particles:StructTensor<V3Particle> = StructTensor.alloc(ctx, [2], LayoutPolicy.AOS);
