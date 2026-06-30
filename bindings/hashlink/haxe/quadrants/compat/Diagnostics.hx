@@ -34,6 +34,9 @@ class Diagnostics {
     }
 
     var version = readU32(kernel, 4);
+    if (version != 3) {
+      throw 'Quadrants descriptor dump supports only QDHL schema version 3, got ${version}';
+    }
     var sectionCount = readU32(kernel, 8);
     var headerSize = readU32(kernel, 12);
     var dataOffset = readU32(kernel, 16);
@@ -51,9 +54,10 @@ class Diagnostics {
       sections.push({kind: kind, name: sectionName(kind), offset: offset, length: sectionLength});
     }
 
-    var strings = parseStrings(kernel, sectionByKind(sections, 1));
-    var symbols = parseSymbols(kernel, sectionByKind(sections, 5), strings);
-    var attributes = parseAttributes(kernel, sectionByKind(sections, 10));
+    var strings = parseStrings(kernel, requireSection(sections, 1, "strings"));
+    var symbols = parseSymbols(kernel, requireSection(sections, 5, "symbols"), strings);
+    var attributes = parseAttributes(kernel, requireSection(sections, 10, "attributes"));
+    var metadata = Reflect.field(attributes, "qdhl.meta.json") == null ? null : haxe.Json.parse(cast Reflect.field(attributes, "qdhl.meta.json"));
     return {
       magic: "QDHL",
       version: version,
@@ -63,13 +67,18 @@ class Diagnostics {
       dataOffset: dataOffset,
       sections: sections,
       stringsCount: strings.length,
-      sourceSpans: parseSourceSpans(kernel, sectionByKind(sections, 2), strings),
+      sourceSpans: parseSourceSpans(kernel, requireSection(sections, 2, "sourceSpans"), strings),
       parameters: Reflect.field(symbols, "parameters"),
       locals: Reflect.field(symbols, "locals"),
-      statements: parseStatements(kernel, sectionByKind(sections, 7), strings),
+      statements: parseStatements(kernel, requireSection(sections, 7, "statements"), strings),
+      typeTable: parseTypeTable(kernel, requireSection(sections, 11, "typeTable")),
+      resourceTable: parseResourceTable(kernel, requireSection(sections, 12, "resourceTable"), strings),
+      structTable: parseStructTable(kernel, requireSection(sections, 13, "structTable"), strings),
+      specTable: parseSpecTable(kernel, requireSection(sections, 14, "specTable"), strings),
+      argTable: parseArgTable(kernel, requireSection(sections, 15, "argTable"), strings),
       attributes: attributes,
-      descriptor: Reflect.field(attributes, "qdhl.meta.json") == null ? null : haxe.Json.parse(cast Reflect.field(attributes, "qdhl.meta.json")),
-      descriptorV3: Reflect.field(attributes, "qdhl.meta.json") == null ? null : haxe.Json.parse(cast Reflect.field(attributes, "qdhl.meta.json"))
+      descriptor: metadata,
+      descriptorV3: metadata
     };
   }
 
@@ -184,6 +193,14 @@ class Diagnostics {
     return null;
   }
 
+  static function requireSection(sections:Array<DescriptorSection>, kind:Int, name:String):DescriptorSection {
+    var section = sectionByKind(sections, kind);
+    if (section == null) {
+      throw 'Quadrants v3 descriptor is missing required ${name} section';
+    }
+    return section;
+  }
+
   static function parseStrings(kernel:Kernel, section:Null<DescriptorSection>):Array<String> {
     var strings:Array<String> = [];
     if (section == null) {
@@ -278,9 +295,17 @@ class Diagnostics {
       var kind = kernel.descriptorByteAt(pos);
       var dtype = kernel.descriptorByteAt(pos + 1);
       var rank = kernel.descriptorByteAt(pos + 2);
-      var needsGrad = kernel.descriptorByteAt(pos + 3) != 0;
+      var flags = kernel.descriptorByteAt(pos + 3);
       var nameId = readU32(kernel, pos + 4);
-      parameters.push({name: stringAt(strings, nameId), kind: parameterKindName(kind), dtype: dtypeNameById(dtype), rank: rank, needsGrad: needsGrad});
+      parameters.push({
+        name: stringAt(strings, nameId),
+        kind: parameterKindName(kind),
+        dtype: dtypeNameById(dtype),
+        rank: rank,
+        flags: flags,
+        needsGrad: (flags & 1) != 0,
+        specConstant: (flags & 2) != 0,
+      });
       pos += 8;
     }
     return parameters;
@@ -344,6 +369,114 @@ class Diagnostics {
       Reflect.setField(result, key, value);
     }
     return result;
+  }
+
+  static function parseTypeTable(kernel:Kernel, section:DescriptorSection):Array<Dynamic> {
+    var entries:Array<Dynamic> = [];
+    var pos = section.offset;
+    var end = section.offset + section.length;
+    if (pos + 4 > end) throw "Quadrants descriptor TypeTable is truncated";
+    var count = readU32(kernel, pos);
+    pos += 4;
+    for (_ in 0...count) {
+      if (pos + 16 > end) throw "Quadrants descriptor TypeTable entry is truncated";
+      var id = readU32(kernel, pos);
+      var kind = kernel.descriptorByteAt(pos + 4);
+      var dtype = kernel.descriptorByteAt(pos + 5);
+      var rank = kernel.descriptorByteAt(pos + 6);
+      var flags = kernel.descriptorByteAt(pos + 7);
+      var structId = readU32(kernel, pos + 8);
+      entries.push({id: id, kind: typeTableKindName(kind), dtype: dtypeNameById(dtype), rank: rank, flags: flags, structId: structId});
+      pos += 16;
+    }
+    return entries;
+  }
+
+  static function parseResourceTable(kernel:Kernel, section:DescriptorSection, strings:Array<String>):Array<Dynamic> {
+    var entries:Array<Dynamic> = [];
+    var pos = section.offset;
+    var end = section.offset + section.length;
+    if (pos + 4 > end) throw "Quadrants descriptor ResourceTable is truncated";
+    var count = readU32(kernel, pos);
+    pos += 4;
+    for (_ in 0...count) {
+      if (pos + 16 > end) throw "Quadrants descriptor ResourceTable entry is truncated";
+      var parameterIndex = readU32(kernel, pos);
+      var typeId = readU32(kernel, pos + 4);
+      var nameId = readU32(kernel, pos + 8);
+      var kind = kernel.descriptorByteAt(pos + 12);
+      var rank = kernel.descriptorByteAt(pos + 13);
+      var flags = kernel.descriptorByteAt(pos + 14);
+      entries.push({parameterIndex: parameterIndex, typeId: typeId, name: stringAt(strings, nameId), kind: typeTableKindName(kind), rank: rank, flags: flags});
+      pos += 16;
+    }
+    return entries;
+  }
+
+  static function parseStructTable(kernel:Kernel, section:DescriptorSection, strings:Array<String>):Array<Dynamic> {
+    var entries:Array<Dynamic> = [];
+    var pos = section.offset;
+    var end = section.offset + section.length;
+    if (pos + 4 > end) throw "Quadrants descriptor StructTable is truncated";
+    var count = readU32(kernel, pos);
+    pos += 4;
+    for (_ in 0...count) {
+      if (pos + 20 > end) throw "Quadrants descriptor StructTable entry is truncated";
+      var id = readU32(kernel, pos);
+      var nameId = readU32(kernel, pos + 4);
+      var sizeBytes = readU32(kernel, pos + 8);
+      var alignBytes = readU32(kernel, pos + 12);
+      var fieldCount = readU32(kernel, pos + 16);
+      pos += 20;
+      var fields:Array<Dynamic> = [];
+      for (_ in 0...fieldCount) {
+        if (pos + 12 > end) throw "Quadrants descriptor StructTable field entry is truncated";
+        fields.push({name: stringAt(strings, readU32(kernel, pos)), typeId: readU32(kernel, pos + 4), offset: readU32(kernel, pos + 8)});
+        pos += 12;
+      }
+      entries.push({id: id, name: stringAt(strings, nameId), sizeBytes: sizeBytes, alignBytes: alignBytes, fields: fields});
+    }
+    return entries;
+  }
+
+  static function parseSpecTable(kernel:Kernel, section:DescriptorSection, strings:Array<String>):Array<Dynamic> {
+    var entries:Array<Dynamic> = [];
+    var pos = section.offset;
+    var end = section.offset + section.length;
+    if (pos + 4 > end) throw "Quadrants descriptor SpecTable is truncated";
+    var count = readU32(kernel, pos);
+    pos += 4;
+    for (_ in 0...count) {
+      if (pos + 16 > end) throw "Quadrants descriptor SpecTable entry is truncated";
+      var parameterIndex = readU32(kernel, pos);
+      var typeId = readU32(kernel, pos + 4);
+      var nameId = readU32(kernel, pos + 8);
+      var dtype = kernel.descriptorByteAt(pos + 12);
+      var flags = kernel.descriptorByteAt(pos + 13);
+      entries.push({parameterIndex: parameterIndex, typeId: typeId, name: stringAt(strings, nameId), dtype: dtypeNameById(dtype), flags: flags});
+      pos += 16;
+    }
+    return entries;
+  }
+
+  static function parseArgTable(kernel:Kernel, section:DescriptorSection, strings:Array<String>):Array<Dynamic> {
+    var entries:Array<Dynamic> = [];
+    var pos = section.offset;
+    var end = section.offset + section.length;
+    if (pos + 4 > end) throw "Quadrants descriptor ArgTable is truncated";
+    var count = readU32(kernel, pos);
+    pos += 4;
+    for (_ in 0...count) {
+      if (pos + 16 > end) throw "Quadrants descriptor ArgTable entry is truncated";
+      var parameterIndex = readU32(kernel, pos);
+      var typeId = readU32(kernel, pos + 4);
+      var nameId = readU32(kernel, pos + 8);
+      var kind = kernel.descriptorByteAt(pos + 12);
+      var flags = kernel.descriptorByteAt(pos + 13);
+      entries.push({parameterIndex: parameterIndex, typeId: typeId, name: stringAt(strings, nameId), kind: argTableKindName(kind), flags: flags});
+      pos += 16;
+    }
+    return entries;
   }
 
   static function readU32(kernel:Kernel, offset:Int):Int {
@@ -426,6 +559,35 @@ class Diagnostics {
     return switch (kind) {
       case 0: "scalar";
       case 1: "ndarray";
+      case 2: "field";
+      case 3: "mesh_relation";
+      case 4: "mesh_attribute";
+      default: 'unknown(${kind})';
+    };
+  }
+
+  static function typeTableKindName(kind:Int):String {
+    return switch (kind) {
+      case 0: "primitive";
+      case 1: "spec";
+      case 2: "tensor_resource";
+      case 3: "field_resource";
+      case 4: "struct_tensor_resource";
+      case 5: "struct_field_resource";
+      case 6: "mesh_relation_resource";
+      case 7: "mesh_attribute_resource";
+      case 8: "quant_resource";
+      case 9: "sparse_matrix_resource";
+      case 10: "mesh_resource";
+      default: 'unknown(${kind})';
+    };
+  }
+
+  static function argTableKindName(kind:Int):String {
+    return switch (kind) {
+      case 0: "RuntimeScalar";
+      case 1: "RuntimeResource";
+      case 2: "SpecConstant";
       default: 'unknown(${kind})';
     };
   }

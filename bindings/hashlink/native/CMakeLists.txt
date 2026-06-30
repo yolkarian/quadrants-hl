@@ -189,6 +189,18 @@ if(QD_BUILD_HASHLINK_TESTS)
       -DOUTPUT_HL=${CMAKE_BINARY_DIR}/hashlink-v3-smoke.hl
       -DRUN_HL=ON
       -P ${PROJECT_SOURCE_DIR}/cmake/RunHashLinkTest.cmake)
+
+  add_test(NAME hashlink_descriptor_golden
+    COMMAND ${CMAKE_COMMAND}
+      -DREPO_ROOT=${PROJECT_SOURCE_DIR}
+      -DHAXE_EXECUTABLE=${QD_HAXE_EXECUTABLE}
+      -DHL_EXECUTABLE=${QD_HL_EXECUTABLE}
+      -DQUADRANTS_HDLL=$<TARGET_FILE:quadrants.hdll>
+      -DQUADRANTS_RUNTIME_DIR=${QD_RUNTIME_BUILD_DIR}
+      -DHXML_FILE=${PROJECT_SOURCE_DIR}/tests/hashlink/descriptor/hashlink_descriptor_golden.hxml
+      -DOUTPUT_HL=${CMAKE_BINARY_DIR}/hashlink-descriptor-golden.hl
+      -DRUN_HL=ON
+      -P ${PROJECT_SOURCE_DIR}/cmake/RunHashLinkTest.cmake)
   if(QD_BUILD_HASHLINK_LEGACY_TESTS)
   # Legacy pre-v3 runtime suites are opt-in on the breaking branch.
   add_test(NAME hashlink_hl_runtime_alpha
