@@ -10,8 +10,6 @@
 - [Haxe API v3 plan status](haxe_v3_plan_status.md)
 - [Haxe v2 to v3 migration](haxe_migration_v2_to_v3.md)
 - [Haxe capabilities](haxe_capabilities.md)
-- [Haxe typed kernels](haxe_typed_kernel.md)
-- [Haxe flatten and data-oriented helpers](haxe_template_and_flatten.md)
 - [Haxe descriptor metadata](haxe_descriptor.md)
 - [Haxe kernel language](kernel_language.md)
 - [Haxe/HashLink release readiness](haxe_release_readiness.md)

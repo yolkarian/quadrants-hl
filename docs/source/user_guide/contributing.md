@@ -41,10 +41,10 @@ Register the source tree directly while iterating:
 haxelib dev quadrants "$PWD/bindings/hashlink"
 QUADRANTS_HDLL="$PWD/build/dev/quadrants.hdll" \
 QUADRANTS_RUNTIME_DIR="$PWD/build/dev/runtime" \
-haxe tests/hashlink/hashlink_smoke.hxml -hl build/dev-smoke.hl
-QD_LIB_DIR="$PWD/build/dev/runtime" hl build/dev-smoke.hl
+haxe tests/hashlink/v3/hashlink_v3_smoke.hxml -hl build/dev-v3-smoke.hl
+QD_LIB_DIR="$PWD/build/dev/runtime" hl build/dev-v3-smoke.hl
 ```
 
 ## CI
 
-The main Linux workflow builds `quadrants.hdll`, installs the HashLink component, registers the installed haxelib package, compiles Haxe tests, and runs the HashLink smoke suite.
+The main Linux workflow builds `quadrants.hdll`, installs the HashLink component, registers the installed haxelib package, compiles the v3 Haxe tests, runs the v3 smoke suite, checks descriptor golden snapshots, and scans public `Dynamic` boundaries.

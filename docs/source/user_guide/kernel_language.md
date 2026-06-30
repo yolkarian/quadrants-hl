@@ -17,7 +17,7 @@ var k = Kernel.build(ctx, macro (a:Tensor<F32>, b:Tensor<F32>, out:Tensor<F32>, 
 
 ## Parameters
 
-Kernel parameters may be primitive scalars, `Tensor<T>` ndarrays, direct `Field<T>` SNode fields, or one-dimensional `BufferView<T>` views. In API v3 examples, annotate every parameter explicitly so `Kernel.build` returns a typed wrapper. Untyped parameter inference is retained only for legacy/raw descriptor paths. Annotate fields explicitly as `Field<T>` when the kernel should bind the placed SNode instead of the tensor-ABI mirror.
+Kernel parameters may be primitive scalars, `Tensor<T>` ndarrays, direct `Field<T>` SNode fields, or one-dimensional `BufferView<T>` views. Annotate every parameter explicitly; untyped kernel parameters are rejected on the v3 public path. Annotate fields explicitly as `Field<T>` when the kernel should bind the placed SNode resource.
 
 ```haxe
 import quadrants.Tensor;

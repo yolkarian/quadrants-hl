@@ -98,7 +98,7 @@ cmake --build "$QD_BUILD_DIR" --target quadrants.hdll
 ctest --test-dir "$QD_BUILD_DIR" --output-on-failure
 ```
 
-The CTest suite compiles `tests/hashlink/hashlink_tests.hxml`, runs the CPU HL/JIT runtime shards from `tests/hashlink/hashlink_runtime_alpha.hxml`, `tests/hashlink/hashlink_runtime_beta.hxml`, and `tests/hashlink/hashlink_runtime_gamma.hxml`, keeps the fast smoke path from `tests/hashlink/hashlink_smoke.hxml`, runs the isolated print runtime check from `tests/hashlink/hashlink_print.hxml`, and verifies the Haxe macro compile-fail cases in `tests/hashlink/compile_fail/`.
+The CTest suite is the v3 gate: it compiles and runs `tests/hashlink/v3/hashlink_v3_smoke.hxml`, runs descriptor golden snapshots from `tests/hashlink/descriptor/hashlink_descriptor_golden.hxml`, verifies Haxe macro compile-fail cases in `tests/hashlink/compile_fail/`, and scans public `Dynamic` boundaries.
 
 ## Build/test helper entry points
 
@@ -106,11 +106,11 @@ The CTest suite compiles `tests/hashlink/hashlink_tests.hxml`, runs the CPU HL/J
 | --- | --- |
 | Build/install the Haxe package and native bridge | CMake with `-DQD_WITH_HASHLINK=ON`, target `quadrants.hdll`, and `cmake --install --component hashlink`. |
 | Package and install into global haxelib | `scripts/package_hashlink_haxelib.sh --build-dir <build> --runtime-dir <build>/runtime --out build/quadrants-haxelib.zip`, then `haxelib --global install ...`. |
-| Compile Haxe binding tests | `tests/hashlink/hashlink_tests.hxml` through `cmake/RunHashLinkTest.cmake`. |
-| Run the full CPU HL/JIT suite | `ctest` entries `hashlink_hl_runtime_alpha`, `hashlink_hl_runtime_beta`, and `hashlink_hl_runtime_gamma`, or run the matching `tests/hashlink/hashlink_runtime_*.hxml` outputs with `hl`. |
-| Run the fast CPU HL/JIT smoke test | `tests/hashlink/hashlink_smoke.hxml` through `ctest` (`hashlink_hl_smoke`) or `hl <output>.hl`. |
-| Run the isolated kernel `print(...)` check | `tests/hashlink/hashlink_print.hxml` through `ctest` (`hashlink_hl_print`). |
-| Run requested device HL/JIT coverage | Set `QD_HASHLINK_TEST_ARCHES=<arch>` (for example `cuda`) and rerun `hashlink_hl_runtime_alpha`, `hashlink_hl_runtime_beta`, and `hashlink_hl_runtime_gamma` on a build with that backend enabled. |
+| Compile and run the v3 smoke test | `tests/hashlink/v3/hashlink_v3_smoke.hxml` through `ctest` (`hashlink_haxe_compile`, `haxe_v3_smoke`). |
+| Run descriptor schema snapshots | `tests/hashlink/descriptor/hashlink_descriptor_golden.hxml` through `ctest` (`hashlink_descriptor_golden`). |
+| Run macro diagnostics | `cmake/RunHaxeCompileFailTests.cmake` through `ctest` (`hashlink_macro_compile_fail`). |
+| Run public Dynamic boundary scan | `tools/check_public_dynamic.sh` through `ctest` (`hashlink_public_dynamic_scan`). |
+| Run requested device HL/JIT coverage | Set `QD_HASHLINK_TEST_ARCHES=<arch>` (for example `cuda`) and rerun the v3 smoke test on a build with that backend enabled. |
 | Run the CUDA bridge sample manually | `bindings/hashlink/tests/hashlink_bridge_test.hxml` when `QD_WITH_CUDA=ON` and CUDA libraries are visible to `hl`. |
 | Check macro diagnostics | `cmake/RunHaxeCompileFailTests.cmake` over `tests/hashlink/compile_fail/*.hx`. |
 | Build docs for the Haxe public API | `haxelib install dox` once, then `make -C docs html`. |
@@ -118,24 +118,24 @@ The CTest suite compiles `tests/hashlink/hashlink_tests.hxml`, runs the CPU HL/J
 Manual smoke test from an installed haxelib package:
 
 ```bash
-haxe -lib quadrants -cp tests/hashlink -main Smoke -hl build/hashlink-smoke.hl
-hl build/hashlink-smoke.hl
+haxe -lib quadrants -cp tests/hashlink/v3 -main Smoke -hl build/hashlink-v3-smoke.hl
+hl build/hashlink-v3-smoke.hl
 ```
 
 CUDA smoke tests are opt-in because they require CUDA runtime libraries and hardware:
 
 ```bash
 QD_HASHLINK_TEST_ARCHES=cuda \
-haxe -lib quadrants -cp tests/hashlink -main Smoke -hl build/hashlink-smoke-cuda.hl
+haxe -lib quadrants -cp tests/hashlink/v3 -main Smoke -hl build/hashlink-v3-smoke-cuda.hl
 QD_HASHLINK_TEST_ARCHES=cuda \
 LD_LIBRARY_PATH="/usr/local/cuda/targets/x86_64-linux/lib:${LD_LIBRARY_PATH:-}" \
-hl build/hashlink-smoke-cuda.hl
+hl build/hashlink-v3-smoke-cuda.hl
 ```
 
 Expected output:
 
 ```text
-hashlink smoke ok
+hashlink v3 smoke ok
 ```
 
 Manual build-tree run:
@@ -143,10 +143,10 @@ Manual build-tree run:
 ```bash
 QUADRANTS_HDLL="$QD_BUILD_DIR/quadrants.hdll" \
 QUADRANTS_RUNTIME_DIR="$QD_BUILD_DIR/runtime" \
-haxe tests/hashlink/hashlink_smoke.hxml -hl build/hashlink-smoke-buildtree.hl
+haxe tests/hashlink/v3/hashlink_v3_smoke.hxml -hl build/hashlink-v3-smoke-buildtree.hl
 QD_LIB_DIR="$QD_BUILD_DIR/runtime" \
 LD_LIBRARY_PATH="$QD_BUILD_DIR:${LD_LIBRARY_PATH:-}" \
-hl build/hashlink-smoke-buildtree.hl
+hl build/hashlink-v3-smoke-buildtree.hl
 ```
 
 For the recommended typed API and migration notes from the former Python binding, see [Haxe/HashLink API v3](haxe_api_v3.md) and [Haxe v2 to v3 migration](haxe_migration_v2_to_v3.md). For accepted kernel syntax, see [Haxe kernels v3](haxe_kernel_v3.md) and [Haxe kernel language](kernel_language.md).

@@ -8,8 +8,7 @@ set(QD_HASHLINK_ROOT "${QD_HASHLINK_ROOT}" CACHE PATH "Path to a HashLink checko
 set(QD_HASHLINK_INSTALL_DIR "share/quadrants/hashlink" CACHE PATH "HashLink bridge install directory")
 set(QD_HASHLINK_RUNTIME_INSTALL_DIR "${QD_HASHLINK_INSTALL_DIR}/runtime" CACHE PATH "HashLink runtime bitcode install directory")
 set(QD_HASHLINK_ROCM_RUNTIME_INSTALL_DIR "${QD_HASHLINK_INSTALL_DIR}/runtime_rocm70" CACHE PATH "HashLink ROCm runtime bitcode install directory")
-option(QD_BUILD_HASHLINK_TESTS "Register Haxe/HashLink tests with CTest" OFF)
-option(QD_BUILD_HASHLINK_LEGACY_TESTS "Register pre-v3 Haxe/HashLink runtime tests" OFF)
+option(QD_BUILD_HASHLINK_TESTS "Register Haxe/HashLink v3 tests with CTest" OFF)
 
 if(NOT EXISTS "${QD_HASHLINK_ROOT}/src/hl.h")
   if(EXISTS "${QD_HASHLINK_ROOT}/include/hl.h")
@@ -201,70 +200,6 @@ if(QD_BUILD_HASHLINK_TESTS)
       -DOUTPUT_HL=${CMAKE_BINARY_DIR}/hashlink-descriptor-golden.hl
       -DRUN_HL=ON
       -P ${PROJECT_SOURCE_DIR}/cmake/RunHashLinkTest.cmake)
-  if(QD_BUILD_HASHLINK_LEGACY_TESTS)
-  # Legacy pre-v3 runtime suites are opt-in on the breaking branch.
-  add_test(NAME hashlink_hl_runtime_alpha
-    COMMAND ${CMAKE_COMMAND}
-      -DREPO_ROOT=${PROJECT_SOURCE_DIR}
-      -DHAXE_EXECUTABLE=${QD_HAXE_EXECUTABLE}
-      -DHL_EXECUTABLE=${QD_HL_EXECUTABLE}
-      -DQUADRANTS_HDLL=$<TARGET_FILE:quadrants.hdll>
-      -DQUADRANTS_RUNTIME_DIR=${QD_RUNTIME_BUILD_DIR}
-      -DHXML_FILE=${PROJECT_SOURCE_DIR}/tests/hashlink/hashlink_runtime_alpha.hxml
-      -DOUTPUT_HL=${CMAKE_BINARY_DIR}/hashlink-runtime-alpha.hl
-      -DRUN_HL=ON
-      -P ${PROJECT_SOURCE_DIR}/cmake/RunHashLinkTest.cmake)
-
-  add_test(NAME hashlink_hl_runtime_beta
-    COMMAND ${CMAKE_COMMAND}
-      -DREPO_ROOT=${PROJECT_SOURCE_DIR}
-      -DHAXE_EXECUTABLE=${QD_HAXE_EXECUTABLE}
-      -DHL_EXECUTABLE=${QD_HL_EXECUTABLE}
-      -DQUADRANTS_HDLL=$<TARGET_FILE:quadrants.hdll>
-      -DQUADRANTS_RUNTIME_DIR=${QD_RUNTIME_BUILD_DIR}
-      -DHXML_FILE=${PROJECT_SOURCE_DIR}/tests/hashlink/hashlink_runtime_beta.hxml
-      -DOUTPUT_HL=${CMAKE_BINARY_DIR}/hashlink-runtime-beta.hl
-      -DRUN_HL=ON
-      -P ${PROJECT_SOURCE_DIR}/cmake/RunHashLinkTest.cmake)
-
-  add_test(NAME hashlink_hl_runtime_gamma
-    COMMAND ${CMAKE_COMMAND}
-      -DREPO_ROOT=${PROJECT_SOURCE_DIR}
-      -DHAXE_EXECUTABLE=${QD_HAXE_EXECUTABLE}
-      -DHL_EXECUTABLE=${QD_HL_EXECUTABLE}
-      -DQUADRANTS_HDLL=$<TARGET_FILE:quadrants.hdll>
-      -DQUADRANTS_RUNTIME_DIR=${QD_RUNTIME_BUILD_DIR}
-      -DHXML_FILE=${PROJECT_SOURCE_DIR}/tests/hashlink/hashlink_runtime_gamma.hxml
-      -DOUTPUT_HL=${CMAKE_BINARY_DIR}/hashlink-runtime-gamma.hl
-      -DRUN_HL=ON
-      -P ${PROJECT_SOURCE_DIR}/cmake/RunHashLinkTest.cmake)
-
-
-  add_test(NAME hashlink_hl_smoke
-    COMMAND ${CMAKE_COMMAND}
-      -DREPO_ROOT=${PROJECT_SOURCE_DIR}
-      -DHAXE_EXECUTABLE=${QD_HAXE_EXECUTABLE}
-      -DHL_EXECUTABLE=${QD_HL_EXECUTABLE}
-      -DQUADRANTS_HDLL=$<TARGET_FILE:quadrants.hdll>
-      -DQUADRANTS_RUNTIME_DIR=${QD_RUNTIME_BUILD_DIR}
-      -DHXML_FILE=${PROJECT_SOURCE_DIR}/tests/hashlink/hashlink_smoke.hxml
-      -DOUTPUT_HL=${CMAKE_BINARY_DIR}/hashlink-smoke.hl
-      -DRUN_HL=ON
-      -P ${PROJECT_SOURCE_DIR}/cmake/RunHashLinkTest.cmake)
-  add_test(NAME hashlink_hl_print
-    COMMAND ${CMAKE_COMMAND}
-      -DREPO_ROOT=${PROJECT_SOURCE_DIR}
-      -DHAXE_EXECUTABLE=${QD_HAXE_EXECUTABLE}
-      -DHL_EXECUTABLE=${QD_HL_EXECUTABLE}
-      -DQUADRANTS_HDLL=$<TARGET_FILE:quadrants.hdll>
-      -DQUADRANTS_RUNTIME_DIR=${QD_RUNTIME_BUILD_DIR}
-      -DHXML_FILE=${PROJECT_SOURCE_DIR}/tests/hashlink/hashlink_print.hxml
-      -DOUTPUT_HL=${CMAKE_BINARY_DIR}/hashlink-print.hl
-      -DRUN_HL=ON
-      -DEXPECT_STDOUT_SUBSTRING=hashlink-print-token
-      -P ${PROJECT_SOURCE_DIR}/cmake/RunHashLinkTest.cmake)
-
-  endif()
 
   add_test(NAME hashlink_macro_compile_fail
     COMMAND ${CMAKE_COMMAND}
