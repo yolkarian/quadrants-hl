@@ -283,10 +283,9 @@ class FlattenBuild {
       return result;
     }
 
-    var dataOrientedCtxField = dataOrientedCtxFieldName(classType);
     var localBuildFields = buildFieldsForClass(classType);
     if (localBuildFields != null) {
-      return flattenBuildFields(rootName, rootExpr, mapping, localBuildFields, dataOrientedCtxField);
+      return flattenBuildFields(rootName, rootExpr, mapping, localBuildFields);
     }
     for (field in classType.fields.get()) {
       switch (field.kind) {
@@ -294,7 +293,7 @@ class FlattenBuild {
         default:
           continue;
       }
-      if (field.name == dataOrientedCtxField || StringTools.startsWith(field.name, "__qd_")) {
+      if (StringTools.startsWith(field.name, "__qd_")) {
         continue;
       }
       if (hasMeta(field.meta, ":qdIgnore") || hasMeta(field.meta, "qdIgnore") || hasMeta(field.meta, ":hostOnly") || hasMeta(field.meta, "hostOnly")) {
@@ -333,7 +332,7 @@ class FlattenBuild {
       }
       var flatName = sanitizePath(fieldPath);
       mapping.set(fieldPath, flatName);
-      result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: hasMeta(field.meta, ":param") || hasMeta(field.meta, "param") ? "runtime" : "spec"});
+      result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: "spec"});
     }
     return result;
   }
@@ -342,10 +341,7 @@ class FlattenBuild {
     return switch (Context.followWithAbstracts(Context.resolveType(type, pos))) {
       case TInst(classRef, _):
         var classType = classRef.get();
-        if (hasMeta(classType.meta, ":qdArgs") || hasMeta(classType.meta, "qdArgs")
-          || hasMeta(classType.meta, ":qdFlatten") || hasMeta(classType.meta, "qdFlatten")
-          || hasMeta(classType.meta, ":qdDataOriented") || hasMeta(classType.meta, "qdDataOriented")
-          || extendsDataOriented(classType)) {
+        if (hasMeta(classType.meta, ":qdArgs") || hasMeta(classType.meta, "qdArgs")) {
           classType;
         } else {
           null;
@@ -374,14 +370,13 @@ class FlattenBuild {
   static function flattenBuildFields(rootName:String,
       rootExpr:Expr,
       mapping:Map<String, String>,
-      fields:Array<Field>,
-      dataOrientedCtxField:Null<String>):Array<FlattenedMember> {
+      fields:Array<Field>):Array<FlattenedMember> {
     var result = new Array<FlattenedMember>();
     for (field in fields) {
       if (!isBuildDataField(field)) {
         continue;
       }
-      if (field.name == dataOrientedCtxField || StringTools.startsWith(field.name, "__qd_")) {
+      if (StringTools.startsWith(field.name, "__qd_")) {
         continue;
       }
       if (buildFieldHasMeta(field.meta, ":qdIgnore") || buildFieldHasMeta(field.meta, "qdIgnore") || buildFieldHasMeta(field.meta, ":hostOnly") || buildFieldHasMeta(field.meta, "hostOnly")) {
@@ -420,7 +415,7 @@ class FlattenBuild {
       }
       var flatName = sanitizePath(fieldPath);
       mapping.set(fieldPath, flatName);
-      result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: buildFieldHasMeta(field.meta, ":param") || buildFieldHasMeta(field.meta, "param") ? "runtime" : "spec"});
+      result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: "spec"});
     }
     return result;
   }
@@ -455,34 +450,6 @@ class FlattenBuild {
       if (entry.name == name) {
         return true;
       }
-    }
-    return false;
-  }
-
-  static function dataOrientedCtxFieldName(classType:ClassType):Null<String> {
-    for (entry in classType.meta.extract(":qdDataOriented")) {
-      if (entry.params != null && entry.params.length == 1) {
-        return stringLiteral(entry.params[0]);
-      }
-      return "ctx";
-    }
-    for (entry in classType.meta.extract("qdDataOriented")) {
-      if (entry.params != null && entry.params.length == 1) {
-        return stringLiteral(entry.params[0]);
-      }
-      return "ctx";
-    }
-    return null;
-  }
-
-  static function extendsDataOriented(classType:ClassType):Bool {
-    var current = classType.superClass;
-    while (current != null) {
-      var superClass = current.t.get();
-      if (superClass.pack.join(".") == "quadrants.flatten" && superClass.name == "DataOriented") {
-        return true;
-      }
-      current = superClass.superClass;
     }
     return false;
   }

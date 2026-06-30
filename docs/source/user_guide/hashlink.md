@@ -207,7 +207,7 @@ The current Haxe macro supports:
 - Primitive scalar return values via the typed wrapper return value, e.g. `var value = k.launch(args...)`.
 - Autodiff descriptor rebuild helpers (`Kernel.grad()`, `forwardGrad()`, `validationKernel()`) and `Tape` replay for recorded launches.
 - Typed `Ndrange.ofN` domains, `shape(tensor, axis)`, loop hints (`blockDim`, `parallelize`, `serialize`), `@:qdFunc` helper calls, `Grid.threadIdx()`, and `Block`/`Subgroup`/`Workgroup` SIMT helpers inside lowered loops.
-- Template specialization through `Template.build(DType.I32, ctx, macro (...:Tensor<TemplateDType>, ...) -> { ... })`.
+- Specialization constants through explicit `Spec<T>` parameters or primitive `QdArgs` members.
 - Flattened struct returns that can be decoded on the host with `Struct.decodeSchema(...)`.
 - External-pointer and DLPack tensor import/export on LLVM-backed backends (`Cpu`, `Cuda`, `Amdgpu`).
 - Stream events (`Stream.createEvent()`, `recordEvent`, `waitEvent`) on CUDA/AMDGPU contexts.

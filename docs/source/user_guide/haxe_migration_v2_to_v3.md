@@ -2,8 +2,8 @@
 
 - Replace untyped `Kernel.build`/`Kernel.launch(args:Array<Dynamic>)` usage with typed parameter annotations and typed `launch` calls.
 - Delete raw-launch call sites instead of migrating them to a shim. The v3 public path is `Kernel.build(ctx, macro (...typed...)->{...})` plus typed `launch` / `launchOn` calls.
-- Replace `@:qdFlatten` / `@:qdDataOriented` with `@:build(quadrants.macro.QdArgs.build())`.
-- Remove `@:template` for primitive QdArgs fields. Primitive members are specialization constants by default. Use an explicit kernel parameter for runtime scalars.
+- Replace old flatten/data-oriented classes with `@:build(quadrants.macro.QdArgs.build())`.
+- Remove primitive member annotations. Primitive QdArgs members are specialization constants by default. Use an explicit kernel parameter for runtime scalars.
 - Replace template dtype helpers with explicit Haxe generic types where possible. Use `Spec<T>` for standalone specialization constants.
 - Pass `Field<T>` only to kernels that declare `Field<T>`. The previous implicit Field-to-Tensor mirror path is removed from the v3 launch path.
 - Descriptor metadata is QDHL schema version 3. Code that asserted descriptor version 2 should be updated.

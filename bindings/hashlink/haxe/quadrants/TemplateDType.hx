@@ -1,3 +1,0 @@
-package quadrants;
-
-class TemplateDType {}

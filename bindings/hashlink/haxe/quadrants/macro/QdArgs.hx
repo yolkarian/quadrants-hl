@@ -31,6 +31,9 @@ class QdArgs {
       if (!isInstanceDataField(field) || hasBuildMeta(field.meta, ":hostOnly") || hasBuildMeta(field.meta, "hostOnly") || StringTools.startsWith(field.name, "__qd_")) {
         continue;
       }
+      if (hasBuildMeta(field.meta, ":param") || hasBuildMeta(field.meta, "param") || hasBuildMeta(field.meta, ":template") || hasBuildMeta(field.meta, "template")) {
+        Context.error('Quadrants QdArgs field ${field.name} must not use legacy @:param or @:template metadata; primitive members are specialization constants and runtime scalars must be explicit kernel parameters', field.pos);
+      }
       var fieldType = fieldComplexType(field);
       if (fieldType == null) {
         Context.error('Quadrants QdArgs field ${field.name} requires an explicit type annotation', field.pos);
