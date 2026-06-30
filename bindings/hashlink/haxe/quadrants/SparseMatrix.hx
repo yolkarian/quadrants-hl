@@ -35,13 +35,10 @@ class SparseMatrix<T> {
   }
 
   public static function fromCOO<T>(ctx:Context, rowInd:Tensor<I32>, colInd:Tensor<I32>, values:Tensor<T>, nRows:Int, nCols:Int):quadrants.linalg.SparseMatrix<T> {
-    if (ctx == null) {
-      throw "Quadrants SparseMatrix.fromCOO requires a Context";
-    }
-    var valueRuntime:TensorRuntime = cast values;
-    if (valueRuntime.dtype != DType.F32 && valueRuntime.dtype != DType.F64) {
-      throw "Quadrants SparseMatrix.fromCOO supports only F32/F64 values";
-    }
+    requireBridgeShape("fromCOO", nRows, nCols);
+    var valueRuntime = requireBridgeTensorContext("fromCOO", ctx, values);
+    requireIndexTensorContext("fromCOO rowInd", ctx, rowInd);
+    requireIndexTensorContext("fromCOO colInd", ctx, colInd);
     var result = new quadrants.linalg.SparseMatrix<T>(ctx, nRows, nCols, valueRuntime.dtype, quadrants.linalg.SparseStorageFormat.COO);
     var count = valueRuntime.elementCount();
     if (rowInd.elementCount() < count || colInd.elementCount() < count) {
@@ -54,12 +51,18 @@ class SparseMatrix<T> {
   }
 
   public static function fromCSR<T>(ctx:Context, rowPtr:Tensor<I32>, colInd:Tensor<I32>, values:Tensor<T>, nRows:Int, nCols:Int):quadrants.linalg.SparseMatrix<T> {
+    requireBridgeShape("fromCSR", nRows, nCols);
+    var valueRuntime = requireBridgeTensorContext("fromCSR", ctx, values);
+    requireIndexTensorContext("fromCSR rowPtr", ctx, rowPtr);
+    requireIndexTensorContext("fromCSR colInd", ctx, colInd);
     if (rowPtr.elementCount() < nRows + 1) {
       throw "Quadrants SparseMatrix.fromCSR rowPtr is shorter than nRows + 1";
     }
-    var valueRuntime:TensorRuntime = cast values;
     var result = new quadrants.linalg.SparseMatrix<T>(ctx, nRows, nCols, valueRuntime.dtype, quadrants.linalg.SparseStorageFormat.CSR);
     var nnz = values.elementCount();
+    if (colInd.elementCount() < nnz) {
+      throw "Quadrants SparseMatrix.fromCSR colInd tensor is shorter than values";
+    }
     for (row in 0...nRows) {
       var begin = rowPtr.read(row);
       var end = rowPtr.read(row + 1);
@@ -71,6 +74,42 @@ class SparseMatrix<T> {
       }
     }
     return result;
+  }
+
+  static function requireBridgeShape(operation:String, nRows:Int, nCols:Int):Void {
+    if (nRows <= 0 || nCols <= 0) {
+      throw 'Quadrants SparseMatrix.${operation} dimensions must be positive';
+    }
+  }
+
+  static function requireBridgeTensorContext<T>(operation:String, ctx:Context, values:Tensor<T>):TensorRuntime {
+    if (ctx == null) {
+      throw 'Quadrants SparseMatrix.${operation} requires a Context';
+    }
+    if (values == null) {
+      throw 'Quadrants SparseMatrix.${operation} values tensor is required';
+    }
+    var runtime:TensorRuntime = cast values;
+    if (runtime.context != ctx) {
+      throw 'Quadrants SparseMatrix.${operation} values tensor belongs to a different Context';
+    }
+    if (runtime.dtype != DType.F32 && runtime.dtype != DType.F64) {
+      throw 'Quadrants SparseMatrix.${operation} supports only F32/F64 values';
+    }
+    return runtime;
+  }
+
+  static function requireIndexTensorContext(operation:String, ctx:Context, tensor:Tensor<I32>):Void {
+    if (tensor == null) {
+      throw 'Quadrants SparseMatrix.${operation} tensor is required';
+    }
+    var runtime:TensorRuntime = cast tensor;
+    if (runtime.context != ctx) {
+      throw 'Quadrants SparseMatrix.${operation} tensor belongs to a different Context';
+    }
+    if (runtime.dtype != DType.I32) {
+      throw 'Quadrants SparseMatrix.${operation} tensor must be I32';
+    }
   }
 
   public var nnz(get, never):Int;

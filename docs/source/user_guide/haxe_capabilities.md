@@ -17,7 +17,7 @@ Top-level v3 probes:
 - `nativeSparse`
 - `memoryProfiler`
 
-Nested groups (`streams`, `graph`, `descriptor`, `sparse`, `mesh`, `quant`, `profiler`, `interop`, `version`) remain available for structured diagnostics. Unsupported features should fail with capability/validation errors rather than silently falling back to host or mirror paths.
+Nested groups (`streams`, `graph`, `descriptor`, `sparse`, `mesh`, `quant`, `profiler`, `interop`, `version`) remain available for structured diagnostics. Sparse exposes `sparse.hostReference` and `sparse.nativeBackend`; the HashLink v3 CPU path is a validated host-reference sparse bridge unless `sparse.nativeBackend` reports true. Mesh index conversion optimization is exposed as `mesh.indexConversion` and remains false on backends that do not provide it. Unsupported features fail with capability/validation errors rather than silently falling back to host or mirror paths.
 
 Diagnostics and profiler helpers are structured:
 

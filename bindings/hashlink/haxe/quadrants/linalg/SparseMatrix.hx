@@ -21,6 +21,12 @@ class SparseMatrix<T> implements LinearOperator<T> {
       cols:Int,
       dtype:DType = DType.F32,
       storageFormat:SparseStorageFormat = SparseStorageFormat.CSR) {
+    if (context == null) {
+      throw "Quadrants sparse matrix requires a Context";
+    }
+    if (rows <= 0 || cols <= 0) {
+      throw "Quadrants sparse matrix dimensions must be positive";
+    }
     if (!SparseBackendFeatures.probe(context).supportsDType(dtype)) {
       throw "Quadrants sparse matrix bridge supports only F32 and F64";
     }
