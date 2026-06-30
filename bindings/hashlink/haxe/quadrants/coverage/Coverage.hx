@@ -1,7 +1,7 @@
 package quadrants.coverage;
 
 import haxe.Json;
-import quadrants.Kernel;
+import quadrants.KernelRaw;
 import quadrants.Types.AutodiffMode;
 import sys.io.File;
 
@@ -18,7 +18,7 @@ private class CoverageAccumulator {
   public var launches:Int = 0;
   final launchKinds:Map<String, Int> = new Map();
 
-  public function new(key:String, kernel:Kernel) {
+  public function new(key:String, kernel:KernelRaw) {
     this.key = key;
     kernelName = kernel.kernelName();
     descriptorHash = kernel.descriptorHash();
@@ -104,7 +104,7 @@ class Coverage {
     return target;
   }
 
-  public static function registerKernelBuild(kernel:Kernel):Void {
+  public static function registerKernelBuild(kernel:KernelRaw):Void {
     if (kernel == null) {
       throw "Quadrants Coverage cannot register a null kernel build";
     }
@@ -115,7 +115,7 @@ class Coverage {
     record.builds++;
   }
 
-  public static function registerKernelLaunch(kernel:Kernel, kind:String):Void {
+  public static function registerKernelLaunch(kernel:KernelRaw, kind:String):Void {
     if (kernel == null) {
       throw "Quadrants Coverage cannot register a null kernel launch";
     }
@@ -128,7 +128,7 @@ class Coverage {
     recordFor(kernel).recordLaunch(kind);
   }
 
-  static function recordFor(kernel:Kernel):CoverageAccumulator {
+  static function recordFor(kernel:KernelRaw):CoverageAccumulator {
     var key = kernelKey(kernel);
     var record = records.get(key);
     if (record == null) {
@@ -139,11 +139,11 @@ class Coverage {
     return record;
   }
 
-  static function kernelKey(kernel:Kernel):String {
+  static function kernelKey(kernel:KernelRaw):String {
     return kernel.kernelName() + ":" + kernel.descriptorHash() + ":" + autodiffModeName(kernel.autodiffModeValue()) + ":" + (kernel.graphLaunchByDefaultEnabled() ? "graph" : "direct");
   }
 
-  public static function sourceSpanProbeCount(kernel:Kernel):Int {
+  public static function sourceSpanProbeCount(kernel:KernelRaw):Int {
     if (kernel == null) {
       throw "Quadrants Coverage cannot inspect a null kernel";
     }
@@ -171,7 +171,7 @@ class Coverage {
     return 0;
   }
 
-  static function readU32(kernel:Kernel, offset:Int):Int {
+  static function readU32(kernel:KernelRaw, offset:Int):Int {
     if (offset < 0 || offset + 4 > kernel.descriptorLengthBytes()) {
       return 0;
     }

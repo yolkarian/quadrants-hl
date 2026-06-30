@@ -65,7 +65,7 @@ class KernelRaw {
       kernelName,
       reverseAutodiffBlockedReason);
     if (Coverage.enabled) {
-      Coverage.registerKernelBuild(Kernel.fromRaw(kernel));
+      Coverage.registerKernelBuild(kernel);
     }
     return kernel;
   }
@@ -391,7 +391,7 @@ class KernelRaw {
 
   function recordCoverageLaunch(kind:String):Void {
     if (Coverage.enabled) {
-      Coverage.registerKernelLaunch(Kernel.fromRaw(this), kind);
+      Coverage.registerKernelLaunch(this, kind);
     }
   }
 

@@ -41,10 +41,6 @@ class Context {
     return new Context(selectedArch, resolved.profilerEnabled, resolved);
   }
 
-  public static function fromOptions(options:ContextOptions, arch:Arch = Cpu):Context {
-    return new Context(arch, false, options);
-  }
-
   public function currentOptions():ContextOptions {
     return configuredOptions.copy();
   }

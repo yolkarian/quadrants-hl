@@ -136,8 +136,11 @@ class Profiler {
     return {count: count(kernelName), minTime: min(kernelName), maxTime: max(kernelName), averageTime: avg(kernelName)};
   }
 
-  public function recordKernel(kernel:Kernel):ProfilerRecord {
-    return record(kernel.kernelName());
+  public function recordKernel(kernel:quadrants.kernel.QKernel):ProfilerRecord {
+    if (kernel == null) {
+      throw "Quadrants Profiler.recordKernel requires a kernel";
+    }
+    return record(kernel.name());
   }
 
   public function kernel(kernelName:String):KernelProfilerStats {

@@ -3,7 +3,7 @@ package quadrants.ad;
 import quadrants.Context;
 import quadrants.Field;
 import quadrants.FieldRuntime;
-import quadrants.Kernel;
+import quadrants.kernel.QKernel;
 import quadrants.Tensor;
 import quadrants.TensorRuntime;
 import quadrants.Types.F32;
@@ -169,7 +169,7 @@ class GradCheck {
   static inline var DEFAULT_MAX_MISMATCHES:Int = 16;
   static inline var RELATIVE_ERROR_FLOOR:Float = 1e-12;
 
-  public static function checkTensorToScalar(kernel:Kernel,
+  public static function checkTensorToScalar(kernel:QKernel,
       args:Array<Dynamic>,
       input:Tensor<F32>,
       loss:Tensor<F32>,
@@ -177,7 +177,7 @@ class GradCheck {
     return checkTargetsToScalar(kernel, args, [tensorTarget("input", input)], tensorLoss(loss), options);
   }
 
-  public static function checkTensorsToScalar(kernel:Kernel,
+  public static function checkTensorsToScalar(kernel:QKernel,
       args:Array<Dynamic>,
       inputs:Array<Tensor<F32>>,
       loss:Tensor<F32>,
@@ -185,7 +185,7 @@ class GradCheck {
     return checkTargetsToScalar(kernel, args, tensorTargets(inputs), tensorLoss(loss), options);
   }
 
-  public static function checkFieldToScalar(kernel:Kernel,
+  public static function checkFieldToScalar(kernel:QKernel,
       args:Array<Dynamic>,
       input:Field<F32>,
       loss:Tensor<F32>,
@@ -193,7 +193,7 @@ class GradCheck {
     return checkTargetsToScalar(kernel, args, [fieldTarget("input", input)], tensorLoss(loss), options);
   }
 
-  public static function checkFieldsToScalar(kernel:Kernel,
+  public static function checkFieldsToScalar(kernel:QKernel,
       args:Array<Dynamic>,
       inputs:Array<Field<F32>>,
       loss:Tensor<F32>,
@@ -201,7 +201,7 @@ class GradCheck {
     return checkTargetsToScalar(kernel, args, fieldTargets(inputs), tensorLoss(loss), options);
   }
 
-  static function checkTargetsToScalar(kernel:Kernel,
+  static function checkTargetsToScalar(kernel:QKernel,
       args:Array<Dynamic>,
       inputs:Array<GradCheckTarget>,
       loss:GradCheckLoss,
@@ -292,12 +292,12 @@ class GradCheck {
       failureCount,
       maxAbsError,
       maxRelError,
-      kernel.kernelName(),
-      kernel.descriptorHash(),
+      kernel.name(),
+      kernel.raw().descriptorHash(),
       mismatches);
   }
 
-  static function validate(kernel:Kernel, args:Array<Dynamic>, inputs:Array<GradCheckTarget>, loss:GradCheckLoss):Void {
+  static function validate(kernel:QKernel, args:Array<Dynamic>, inputs:Array<GradCheckTarget>, loss:GradCheckLoss):Void {
     if (kernel == null) {
       throw "Quadrants GradCheck requires a kernel";
     }
@@ -332,7 +332,7 @@ class GradCheck {
     }
   }
 
-  static function analyticGradients(kernel:Kernel,
+  static function analyticGradients(kernel:QKernel,
       args:Array<Dynamic>,
       inputs:Array<GradCheckTarget>,
       loss:GradCheckLoss,

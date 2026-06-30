@@ -46,7 +46,6 @@ typedef DebugOptions = {
   @:optional var timeline:Bool;
 }
 
-
 @:final class ContextOptions {
   public var arch:Null<Arch> = null;
   public var profilerEnabled:Bool;
@@ -83,57 +82,39 @@ typedef DebugOptions = {
     this.profilerEnabled = profilerEnabled;
   }
 
-  public static function create():ContextOptions {
+  @:noCompletion public static function create():ContextOptions {
     return new ContextOptions();
   }
 
-  public static function builder():ContextOptionsBuilder {
-    return new ContextOptionsBuilder();
-  }
-
-  public static function fromCreateOptions(config:ContextCreateOptions):ContextOptions {
-    var builder = ContextOptions.builder();
+  @:noCompletion public static function fromCreateOptions(config:ContextCreateOptions):ContextOptions {
+    var options = new ContextOptions(config != null && config.profiler == true);
     if (config == null) {
-      return builder.build();
+      return options;
     }
-    if (config.arch != null) {
-      builder.arch(config.arch);
-    }
-    if (config.profiler != null) {
-      builder.profiler(config.profiler == true);
-    }
-    if (config.fastMath != null) {
-      builder.fastMath(config.fastMath == true);
-    }
-    if (config.boundsCheck != null) {
-      builder.boundsCheck(config.boundsCheck == true);
-    }
-    if (config.randomSeed != null) {
-      builder.randomSeed(config.randomSeed);
-    }
+    options.arch = config.arch;
+    options.fastMathEnabled = config.fastMath;
+    options.boundsCheckEnabled = config.boundsCheck;
+    options.randomSeed = config.randomSeed;
     if (config.cpuMaxNumThreads != null) {
-      builder.cpuMaxNumThreads(config.cpuMaxNumThreads);
+      requirePositive(config.cpuMaxNumThreads, "Quadrants CPU max thread count must be positive");
+      options.cpuMaxNumThreads = config.cpuMaxNumThreads;
     }
     if (config.offlineCache != null) {
-      builder.offlineCache(config.offlineCache);
+      applyOfflineCache(options, config.offlineCache);
     }
     if (config.compile != null) {
-      builder.compile(config.compile);
+      applyCompile(options, config.compile);
     }
     if (config.debug != null) {
-      builder.debug(config.debug);
+      applyDebug(options, config.debug);
     }
     if (config.ad != null) {
-      builder.ad(config.ad);
+      applyAd(options, config.ad);
     }
     if (config.memory != null) {
-      builder.memory(config.memory);
+      applyMemory(options, config.memory);
     }
-    return builder.build();
-  }
-
-  public static function withKernelProfiler(enabled:Bool = true):ContextOptions {
-    return new ContextOptions(enabled);
+    return options;
   }
 
   public function copy():ContextOptions {
@@ -168,67 +149,6 @@ typedef DebugOptions = {
     clone.deviceMemoryFraction = deviceMemoryFraction;
     clone.cudaStackLimitBytes = cudaStackLimitBytes;
     return clone;
-  }
-
-  public function withArch(arch:Arch):ContextOptions {
-    this.arch = arch;
-    return this;
-  }
-
-  public function withProfiler(enabled:Bool = true):ContextOptions {
-    profilerEnabled = enabled;
-    return this;
-  }
-
-  public function withOfflineCache(enabled:Bool, path:String = ""):ContextOptions {
-    offlineCacheEnabled = enabled;
-    offlineCachePath = path;
-    return this;
-  }
-
-  public function withAdstackConfig(experimentalEnabled:Bool, stackSize:Int = 0, sparseThresholdBytes:Int = 104857600):ContextOptions {
-    requireNonNegative(stackSize, "Quadrants adstack size must be non-negative");
-    requireNonNegative(sparseThresholdBytes, "Quadrants adstack sparse threshold must be non-negative");
-    adstackExperimentalEnabled = experimentalEnabled;
-    adstackSize = stackSize;
-    adstackSparseThresholdBytes = sparseThresholdBytes;
-    return this;
-  }
-
-  public function withRandomSeed(seed:Int):ContextOptions {
-    randomSeed = seed;
-    return this;
-  }
-
-  public function withCpuMaxNumThreads(threadCount:Int):ContextOptions {
-    if (threadCount <= 0) {
-      throw "Quadrants CPU max thread count must be positive";
-    }
-    cpuMaxNumThreads = threadCount;
-    return this;
-  }
-
-  public function withFastMath(enabled:Bool):ContextOptions {
-    fastMathEnabled = enabled;
-    return this;
-  }
-
-  public function withBoundsCheck(enabled:Bool):ContextOptions {
-    boundsCheckEnabled = enabled;
-    return this;
-  }
-
-  public function withDebugDump(path:String, printIr:Bool = true, printPreprocessedIr:Bool = false, printIrDebugInfo:Bool = false):ContextOptions {
-    debugDumpPath = path;
-    debugDumpPrintIr = printIr;
-    debugDumpPrintPreprocessedIr = printPreprocessedIr;
-    debugDumpPrintIrDebugInfo = printIrDebugInfo;
-    return this;
-  }
-
-  public function warnOnFieldMirrorFallback(enabled:Bool = true):ContextOptions {
-    warnOnFieldMirrorFallbackEnabled = enabled;
-    return this;
   }
 
   public function applyTo(context:Context):Void {
@@ -294,155 +214,90 @@ typedef DebugOptions = {
     }
   }
 
-  public static function requireNonNegative(value:Int, message:String):Void {
+  static function applyOfflineCache(options:ContextOptions, config:OfflineCacheOptions):Void {
+    options.offlineCacheEnabled = config.enabled;
+    options.offlineCachePath = config.path == null ? "" : config.path;
+    options.offlineCacheCleanPolicy = config.cleanPolicy;
+    if (config.maxSizeBytes != null) {
+      requirePositiveInt64(config.maxSizeBytes, "Quadrants offline cache max size must be positive");
+      options.offlineCacheMaxSizeBytes = config.maxSizeBytes;
+    }
+    if (config.cleanFactor != null) {
+      requirePositiveFloat(config.cleanFactor, "Quadrants offline cache clean factor must be positive");
+      options.offlineCacheCleanFactor = config.cleanFactor;
+    }
+  }
+
+  static function applyCompile(options:ContextOptions, config:CompileOptions):Void {
+    options.compileCfgOptimization = config.cfgOptimization;
+    var compileThreads = config.numThreads != null ? config.numThreads : config.numCompileThreads;
+    if (compileThreads != null) {
+      requirePositive(compileThreads, "Quadrants numThreads must be positive");
+    }
+    options.compileNumThreads = compileThreads;
+    options.compileOptLevel = config.optLevel;
+    options.compileExternalOptLevel = config.externalOptLevel;
+  }
+
+  static function applyDebug(options:ContextOptions, config:DebugOptions):Void {
+    if (config.path != null) {
+      options.debugDumpPath = config.path;
+      options.debugDumpPrintIr = config.printIr != false;
+      options.debugDumpPrintPreprocessedIr = config.printPreprocessedIr == true;
+      options.debugDumpPrintIrDebugInfo = config.printIrDebugInfo == true;
+    }
+    options.debugLaunchEnabled = config.launchDebug;
+    options.debugTimelineEnabled = config.timeline;
+  }
+
+  static function applyAd(options:ContextOptions, config:AdOptions):Void {
+    var stackSize = config.stackSize == null ? 0 : config.stackSize;
+    var threshold = config.sparseThresholdBytes == null ? 104857600 : config.sparseThresholdBytes;
+    requireNonNegative(stackSize, "Quadrants adstack size must be non-negative");
+    requireNonNegative(threshold, "Quadrants adstack sparse threshold must be non-negative");
+    options.adstackExperimentalEnabled = config.experimental == true;
+    options.adstackSize = stackSize;
+    options.adstackSparseThresholdBytes = threshold;
+  }
+
+  static function applyMemory(options:ContextOptions, config:MemoryOptions):Void {
+    if (config.deviceMemoryFraction != null) {
+      requireMemoryFraction(config.deviceMemoryFraction);
+      options.deviceMemoryFraction = config.deviceMemoryFraction;
+    }
+    if (config.cudaStackLimitBytes != null) {
+      requireNonNegative(config.cudaStackLimitBytes, "Quadrants cuda stack limit must be non-negative");
+      options.cudaStackLimitBytes = config.cudaStackLimitBytes;
+    }
+  }
+
+  static function requirePositive(value:Int, message:String):Void {
+    if (value <= 0) {
+      throw message;
+    }
+  }
+
+  static function requireNonNegative(value:Int, message:String):Void {
     if (value < 0) {
       throw message;
     }
   }
 
-  public static function requireMemoryFraction(value:Float):Void {
+  static function requireMemoryFraction(value:Float):Void {
     if (!(value > 0.0 && value <= 1.0)) {
       throw "Quadrants device memory fraction must be in (0, 1]";
     }
   }
 
-  public static function requirePositiveInt64(value:Int64, message:String):Void {
+  static function requirePositiveInt64(value:Int64, message:String):Void {
     if (Int64.compare(value, Int64.make(0, 0)) <= 0) {
       throw message;
     }
   }
 
-  public static function requirePositiveFloat(value:Float, message:String):Void {
+  static function requirePositiveFloat(value:Float, message:String):Void {
     if (!(value > 0.0)) {
       throw message;
     }
-  }
-}
-
-class ContextOptionsBuilder {
-  final options:ContextOptions;
-
-  public function new() {
-    options = ContextOptions.create();
-  }
-
-  public function arch(arch:Arch):ContextOptionsBuilder {
-    options.withArch(arch);
-    return this;
-  }
-
-  public function profiler(enabled:Bool = true):ContextOptionsBuilder {
-    options.withProfiler(enabled);
-    return this;
-  }
-
-  public function fastMath(enabled:Bool):ContextOptionsBuilder {
-    options.withFastMath(enabled);
-    return this;
-  }
-
-  public function boundsCheck(enabled:Bool):ContextOptionsBuilder {
-    options.withBoundsCheck(enabled);
-    return this;
-  }
-
-  public function randomSeed(seed:Int):ContextOptionsBuilder {
-    options.withRandomSeed(seed);
-    return this;
-  }
-
-  public function cpuMaxNumThreads(threadCount:Int):ContextOptionsBuilder {
-    options.withCpuMaxNumThreads(threadCount);
-    return this;
-  }
-
-  public function offlineCache(config:OfflineCacheOptions):ContextOptionsBuilder {
-    if (config == null) {
-      throw "Quadrants ContextOptions.builder().offlineCache requires a config object";
-    }
-    options.withOfflineCache(config.enabled, config.path == null ? "" : config.path);
-    options.offlineCacheCleanPolicy = config.cleanPolicy;
-    if (config.maxSizeBytes != null) {
-      ContextOptions.requirePositiveInt64(config.maxSizeBytes, "Quadrants offline cache max size must be positive");
-      options.offlineCacheMaxSizeBytes = config.maxSizeBytes;
-    }
-    if (config.cleanFactor != null) {
-      ContextOptions.requirePositiveFloat(config.cleanFactor, "Quadrants offline cache clean factor must be positive");
-      options.offlineCacheCleanFactor = config.cleanFactor;
-    }
-    return this;
-  }
-
-  public function compile(config:CompileOptions):ContextOptionsBuilder {
-    if (config == null) {
-      throw "Quadrants ContextOptions.builder().compile requires a config object";
-    }
-    options.compileCfgOptimization = config.cfgOptimization;
-    var compileThreads = config.numThreads != null ? config.numThreads : config.numCompileThreads;
-    if (compileThreads != null && compileThreads <= 0) {
-      throw "Quadrants numThreads must be positive";
-    }
-    options.compileNumThreads = compileThreads;
-    options.compileOptLevel = config.optLevel;
-    options.compileExternalOptLevel = config.externalOptLevel;
-    return this;
-  }
-
-  public function defaults(config:DefaultDTypeOptions):ContextOptionsBuilder {
-    if (config == null) {
-      throw "Quadrants ContextOptions.builder().defaults requires a config object";
-    }
-    options.defaultFpDType = config.fp;
-    options.defaultIpDType = config.ip;
-    options.defaultUpDType = config.up;
-    return this;
-  }
-
-  public function memory(config:MemoryOptions):ContextOptionsBuilder {
-    if (config == null) {
-      throw "Quadrants ContextOptions.builder().memory requires a config object";
-    }
-    if (config.deviceMemoryFraction != null) {
-      ContextOptions.requireMemoryFraction(config.deviceMemoryFraction);
-      options.deviceMemoryFraction = config.deviceMemoryFraction;
-    }
-    if (config.cudaStackLimitBytes != null) {
-      ContextOptions.requireNonNegative(config.cudaStackLimitBytes, "Quadrants cuda stack limit must be non-negative");
-      options.cudaStackLimitBytes = config.cudaStackLimitBytes;
-    }
-    return this;
-  }
-
-  public function ad(config:AdOptions):ContextOptionsBuilder {
-    if (config == null) {
-      throw "Quadrants ContextOptions.builder().ad requires a config object";
-    }
-    options.withAdstackConfig(config.experimental == true, config.stackSize == null ? 0 : config.stackSize,
-      config.sparseThresholdBytes == null ? 104857600 : config.sparseThresholdBytes);
-    return this;
-  }
-
-  public function debug(config:DebugOptions):ContextOptionsBuilder {
-    if (config == null) {
-      throw "Quadrants ContextOptions.builder().debug requires a config object";
-    }
-    if (config.path != null) {
-      options.withDebugDump(config.path,
-        config.printIr != false,
-        config.printPreprocessedIr == true,
-        config.printIrDebugInfo == true);
-    }
-    options.debugLaunchEnabled = config.launchDebug;
-    options.debugTimelineEnabled = config.timeline;
-    return this;
-  }
-
-  public function warnOnFieldMirrorFallback(enabled:Bool = true):ContextOptionsBuilder {
-    options.warnOnFieldMirrorFallback(enabled);
-    return this;
-  }
-
-  public function build():ContextOptions {
-    return options.copy();
   }
 }

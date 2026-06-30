@@ -1,7 +1,7 @@
 package quadrants.descriptor;
 
-import quadrants.Kernel;
 import quadrants.compat.Diagnostics;
+import quadrants.kernel.QKernel;
 import quadrants.descriptor.ArgSchema.DescriptorArgEntry;
 import quadrants.descriptor.TypeTable.DescriptorTypeEntry;
 
@@ -18,8 +18,8 @@ typedef QdhlDescriptorMetadata = {
 class Descriptor {
   public static inline var SCHEMA_VERSION:Int = 3;
 
-  public static function fromKernel(kernel:Kernel):Null<QdhlDescriptorMetadata> {
-    var dump = Diagnostics.descriptorDump(kernel);
+  public static function fromKernel(kernel:QKernel):Null<QdhlDescriptorMetadata> {
+    var dump = Diagnostics.descriptorDump(kernel.raw());
     return cast Reflect.field(dump, "descriptor");
   }
 }

@@ -4,7 +4,7 @@ import haxe.Json;
 import haxe.io.Bytes;
 import quadrants.Context;
 import quadrants.FieldRuntime;
-import quadrants.Kernel;
+import quadrants.KernelRaw;
 import quadrants.TensorRuntime;
 import quadrants.Types.Arch;
 import quadrants.Types.DType;
@@ -18,12 +18,12 @@ private typedef DescriptorSection = {
 }
 
 class Diagnostics {
-  public static function descriptorHash(kernel:Kernel):String {
+  public static function descriptorHash(kernel:KernelRaw):String {
     requireKernel(kernel);
     return kernel.descriptorHash();
   }
 
-  public static function descriptorDump(kernel:Kernel):Dynamic {
+  public static function descriptorDump(kernel:KernelRaw):Dynamic {
     requireKernel(kernel);
     var length = kernel.descriptorLengthBytes();
     if (length < 20) {
@@ -82,11 +82,11 @@ class Diagnostics {
     };
   }
 
-  public static function dumpDescriptor(kernel:Kernel):String {
+  public static function dumpDescriptor(kernel:KernelRaw):String {
     return Json.stringify(descriptorDump(kernel));
   }
 
-  public static function kernelInfo(kernel:Kernel):Dynamic {
+  public static function kernelInfo(kernel:KernelRaw):Dynamic {
     requireKernel(kernel);
     return {
       kernelName: kernel.kernelName(),
@@ -178,7 +178,7 @@ class Diagnostics {
     }
   }
 
-  static function requireKernel(kernel:Kernel):Void {
+  static function requireKernel(kernel:KernelRaw):Void {
     if (kernel == null) {
       throw "Quadrants Diagnostics requires a kernel";
     }
@@ -201,7 +201,7 @@ class Diagnostics {
     return section;
   }
 
-  static function parseStrings(kernel:Kernel, section:Null<DescriptorSection>):Array<String> {
+  static function parseStrings(kernel:KernelRaw, section:Null<DescriptorSection>):Array<String> {
     var strings:Array<String> = [];
     if (section == null) {
       return strings;
@@ -225,7 +225,7 @@ class Diagnostics {
     return strings;
   }
 
-  static function parseSourceSpans(kernel:Kernel, section:Null<DescriptorSection>, strings:Array<String>):Array<Dynamic> {
+  static function parseSourceSpans(kernel:KernelRaw, section:Null<DescriptorSection>, strings:Array<String>):Array<Dynamic> {
     var spans:Array<Dynamic> = [];
     if (section == null || section.length == 0) {
       return spans;
@@ -248,7 +248,7 @@ class Diagnostics {
     return spans;
   }
 
-  static function parseSymbols(kernel:Kernel, section:Null<DescriptorSection>, strings:Array<String>):Dynamic {
+  static function parseSymbols(kernel:KernelRaw, section:Null<DescriptorSection>, strings:Array<String>):Dynamic {
     var parameters:Array<Dynamic> = [];
     var locals:Array<Dynamic> = [];
     if (section == null || section.length == 0) {
@@ -280,7 +280,7 @@ class Diagnostics {
     return {parameters: parameters, locals: locals};
   }
 
-  static function parseParameters(kernel:Kernel, offset:Int, end:Int, strings:Array<String>):Array<Dynamic> {
+  static function parseParameters(kernel:KernelRaw, offset:Int, end:Int, strings:Array<String>):Array<Dynamic> {
     var parameters:Array<Dynamic> = [];
     if (offset + 4 > end) {
       throw "Quadrants descriptor parameter block is truncated";
@@ -311,7 +311,7 @@ class Diagnostics {
     return parameters;
   }
 
-  static function parseLocals(kernel:Kernel, offset:Int, end:Int, strings:Array<String>):Array<Dynamic> {
+  static function parseLocals(kernel:KernelRaw, offset:Int, end:Int, strings:Array<String>):Array<Dynamic> {
     var locals:Array<Dynamic> = [];
     if (offset + 4 > end) {
       throw "Quadrants descriptor local block is truncated";
@@ -333,7 +333,7 @@ class Diagnostics {
     return locals;
   }
 
-  static function parseStatements(kernel:Kernel, section:Null<DescriptorSection>, strings:Array<String>):Dynamic {
+  static function parseStatements(kernel:KernelRaw, section:Null<DescriptorSection>, strings:Array<String>):Dynamic {
     if (section == null || section.length < 8) {
       return null;
     }
@@ -342,7 +342,7 @@ class Diagnostics {
     return {kernelName: stringAt(strings, kernelNameId), statementCount: statementCount};
   }
 
-  static function parseAttributes(kernel:Kernel, section:Null<DescriptorSection>):Dynamic {
+  static function parseAttributes(kernel:KernelRaw, section:Null<DescriptorSection>):Dynamic {
     var result:Dynamic = {};
     if (section == null || section.length < 4) {
       return result;
@@ -371,7 +371,7 @@ class Diagnostics {
     return result;
   }
 
-  static function parseTypeTable(kernel:Kernel, section:DescriptorSection):Array<Dynamic> {
+  static function parseTypeTable(kernel:KernelRaw, section:DescriptorSection):Array<Dynamic> {
     var entries:Array<Dynamic> = [];
     var pos = section.offset;
     var end = section.offset + section.length;
@@ -392,7 +392,7 @@ class Diagnostics {
     return entries;
   }
 
-  static function parseResourceTable(kernel:Kernel, section:DescriptorSection, strings:Array<String>):Array<Dynamic> {
+  static function parseResourceTable(kernel:KernelRaw, section:DescriptorSection, strings:Array<String>):Array<Dynamic> {
     var entries:Array<Dynamic> = [];
     var pos = section.offset;
     var end = section.offset + section.length;
@@ -413,7 +413,7 @@ class Diagnostics {
     return entries;
   }
 
-  static function parseStructTable(kernel:Kernel, section:DescriptorSection, strings:Array<String>):Array<Dynamic> {
+  static function parseStructTable(kernel:KernelRaw, section:DescriptorSection, strings:Array<String>):Array<Dynamic> {
     var entries:Array<Dynamic> = [];
     var pos = section.offset;
     var end = section.offset + section.length;
@@ -439,7 +439,7 @@ class Diagnostics {
     return entries;
   }
 
-  static function parseSpecTable(kernel:Kernel, section:DescriptorSection, strings:Array<String>):Array<Dynamic> {
+  static function parseSpecTable(kernel:KernelRaw, section:DescriptorSection, strings:Array<String>):Array<Dynamic> {
     var entries:Array<Dynamic> = [];
     var pos = section.offset;
     var end = section.offset + section.length;
@@ -459,7 +459,7 @@ class Diagnostics {
     return entries;
   }
 
-  static function parseArgTable(kernel:Kernel, section:DescriptorSection, strings:Array<String>):Array<Dynamic> {
+  static function parseArgTable(kernel:KernelRaw, section:DescriptorSection, strings:Array<String>):Array<Dynamic> {
     var entries:Array<Dynamic> = [];
     var pos = section.offset;
     var end = section.offset + section.length;
@@ -479,7 +479,7 @@ class Diagnostics {
     return entries;
   }
 
-  static function readU32(kernel:Kernel, offset:Int):Int {
+  static function readU32(kernel:KernelRaw, offset:Int):Int {
     requireRange(kernel, offset, 4, "u32");
     return kernel.descriptorByteAt(offset)
       | (kernel.descriptorByteAt(offset + 1) << 8)
@@ -487,7 +487,7 @@ class Diagnostics {
       | (kernel.descriptorByteAt(offset + 3) << 24);
   }
 
-  static function readString(kernel:Kernel, offset:Int, length:Int):String {
+  static function readString(kernel:KernelRaw, offset:Int, length:Int):String {
     requireRange(kernel, offset, length, "string");
     var bytes = Bytes.alloc(length);
     for (i in 0...length) {
@@ -496,7 +496,7 @@ class Diagnostics {
     return bytes.getString(0, length);
   }
 
-  static function requireRange(kernel:Kernel, offset:Int, length:Int, label:String):Void {
+  static function requireRange(kernel:KernelRaw, offset:Int, length:Int, label:String):Void {
     if (offset < 0 || length < 0 || offset + length > kernel.descriptorLengthBytes()) {
       throw 'Quadrants descriptor ${label} range is out of bounds';
     }

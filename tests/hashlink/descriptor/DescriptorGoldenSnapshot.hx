@@ -110,7 +110,7 @@ class DescriptorGoldenSnapshot {
     var descriptorLength = u32(descriptor, 16);
     descriptor.setUI8(4, 2);
     try {
-      var kernel = Kernel.fromDescriptor(ctx, descriptor, descriptorLength);
+      var kernel = quadrants.KernelRaw.fromDescriptor(ctx, descriptor, descriptorLength);
       kernel.close();
       throw "descriptor_invalid_schema_version unexpectedly compiled";
     } catch (e:Dynamic) {

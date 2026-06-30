@@ -11,14 +11,14 @@ class Diagnostics {
     if (kernel == null) {
       throw "Quadrants Diagnostics.dumpKernel requires a kernel";
     }
-    return quadrants.compat.Diagnostics.kernelInfo(kernel.asKernel());
+    return quadrants.compat.Diagnostics.kernelInfo(kernel.raw());
   }
 
   public static function dumpDescriptor(kernel:quadrants.kernel.QKernel):DiagnosticJson {
     if (kernel == null) {
       throw "Quadrants Diagnostics.dumpDescriptor requires a kernel";
     }
-    return quadrants.compat.Diagnostics.descriptorDump(kernel.asKernel());
+    return quadrants.compat.Diagnostics.descriptorDump(kernel.raw());
   }
 
   public static function dumpCapabilities(ctx:Context):DiagnosticJson {

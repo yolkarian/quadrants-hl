@@ -80,16 +80,12 @@ class QKernel2<A, B, R> implements QKernel {
     return rawKernel.descriptorByteAt(index);
   }
 
-  public function descriptor():quadrants.Kernel {
-    return asKernel();
+  public function descriptor():quadrants.descriptor.Descriptor.QdhlDescriptorMetadata {
+    return quadrants.descriptor.Descriptor.fromKernel(this);
   }
 
   public function close():Void {
     rawKernel.close();
-  }
-
-  public function asKernel():quadrants.Kernel {
-    return quadrants.Kernel.fromRaw(rawKernel);
   }
 
 }

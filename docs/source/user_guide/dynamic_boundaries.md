@@ -4,7 +4,7 @@ HashLink treats `Dynamic` as an interop boundary, not a normal public API design
 
 | API surface | Classification | Retention reason |
 | --- | --- | --- |
-| `KernelRaw.launchDynamic(...)`, `launchOnDynamic(...)`, graph launch methods, `launchRetDynamic(...)`, `launchRetsDynamic(...)`, `kernel.ArgBuffer`, and native `hl.NativeArray<Dynamic>` launch bridge | Permanent necessary boundary | Runtime kernel calls accept heterogeneous argument lists whose arity and scalar/tensor mix are determined by the compiled descriptor. |
+| `KernelRaw.launchDynamic(...)`, `launchOnDynamic(...)`, graph launch methods, `launchRetDynamic(...)`, `launchRetsDynamic(...)`, `kernel.ArgBuffer`, and native `hl.NativeArray<Dynamic>` launch bridge | Internal necessary boundary | Runtime kernel calls accept heterogeneous argument lists whose arity and scalar/tensor mix are determined by the compiled descriptor; typed `QKernelN` wrappers are the user-facing launch API. |
 | `TapeRecord.args` and `Tape.recordKernel(...)` / `Tape.recordCustom(...)` internal replay hooks | Internal necessary boundary | Typed `QKernelN.launchTape(...)` records heterogeneous launch values for reverse/forward replay without exposing `Tape.launch(...Dynamic)` as the user entrypoint. |
 | `GradCheck.check*ToScalar(..., args:Array<Dynamic>, ...)` | Permanent necessary boundary | Grad checking replays a kernel with the same heterogeneous launch argument list while separately identifying typed differentiable inputs and scalar loss. |
 | `Native.kernel_launch*`, `Native.kernel_launch*_specialized`, `Native.kernel_launch_ret(s)` | Permanent necessary boundary | HashLink native ABI passes descriptor-validated heterogeneous runtime values and specialization values through `hl.NativeArray<Dynamic>` at the explicit bridge boundary. |
@@ -22,7 +22,7 @@ HashLink treats `Dynamic` as an interop boundary, not a normal public API design
 
 Removed public `Dynamic` surfaces:
 
-- `Kernel.launch(...)`, `Kernel.launchOn(...)`, `Kernel.launchRet(...)`, `Kernel.launchRets(...)`, and dynamic graph launch helpers were removed from the public `Kernel` facade. Use typed `Kernel.build(...)` wrappers or explicit `KernelRaw` for low-level bridge work.
+- `Kernel.launch(...)`, `Kernel.launchOn(...)`, `Kernel.launchRet(...)`, `Kernel.launchRets(...)`, dynamic graph launch helpers, `Kernel.fromRaw(...)`, and `Kernel.fromDescriptor(...)` were removed from the public `Kernel` facade. Use typed `Kernel.build(...)` wrappers.
 - `Tape.launch(...)` and `Tape.launchCustom(...)` were removed. Use typed `QKernelN.launchTape(tape, ...)`.
 - Algorithms now type input/output dtype relationships with `Tensor<T>`.
 - `PrefixSumExecutor` scan methods now type input/output dtype relationships with `Tensor<T>`.
@@ -34,8 +34,7 @@ Removed public `Dynamic` surfaces:
 
 Compatibility policy:
 
-- Permanent necessary boundaries are allowed to stay public and must not be used as precedent for new ordinary APIs.
-- Compatibility shims may stay for migration, but new docs and examples should show the typed alternative first.
-- A compatibility shim can be deprecated only when the typed replacement has runtime coverage, compile-fail coverage for the static guarantee, and a migration example.
+- Permanent necessary boundaries are allowed only for native/tooling interop and must not be used as precedent for ordinary APIs.
+- Compatibility shims are not a v3 design goal; remove them instead of extending them when touching the relevant feature.
 - Any new public `Dynamic` must add a row to this ledger in the same change.
 - `tools/check_public_dynamic.sh` enforces that new public `Dynamic` surfaces are explicitly allowlisted.
