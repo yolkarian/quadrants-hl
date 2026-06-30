@@ -96,7 +96,7 @@ class Capabilities {
     graph = {
       launch: true,
       hostWhile: true,
-      nativeDoWhile: true,
+      nativeDoWhile: false,
     };
     descriptor = {
       version: VersionInfo.DESCRIPTOR_VERSION,

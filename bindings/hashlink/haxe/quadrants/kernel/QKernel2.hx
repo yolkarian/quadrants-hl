@@ -56,11 +56,13 @@ class QKernel2<A, B, R> implements QKernel {
   }
 
   public function launchGraphDoWhile(control:quadrants.Tensor<quadrants.Types.I32>, a0:A, a1:B):R {
-    do {
-      launchGraph(a0, a1);
-      control.context.sync();
-    } while (control.read(0) != 0);
-    return cast null;
+    if (control == null) {
+      throw "Quadrants graph do-while launch requires an I32 control Tensor";
+    }
+    if (!control.context.capabilities().graph.nativeDoWhile) {
+      throw "Quadrants graph do-while launch requires capability graph.nativeDoWhile";
+    }
+    throw "Quadrants graph do-while native launch is not implemented for this backend";
   }
 
   public function launchTape(tape:quadrants.Tape, a0:A, a1:B):R {

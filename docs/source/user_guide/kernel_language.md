@@ -188,7 +188,7 @@ Unsupported syntax fails during Haxe compilation with an `Unsupported Quadrants 
 Common unsupported constructs include:
 
 - General Haxe arrays, classes, strings, and dynamic objects inside kernel bodies. `return [a, b, ...]`, `Vector.ofArray([...])`, `Struct.ofN(...)`, and struct-style object literals are the supported structured-value constructs; arbitrary objects remain unsupported.
-- Function calls other than the supported math, atomic, `shape`, `bitCast`, `CompilerHints.assumeInRange`, loop-hint / `LoopConfig`, SIMT, packed-helper, first-class compound storage read/write, `Grid.threadIdx`, `Mesh.for*`, `Shared.array(...)`, `Shared.tile16(...)`, tensor `kernelRead`/`kernelWrite` inside helper bodies, and local or explicitly listed `@:qdFunc` helper calls. `StreamParallel.block(...)` is a reserved kernel-only marker, but this backend rejects it until native multi-stream lowering exists.
+- Function calls other than the supported math, atomic, `shape`, `bitCast`, `CompilerHints.assumeInRange`, loop-hint / `LoopConfig`, SIMT, first-class compound storage read/write, `Grid.threadIdx`, `Mesh.for*`, `Shared.array(...)`, `Shared.tile16(...)`, tensor `kernelRead`/`kernelWrite` inside helper bodies, and local or explicitly listed `@:qdFunc` helper calls.
 - `switch`, `try`/`catch`, `throw`, `do while`, and `for` over arbitrary iterables.
 - Assigning to anything except a local variable, ndarray element, vector/matrix component, or struct field.
 - Re-declaring a local variable in the same scope or shadowing a kernel parameter.

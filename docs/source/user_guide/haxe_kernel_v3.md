@@ -61,6 +61,6 @@ e.record(s);
 other.wait(e);
 
 k.launchGraph(args...);
-k.launchGraphWhile(controlI32Tensor, args...);
-k.launchGraphDoWhile(controlI32Tensor, args...);
+k.launchGraphWhile(controlI32Tensor, args...); // host-controlled typed loop
+// k.launchGraphDoWhile(...) requires capability graph.nativeDoWhile.
 ```

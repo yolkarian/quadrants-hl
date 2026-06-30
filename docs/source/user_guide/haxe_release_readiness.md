@@ -34,7 +34,7 @@ trace(sample.secondsPerIteration);
 ## Release validation checklist
 
 - Run the HashLink Haxe compile suite.
-- Run the compile-fail suite; it covers typed algorithm mismatches, storage-kind mismatches, kernel dtype annotation errors, typed struct member mistakes, invalid mesh relation access, invalid quant parameters, unsupported native quant/SNode operations, unsupported quant kernel parameters, and unsupported `StreamParallel.block(...)`.
+- Run the compile-fail suite; it covers typed algorithm mismatches, storage-kind mismatches, kernel dtype annotation errors, typed struct member mistakes, invalid mesh relation access, invalid quant parameters, unsupported native quant/SNode operations, unsupported quant kernel parameters, and removed stream-parallel marker APIs.
 - Run runtime gamma for algorithms, autodiff diagnostics, packed/compound storage, typed mesh/quant/SNode contracts, sparse/profiler, release migration examples, and the performance-baseline harness.
 - Inspect `Context.capabilities()` and `Context.optionWarnings()` on each supported backend so parsed-but-not-yet-wired config surfaces remain explicit.
 - Update [HashLink public Dynamic boundaries](dynamic_boundaries.md) whenever a public `Dynamic` is added, removed, or reclassified.

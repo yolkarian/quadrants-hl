@@ -830,9 +830,6 @@ private class DescriptorBuilder {
   function encodeBuiltinStatementCall(callee:Expr, args:Array<Expr>, writer:ByteWriter, pos:Position):Null<Int> {
     var name = callName(callee, pos);
     var path = callPath(callee, pos);
-    if (isStreamParallelBlock(path)) {
-      Context.error("Quadrants HashLink StreamParallel.block requires native multi-stream lowering, which is not supported by this backend", pos);
-    }
     var packedCount = encodePackedWriteStatement(path, args, writer, pos);
     if (packedCount != null) {
       return packedCount;
@@ -3239,9 +3236,6 @@ private class DescriptorBuilder {
     }
     var name = callName(callee, pos);
     var path = callPath(callee, pos);
-    if (isStreamParallelBlock(path)) {
-      Context.error("Quadrants HashLink StreamParallel.block requires native multi-stream lowering, which is not supported by this backend", pos);
-    }
     var atomicOpcode = atomicExpressionOpcode(name);
     if (atomicOpcode != null) {
       encodeAtomicCall(name, atomicOpcode, args, writer, pos);
@@ -4163,10 +4157,6 @@ private class DescriptorBuilder {
   function pathIs(path:String, typeName:String, methodName:String):Bool {
     var suffix = typeName + "." + methodName;
     return path == suffix || path == "quadrants." + suffix;
-  }
-
-  function isStreamParallelBlock(path:String):Bool {
-    return pathIs(path, "StreamParallel", "block");
   }
 
   function internalStatementOpcode(path:String):Null<Int> {
