@@ -31,7 +31,7 @@ final particles:StructTensor<Particle> = StructTensor.alloc(ctx, [n], LayoutPoli
 particles.writeMember("id", 0, 7);
 ```
 
-`QdStruct` rejects resources, `Array`, `String`, `Dynamic`, function fields, and arbitrary classes. `StructTensor` defaults to AOS; `StructField` defaults to SOA.
+`QdStruct` rejects resources, `Array`, `String`, `Dynamic`, function fields, and arbitrary classes. `StructTensor` defaults to AOS; `StructField` defaults to SOA. Kernels can load-copy-store structs (`var p = particles[i]; ...; particles[i] = p`) and can directly read/write scalar, vector/matrix lane, and nested members (`particles[i].id = ...`, `particles[i].pos.x = ...`, `wrappers[i].particle.id = ...`).
 
 Tensor/field host movement is method-based and typed:
 
@@ -62,10 +62,12 @@ Sparse, mesh, and quant resources use typed constructors plus descriptor/capabil
 
 ```haxe
 final A = SparseMatrix.fromCOO(ctx, rows, cols, values, nRows, nCols);
+A.buildFromTensor(dense, {eps: 1e-6});
+A.mmwrite("A.mtx");
 final mesh = new Mesh(vertexCount, edgeCount);
 final qi8 = Quant.intI32({bits: 8, signed: true});
 ```
 
-Unsupported native sparse/mesh/quant paths throw capability or validation errors instead of silently falling back.
+Mesh relation/attribute kernel parameters use canonical mesh resource descriptors: relations lower through native topology handles backed by SNode relation resources, and attributes lower to field-backed mesh resources. Kernels can call `relation.size(i)`, `relation.get(i, j)`, `attribute.read(i)`, and `attribute.write(i, value)`. `QuantizedF32Tensor` kernel parameters support `read(i)` dequantization and `write(i, value)` quantization through descriptor-expanded raw storage and quantization constants. `bitStruct(...).placeQuant(...)` supports quant-float placement. Unsupported native sparse/mesh/quant paths throw capability or validation errors instead of silently falling back.
 
-`Kernel.build(ctx, macro (...)->{...})` is the v3 kernel entrypoint. Give every parameter an explicit type. Raw dynamic launch remains only as a low-level/legacy escape hatch through `KernelRaw` or a value explicitly typed as `Kernel`.
+`Kernel.build(ctx, macro (...)->{...})` is the v3 kernel entrypoint. Give every parameter an explicit type. Use `Spec<T>` for specialization-only constants; generated typed launchers separate those values from runtime kernel arguments and native caches specialized kernels by the SpecTable values. Raw dynamic launch remains only as an explicit low-level bridge escape hatch through `KernelRaw`; the public `Kernel` facade no longer exposes dynamic launch methods.

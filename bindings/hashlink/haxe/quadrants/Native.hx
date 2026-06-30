@@ -9,6 +9,7 @@ abstract QSNodeTree(hl.Abstract<"qd_snode_tree">) {}
 abstract QCudaGlResource(hl.Abstract<"qd_cuda_gl_resource">) {}
 abstract QSparseMatrix(hl.Abstract<"qd_sparse_matrix">) {}
 abstract QSparseSolver(hl.Abstract<"qd_sparse_solver">) {}
+abstract QMeshRelation(hl.Abstract<"qd_mesh_relation">) {}
 
 @:build(quadrants.macro.NativeLibrary.build())
 class Native {
@@ -31,6 +32,21 @@ class Native {
     if (runtimeLibDir != null && runtimeLibDir.length > 0) {
       @:privateAccess runtime_set_lib_dir(runtimeLibDir.toUtf8());
     }
+  }
+
+  @:hlNative("quadrants", "hashlink_hdll_abi_version")
+  public static function hashlink_hdll_abi_version():Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "hashlink_runtime_abi_version")
+  public static function hashlink_runtime_abi_version():Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "hashlink_descriptor_schema_version")
+  public static function hashlink_descriptor_schema_version():Int {
+    throw "Quadrants HashLink native bridge is not loaded";
   }
 
   @:hlNative("quadrants", "runtime_set_lib_dir")
@@ -320,6 +336,26 @@ class Native {
 
   @:hlNative("quadrants", "sparse_cg_solve_f64")
   public static function sparse_cg_solve_f64(ctx:QContext, matrix:QSparseMatrix, b:QNdarray, x:QNdarray, maxIterations:Int, tolerance:Float):Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "mesh_relation_create")
+  public static function mesh_relation_create(ctx:QContext,
+      fromType:Int,
+      toType:Int,
+      counts:hl.NativeArray<Int>,
+      ownedOffsets:hl.NativeArray<Int>,
+      totalOffsets:hl.NativeArray<Int>,
+      valueSNodeId:Int,
+      offsetSNodeId:Int,
+      patchOffsetSNodeId:Int,
+      fixed:Int,
+      fixedDegree:Int):QMeshRelation {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "mesh_relation_close")
+  public static function mesh_relation_close(relation:QMeshRelation):Void {
     throw "Quadrants HashLink native bridge is not loaded";
   }
 
@@ -663,6 +699,21 @@ class Native {
     throw "Quadrants HashLink native bridge is not loaded";
   }
 
+  @:hlNative("quadrants", "snode_tree_bit_struct_quant_child")
+  public static function snode_tree_bit_struct_quant_child(tree:QSNodeTree,
+      parentSNodeId:Int,
+      computeDType:Int,
+      quantKind:Int,
+      bits:Int,
+      signed:Int,
+      fractionalBits:Int,
+      exponentBits:Int,
+      fractionBits:Int,
+      scale:Float,
+      maxBits:Int):Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
   @:hlNative("quadrants", "snode_tree_place")
   public static function snode_tree_place(tree:QSNodeTree, parentSNodeId:Int, dtype:Int, name:hl.Bytes):Int {
     throw "Quadrants HashLink native bridge is not loaded";
@@ -676,6 +727,8 @@ class Native {
       bits:Int,
       signed:Int,
       fractionalBits:Int,
+      exponentBits:Int,
+      fractionBits:Int,
       scale:Float,
       name:hl.Bytes):Int {
     throw "Quadrants HashLink native bridge is not loaded";
@@ -900,26 +953,58 @@ class Native {
     throw "Quadrants HashLink native bridge is not loaded";
   }
 
+  @:hlNative("quadrants", "kernel_launch_specialized")
+  public static function kernel_launch_specialized(ctx:QContext, kernel:QKernel, args:hl.NativeArray<Dynamic>, specs:hl.NativeArray<Dynamic>):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
   @:hlNative("quadrants", "kernel_launch_on")
   public static function kernel_launch_on(ctx:QContext, kernel:QKernel, stream:QStream, args:hl.NativeArray<Dynamic>):Void {
     throw "Quadrants HashLink native bridge is not loaded";
   }
 
+  @:hlNative("quadrants", "kernel_launch_on_specialized")
+  public static function kernel_launch_on_specialized(ctx:QContext, kernel:QKernel, stream:QStream, args:hl.NativeArray<Dynamic>, specs:hl.NativeArray<Dynamic>):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
 
   @:hlNative("quadrants", "kernel_launch_graph")
   public static function kernel_launch_graph(ctx:QContext, kernel:QKernel, args:hl.NativeArray<Dynamic>):Void {
     throw "Quadrants HashLink native bridge is not loaded";
   }
+
+  @:hlNative("quadrants", "kernel_launch_graph_specialized")
+  public static function kernel_launch_graph_specialized(ctx:QContext, kernel:QKernel, args:hl.NativeArray<Dynamic>, specs:hl.NativeArray<Dynamic>):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
   @:hlNative("quadrants", "kernel_launch_graph_do_while")
   public static function kernel_launch_graph_do_while(ctx:QContext, kernel:QKernel, controlArgId:Int, args:hl.NativeArray<Dynamic>):Void {
     throw "Quadrants HashLink native bridge is not loaded";
   }
+
+  @:hlNative("quadrants", "kernel_launch_graph_do_while_specialized")
+  public static function kernel_launch_graph_do_while_specialized(ctx:QContext, kernel:QKernel, controlArgId:Int, args:hl.NativeArray<Dynamic>, specs:hl.NativeArray<Dynamic>):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
   @:hlNative("quadrants", "kernel_launch_ret")
   public static function kernel_launch_ret(ctx:QContext, kernel:QKernel, args:hl.NativeArray<Dynamic>):Dynamic {
     throw "Quadrants HashLink native bridge is not loaded";
   }
+
+  @:hlNative("quadrants", "kernel_launch_ret_specialized")
+  public static function kernel_launch_ret_specialized(ctx:QContext, kernel:QKernel, args:hl.NativeArray<Dynamic>, specs:hl.NativeArray<Dynamic>):Dynamic {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
   @:hlNative("quadrants", "kernel_launch_rets")
   public static function kernel_launch_rets(ctx:QContext, kernel:QKernel, args:hl.NativeArray<Dynamic>):hl.NativeArray<Dynamic> {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "kernel_launch_rets_specialized")
+  public static function kernel_launch_rets_specialized(ctx:QContext, kernel:QKernel, args:hl.NativeArray<Dynamic>, specs:hl.NativeArray<Dynamic>):hl.NativeArray<Dynamic> {
     throw "Quadrants HashLink native bridge is not loaded";
   }
 

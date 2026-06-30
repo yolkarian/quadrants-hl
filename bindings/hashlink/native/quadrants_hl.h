@@ -12,6 +12,7 @@
 #define _QD_CUDA_GL_RESOURCE _ABSTRACT(qd_cuda_gl_resource)
 #define _QD_SPARSE_MATRIX _ABSTRACT(qd_sparse_matrix)
 #define _QD_SPARSE_SOLVER _ABSTRACT(qd_sparse_solver)
+#define _QD_MESH_RELATION _ABSTRACT(qd_mesh_relation)
 
 struct qd_context;
 struct qd_kernel;
@@ -22,7 +23,11 @@ struct qd_snode_tree;
 struct qd_cuda_gl_resource;
 struct qd_sparse_matrix;
 struct qd_sparse_solver;
+struct qd_mesh_relation;
 
+HL_PRIM int HL_NAME(hashlink_hdll_abi_version)();
+HL_PRIM int HL_NAME(hashlink_runtime_abi_version)();
+HL_PRIM int HL_NAME(hashlink_descriptor_schema_version)();
 HL_PRIM void HL_NAME(runtime_set_lib_dir)(vbyte *path);
 HL_PRIM qd_context *HL_NAME(context_create)(int arch);
 HL_PRIM qd_context *HL_NAME(context_create_configured)(int arch, int enable_profiler);
@@ -80,6 +85,19 @@ HL_PRIM void HL_NAME(sparse_solver_solve_f32)(qd_context *ctx, qd_sparse_solver 
 HL_PRIM void HL_NAME(sparse_solver_solve_f64)(qd_context *ctx, qd_sparse_solver *solver, qd_sparse_matrix *matrix, qd_ndarray *b, qd_ndarray *x);
 HL_PRIM int HL_NAME(sparse_cg_solve_f32)(qd_context *ctx, qd_sparse_matrix *matrix, qd_ndarray *b, qd_ndarray *x, int max_iterations, double tolerance);
 HL_PRIM int HL_NAME(sparse_cg_solve_f64)(qd_context *ctx, qd_sparse_matrix *matrix, qd_ndarray *b, qd_ndarray *x, int max_iterations, double tolerance);
+
+HL_PRIM qd_mesh_relation *HL_NAME(mesh_relation_create)(qd_context *ctx,
+                                                        int from_type,
+                                                        int to_type,
+                                                        varray *counts,
+                                                        varray *owned_offsets,
+                                                        varray *total_offsets,
+                                                        int value_snode_id,
+                                                        int offset_snode_id,
+                                                        int patch_offset_snode_id,
+                                                        int fixed,
+                                                        int fixed_degree);
+HL_PRIM void HL_NAME(mesh_relation_close)(qd_mesh_relation *relation);
 
 HL_PRIM qd_ndarray *HL_NAME(ndarray_create)(qd_context *ctx, int dtype, varray *shape);
 HL_PRIM qd_ndarray *HL_NAME(ndarray_import_dlpack)(qd_context *ctx, int dtype, int64 handle);
@@ -170,6 +188,17 @@ HL_PRIM int HL_NAME(snode_tree_child)(qd_snode_tree *tree,
                                       varray *axes,
                                       varray *sizes,
                                       int chunk_size);
+HL_PRIM int HL_NAME(snode_tree_bit_struct_quant_child)(qd_snode_tree *tree,
+                                                        int parent_snode_id,
+                                                        int compute_dtype,
+                                                        int quant_kind,
+                                                        int bits,
+                                                        int is_signed,
+                                                        int fractional_bits,
+                                                        int exponent_bits,
+                                                        int fraction_bits,
+                                                        double scale,
+                                                        int max_bits);
 HL_PRIM int HL_NAME(snode_tree_place)(qd_snode_tree *tree, int parent_snode_id, int dtype, vbyte *name);
 HL_PRIM int HL_NAME(snode_tree_place_quant)(qd_snode_tree *tree,
                                             int parent_snode_id,
@@ -178,6 +207,8 @@ HL_PRIM int HL_NAME(snode_tree_place_quant)(qd_snode_tree *tree,
                                             int bits,
                                             int is_signed,
                                             int fractional_bits,
+                                            int exponent_bits,
+                                            int fraction_bits,
                                             double scale,
                                             vbyte *name);
 HL_PRIM int HL_NAME(snode_tree_commit)(qd_context *ctx, qd_snode_tree *tree);
@@ -223,9 +254,15 @@ HL_PRIM void HL_NAME(snode_copy_from_ndarray)(qd_context *ctx, int snode_id, int
 
 HL_PRIM qd_kernel *HL_NAME(kernel_compile)(qd_context *ctx, vbyte *descriptor, int descriptor_length, int autodiff_mode);
 HL_PRIM void HL_NAME(kernel_launch)(qd_context *ctx, qd_kernel *kernel, varray *args);
+HL_PRIM void HL_NAME(kernel_launch_specialized)(qd_context *ctx, qd_kernel *kernel, varray *args, varray *specs);
 HL_PRIM void HL_NAME(kernel_launch_on)(qd_context *ctx, qd_kernel *kernel, qd_stream *stream, varray *args);
+HL_PRIM void HL_NAME(kernel_launch_on_specialized)(qd_context *ctx, qd_kernel *kernel, qd_stream *stream, varray *args, varray *specs);
 HL_PRIM void HL_NAME(kernel_launch_graph)(qd_context *ctx, qd_kernel *kernel, varray *args);
+HL_PRIM void HL_NAME(kernel_launch_graph_specialized)(qd_context *ctx, qd_kernel *kernel, varray *args, varray *specs);
 HL_PRIM void HL_NAME(kernel_launch_graph_do_while)(qd_context *ctx, qd_kernel *kernel, int control_arg_id, varray *args);
+HL_PRIM void HL_NAME(kernel_launch_graph_do_while_specialized)(qd_context *ctx, qd_kernel *kernel, int control_arg_id, varray *args, varray *specs);
 HL_PRIM vdynamic *HL_NAME(kernel_launch_ret)(qd_context *ctx, qd_kernel *kernel, varray *args);
+HL_PRIM vdynamic *HL_NAME(kernel_launch_ret_specialized)(qd_context *ctx, qd_kernel *kernel, varray *args, varray *specs);
 HL_PRIM varray *HL_NAME(kernel_launch_rets)(qd_context *ctx, qd_kernel *kernel, varray *args);
+HL_PRIM varray *HL_NAME(kernel_launch_rets_specialized)(qd_context *ctx, qd_kernel *kernel, varray *args, varray *specs);
 HL_PRIM void HL_NAME(kernel_close)(qd_kernel *kernel);

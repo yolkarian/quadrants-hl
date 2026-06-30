@@ -192,7 +192,7 @@ class Sort {
   }
 
   static function sortI32Impl(values:Tensor<I32>, n:Int, ascending:Bool):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(values.context, macro (values:Tensor<I32>, n:Int, ascending:Bool) -> {
         var i = 0;
@@ -224,7 +224,7 @@ class Sort {
   }
 
   static function sortU32Impl(values:Tensor<U32>, n:Int, ascending:Bool):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(values.context, macro (values:Tensor<U32>, n:Int, ascending:Bool) -> {
         var i = 0;
@@ -256,7 +256,7 @@ class Sort {
   }
 
   static function sortI64Impl(values:Tensor<I64>, n:Int, ascending:Bool):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(values.context, macro (values:Tensor<I64>, n:Int, ascending:Bool) -> {
         var i = 0;
@@ -288,7 +288,7 @@ class Sort {
   }
 
   static function sortU64Impl(values:Tensor<U64>, n:Int, ascending:Bool):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(values.context, macro (values:Tensor<U64>, n:Int, ascending:Bool) -> {
         var i = 0;
@@ -320,7 +320,7 @@ class Sort {
   }
 
   static function sortF32Impl(values:Tensor<F32>, n:Int, ascending:Bool):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(values.context, macro (values:Tensor<F32>, n:Int, ascending:Bool) -> {
         var i = 0;
@@ -352,7 +352,7 @@ class Sort {
   }
 
   static function sortF64Impl(values:Tensor<F64>, n:Int, ascending:Bool):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(values.context, macro (values:Tensor<F64>, n:Int, ascending:Bool) -> {
         var i = 0;
@@ -384,7 +384,7 @@ class Sort {
   }
 
   static function radixSortI32(input:Tensor<I32>, output:Tensor<I32>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<I32>, output:Tensor<I32>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
         for (i in 0...n) output[i] = input[i];
@@ -426,7 +426,7 @@ class Sort {
   }
 
   static function radixSortU32(input:Tensor<U32>, output:Tensor<U32>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<U32>, output:Tensor<U32>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
         for (i in 0...n) output[i] = input[i];
@@ -465,7 +465,7 @@ class Sort {
   }
 
   static function radixSortI64(input:Tensor<I64>, output:Tensor<I64>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<I64>, output:Tensor<I64>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64, signMask:haxe.Int64) -> {
         for (i in 0...n) output[i] = input[i];
@@ -507,7 +507,7 @@ class Sort {
   }
 
   static function radixSortU64(input:Tensor<U64>, output:Tensor<U64>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<U64>, output:Tensor<U64>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64) -> {
         for (i in 0...n) output[i] = input[i];
@@ -547,7 +547,7 @@ class Sort {
 
 
   static function radixSortPairsI32I32(keysIn:Tensor<I32>, valuesIn:Tensor<I32>, keysOut:Tensor<I32>, valuesOut:Tensor<I32>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<I32>, valuesIn:Tensor<I32>, keysOut:Tensor<I32>, valuesOut:Tensor<I32>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
         for (i in 0...n) {
@@ -595,7 +595,7 @@ class Sort {
   }
 
   static function radixSortPairsI32U32(keysIn:Tensor<I32>, valuesIn:Tensor<U32>, keysOut:Tensor<I32>, valuesOut:Tensor<U32>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<I32>, valuesIn:Tensor<U32>, keysOut:Tensor<I32>, valuesOut:Tensor<U32>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
         for (i in 0...n) {
@@ -643,7 +643,7 @@ class Sort {
   }
 
   static function radixSortPairsI32I64(keysIn:Tensor<I32>, valuesIn:Tensor<I64>, keysOut:Tensor<I32>, valuesOut:Tensor<I64>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<I32>, valuesIn:Tensor<I64>, keysOut:Tensor<I32>, valuesOut:Tensor<I64>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
         for (i in 0...n) {
@@ -691,7 +691,7 @@ class Sort {
   }
 
   static function radixSortPairsI32U64(keysIn:Tensor<I32>, valuesIn:Tensor<U64>, keysOut:Tensor<I32>, valuesOut:Tensor<U64>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<I32>, valuesIn:Tensor<U64>, keysOut:Tensor<I32>, valuesOut:Tensor<U64>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
         for (i in 0...n) {
@@ -739,7 +739,7 @@ class Sort {
   }
 
   static function radixSortPairsI32F32(keysIn:Tensor<I32>, valuesIn:Tensor<F32>, keysOut:Tensor<I32>, valuesOut:Tensor<F32>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<I32>, valuesIn:Tensor<F32>, keysOut:Tensor<I32>, valuesOut:Tensor<F32>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
         for (i in 0...n) {
@@ -787,7 +787,7 @@ class Sort {
   }
 
   static function radixSortPairsI32F64(keysIn:Tensor<I32>, valuesIn:Tensor<F64>, keysOut:Tensor<I32>, valuesOut:Tensor<F64>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<I32>, valuesIn:Tensor<F64>, keysOut:Tensor<I32>, valuesOut:Tensor<F64>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
         for (i in 0...n) {
@@ -835,7 +835,7 @@ class Sort {
   }
 
   static function radixSortPairsU32I32(keysIn:Tensor<U32>, valuesIn:Tensor<I32>, keysOut:Tensor<U32>, valuesOut:Tensor<I32>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<U32>, valuesIn:Tensor<I32>, keysOut:Tensor<U32>, valuesOut:Tensor<I32>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
         for (i in 0...n) {
@@ -880,7 +880,7 @@ class Sort {
   }
 
   static function radixSortPairsU32U32(keysIn:Tensor<U32>, valuesIn:Tensor<U32>, keysOut:Tensor<U32>, valuesOut:Tensor<U32>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<U32>, valuesIn:Tensor<U32>, keysOut:Tensor<U32>, valuesOut:Tensor<U32>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
         for (i in 0...n) {
@@ -925,7 +925,7 @@ class Sort {
   }
 
   static function radixSortPairsU32I64(keysIn:Tensor<U32>, valuesIn:Tensor<I64>, keysOut:Tensor<U32>, valuesOut:Tensor<I64>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<U32>, valuesIn:Tensor<I64>, keysOut:Tensor<U32>, valuesOut:Tensor<I64>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
         for (i in 0...n) {
@@ -970,7 +970,7 @@ class Sort {
   }
 
   static function radixSortPairsU32U64(keysIn:Tensor<U32>, valuesIn:Tensor<U64>, keysOut:Tensor<U32>, valuesOut:Tensor<U64>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<U32>, valuesIn:Tensor<U64>, keysOut:Tensor<U32>, valuesOut:Tensor<U64>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
         for (i in 0...n) {
@@ -1015,7 +1015,7 @@ class Sort {
   }
 
   static function radixSortPairsU32F32(keysIn:Tensor<U32>, valuesIn:Tensor<F32>, keysOut:Tensor<U32>, valuesOut:Tensor<F32>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<U32>, valuesIn:Tensor<F32>, keysOut:Tensor<U32>, valuesOut:Tensor<F32>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
         for (i in 0...n) {
@@ -1060,7 +1060,7 @@ class Sort {
   }
 
   static function radixSortPairsU32F64(keysIn:Tensor<U32>, valuesIn:Tensor<F64>, keysOut:Tensor<U32>, valuesOut:Tensor<F64>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<U32>, valuesIn:Tensor<F64>, keysOut:Tensor<U32>, valuesOut:Tensor<F64>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
         for (i in 0...n) {
@@ -1105,7 +1105,7 @@ class Sort {
   }
 
   static function radixSortPairsI64I32(keysIn:Tensor<I64>, valuesIn:Tensor<I32>, keysOut:Tensor<I64>, valuesOut:Tensor<I32>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<I64>, valuesIn:Tensor<I32>, keysOut:Tensor<I64>, valuesOut:Tensor<I32>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64, signMask:haxe.Int64) -> {
         for (i in 0...n) {
@@ -1153,7 +1153,7 @@ class Sort {
   }
 
   static function radixSortPairsI64U32(keysIn:Tensor<I64>, valuesIn:Tensor<U32>, keysOut:Tensor<I64>, valuesOut:Tensor<U32>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<I64>, valuesIn:Tensor<U32>, keysOut:Tensor<I64>, valuesOut:Tensor<U32>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64, signMask:haxe.Int64) -> {
         for (i in 0...n) {
@@ -1201,7 +1201,7 @@ class Sort {
   }
 
   static function radixSortPairsI64I64(keysIn:Tensor<I64>, valuesIn:Tensor<I64>, keysOut:Tensor<I64>, valuesOut:Tensor<I64>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<I64>, valuesIn:Tensor<I64>, keysOut:Tensor<I64>, valuesOut:Tensor<I64>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64, signMask:haxe.Int64) -> {
         for (i in 0...n) {
@@ -1249,7 +1249,7 @@ class Sort {
   }
 
   static function radixSortPairsI64U64(keysIn:Tensor<I64>, valuesIn:Tensor<U64>, keysOut:Tensor<I64>, valuesOut:Tensor<U64>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<I64>, valuesIn:Tensor<U64>, keysOut:Tensor<I64>, valuesOut:Tensor<U64>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64, signMask:haxe.Int64) -> {
         for (i in 0...n) {
@@ -1297,7 +1297,7 @@ class Sort {
   }
 
   static function radixSortPairsI64F32(keysIn:Tensor<I64>, valuesIn:Tensor<F32>, keysOut:Tensor<I64>, valuesOut:Tensor<F32>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<I64>, valuesIn:Tensor<F32>, keysOut:Tensor<I64>, valuesOut:Tensor<F32>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64, signMask:haxe.Int64) -> {
         for (i in 0...n) {
@@ -1345,7 +1345,7 @@ class Sort {
   }
 
   static function radixSortPairsI64F64(keysIn:Tensor<I64>, valuesIn:Tensor<F64>, keysOut:Tensor<I64>, valuesOut:Tensor<F64>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<I64>, valuesIn:Tensor<F64>, keysOut:Tensor<I64>, valuesOut:Tensor<F64>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64, signMask:haxe.Int64) -> {
         for (i in 0...n) {
@@ -1393,7 +1393,7 @@ class Sort {
   }
 
   static function radixSortPairsU64I32(keysIn:Tensor<U64>, valuesIn:Tensor<I32>, keysOut:Tensor<U64>, valuesOut:Tensor<I32>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<U64>, valuesIn:Tensor<I32>, keysOut:Tensor<U64>, valuesOut:Tensor<I32>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64) -> {
         for (i in 0...n) {
@@ -1438,7 +1438,7 @@ class Sort {
   }
 
   static function radixSortPairsU64U32(keysIn:Tensor<U64>, valuesIn:Tensor<U32>, keysOut:Tensor<U64>, valuesOut:Tensor<U32>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<U64>, valuesIn:Tensor<U32>, keysOut:Tensor<U64>, valuesOut:Tensor<U32>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64) -> {
         for (i in 0...n) {
@@ -1483,7 +1483,7 @@ class Sort {
   }
 
   static function radixSortPairsU64I64(keysIn:Tensor<U64>, valuesIn:Tensor<I64>, keysOut:Tensor<U64>, valuesOut:Tensor<I64>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<U64>, valuesIn:Tensor<I64>, keysOut:Tensor<U64>, valuesOut:Tensor<I64>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64) -> {
         for (i in 0...n) {
@@ -1528,7 +1528,7 @@ class Sort {
   }
 
   static function radixSortPairsU64U64(keysIn:Tensor<U64>, valuesIn:Tensor<U64>, keysOut:Tensor<U64>, valuesOut:Tensor<U64>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<U64>, valuesIn:Tensor<U64>, keysOut:Tensor<U64>, valuesOut:Tensor<U64>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64) -> {
         for (i in 0...n) {
@@ -1573,7 +1573,7 @@ class Sort {
   }
 
   static function radixSortPairsU64F32(keysIn:Tensor<U64>, valuesIn:Tensor<F32>, keysOut:Tensor<U64>, valuesOut:Tensor<F32>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<U64>, valuesIn:Tensor<F32>, keysOut:Tensor<U64>, valuesOut:Tensor<F32>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64) -> {
         for (i in 0...n) {
@@ -1618,7 +1618,7 @@ class Sort {
   }
 
   static function radixSortPairsU64F64(keysIn:Tensor<U64>, valuesIn:Tensor<F64>, keysOut:Tensor<U64>, valuesOut:Tensor<F64>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<U64>, valuesIn:Tensor<F64>, keysOut:Tensor<U64>, valuesOut:Tensor<F64>, n:Int, ascending:Bool, beginBit:Int, mask:haxe.Int64) -> {
         for (i in 0...n) {
@@ -1736,7 +1736,7 @@ class Sort {
     return haxe.Int64.make(-2147483648, 0);
   }
 
-  static function closeKernel(kernel:Kernel):Void {
+  static function closeKernel(kernel:Dynamic):Void {
     if (kernel != null) {
       kernel.close();
     }

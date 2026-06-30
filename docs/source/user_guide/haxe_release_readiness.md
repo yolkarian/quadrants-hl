@@ -9,7 +9,7 @@ This page summarizes the stabilized Haxe/HashLink public surface after the typed
 | Final typed APIs | `Tensor<T>`, `Field<T>`, `VectorNdarray<T>`, `MatrixNdarray<T>`, `VectorField<T>`, `MatrixField<T>`, typed `quadrants.algorithms`, `StructMember<T>` member handles, `quadrants.mesh` typed host handles, `quadrants.quant` descriptors | Recommended for new code | Source compatibility should be preserved unless a safety issue requires a compile-time break. |
 | Workaround APIs | `quadrants.packed.Packed*`, `StructOfArraysField`, Haxe-only `QuantizedF32Tensor` | Supported when the layout is useful or native parity is intentionally unavailable | Prefer final typed APIs where they cover the same use case; adapters such as `fromPacked(...)` / `toPacked()` are the migration path. |
 | Compatibility shims | String-keyed struct `add/member/read/write`, heterogeneous `Grad.zeroGrad` / `clearAllGradients`, heterogeneous `FieldTree.lazyGrad` helpers | Retained but not recommended | Do not add new examples using these when a typed alternative exists. Deprecation requires replacement examples and compile-fail coverage. |
-| Interop boundaries | `KernelRaw.launchDynamic(...)`, compatibility `Kernel.launch(...values:Dynamic)`, native launch arrays, grad-check replay args, diagnostics/coverage JSON-like snapshots, CUDA/GL `glBuffer:Dynamic`, helper `Class<Dynamic>` lists | Permanent | These are documented in [HashLink public Dynamic boundaries](dynamic_boundaries.md) and are not considered normal API typing precedents. |
+| Interop boundaries | `KernelRaw.launchDynamic(...)`, native launch arrays, typed-tape replay args, diagnostics/coverage/profiler JSON-like snapshots, CUDA/GL `glBuffer:Dynamic`, helper `Class<Dynamic>` lists | Permanent | These are documented in [HashLink public Dynamic boundaries](dynamic_boundaries.md) and are not considered normal API typing precedents. |
 
 ## Backend support matrix
 
@@ -19,7 +19,7 @@ This page summarizes the stabilized Haxe/HashLink public surface after the typed
 | SIMT helpers and packed/compound kernel lowering | Descriptor-tested; selected CPU runtime tests | Lower through the same descriptor ABI; backend support depends on native SIMT/shared-memory support. |
 | Algorithms (`Reduce`, `Scan`, `Select`, `Sort`, `ReduceByKey`) | Runtime-tested reference implementations | Usable where scalar control-flow kernels are supported; not performance-tuned device algorithms. |
 | Sparse/linalg and profiler bridge | Runtime-tested F32/F64 sparse paths plus typed profiler probes | Feature probes report support; profiler clear/record, typed context options, CUPTI metric presets, and explicit unavailable memory-profiler status are covered. Acceleration is backend-specific and not promised by the Haxe API. |
-| Typed mesh relations/attributes | Host-side runtime-tested; kernel parameter attempts compile-fail | Kernel relation/attribute access is intentionally blocked until descriptors include typed mesh resource metadata. |
+| Typed mesh relations/attributes | Host-side and kernel runtime-tested | Kernel relation/attribute access uses typed mesh resource metadata, native topology handles, and field-backed attributes. |
 | Quant descriptors and `QuantizedF32Tensor` | Haxe reference storage plus native int/fixed `quantArray(...).placeQuant(...)` smoke coverage | `bitStruct`, quant-float placement, and quantized kernel parameters are explicit unsupported boundaries. |
 
 ## Performance baselines
@@ -36,7 +36,7 @@ trace(sample.secondsPerIteration);
 ## Release validation checklist
 
 - Run the HashLink Haxe compile suite.
-- Run the compile-fail suite; it covers typed algorithm mismatches, storage-kind mismatches, kernel dtype annotation errors, typed struct member mistakes, invalid mesh relation access, unsupported mesh relation/attribute kernel parameters, invalid quant parameters, unsupported native quant/SNode operations, unsupported quant kernel parameters, and unsupported `StreamParallel.block(...)`.
+- Run the compile-fail suite; it covers typed algorithm mismatches, storage-kind mismatches, kernel dtype annotation errors, typed struct member mistakes, invalid mesh relation access, invalid quant parameters, unsupported native quant/SNode operations, unsupported quant kernel parameters, and unsupported `StreamParallel.block(...)`.
 - Run runtime gamma for algorithms, autodiff diagnostics, packed/compound storage, typed mesh/quant/SNode contracts, sparse/profiler, release migration examples, and the performance-baseline harness.
 - Inspect `Context.capabilities()` and `Context.optionWarnings()` on each supported backend so parsed-but-not-yet-wired config surfaces remain explicit.
 - Update [HashLink public Dynamic boundaries](dynamic_boundaries.md) whenever a public `Dynamic` is added, removed, or reclassified.

@@ -15,6 +15,7 @@ class KernelRaw {
   final descriptor:hl.Bytes;
   final descriptorLength:Int;
   final paramKinds:Array<Int>;
+  final paramFlags:Array<Int>;
   final autodiffMode:AutodiffMode;
   final graphLaunchByDefault:Bool;
   final name:String;
@@ -35,6 +36,7 @@ class KernelRaw {
     this.descriptor = descriptor;
     this.descriptorLength = descriptorLength;
     this.paramKinds = decodeParamKinds(descriptor, descriptorLength);
+    this.paramFlags = decodeParamFlags(descriptor, descriptorLength);
     this.autodiffMode = autodiffMode;
     this.graphLaunchByDefault = graphLaunchByDefault;
     this.name = name;
@@ -107,7 +109,10 @@ class KernelRaw {
   #if !macro
   static inline var PARAM_KIND_NDARRAY = 1;
   static inline var PARAM_KIND_FIELD = 2;
-  static inline var SECTION_SYMBOLS = 5;
+  static inline var PARAM_KIND_MESH_ATTRIBUTE = 4;
+  static inline var PARAM_FLAG_SPEC = 2;
+  static inline var SECTION_TYPE_TABLE = 11;
+  static inline var SECTION_ARG_TABLE = 15;
 
   static inline function u32(bytes:hl.Bytes, offset:Int):Int {
     return bytes.getUI8(offset)
@@ -116,29 +121,76 @@ class KernelRaw {
       | (bytes.getUI8(offset + 3) << 24);
   }
 
-  static function decodeParamKinds(descriptor:hl.Bytes, descriptorLength:Int):Array<Int> {
+  static function sectionRange(descriptor:hl.Bytes, kind:Int):Null<{offset:Int, length:Int}> {
     var sectionCount = u32(descriptor, 8);
     var tableOffset = u32(descriptor, 12);
     for (section in 0...sectionCount) {
       var entry = tableOffset + section * 12;
-      if (u32(descriptor, entry) == SECTION_SYMBOLS) {
-        var symbolsOffset = u32(descriptor, entry + 4);
-        var paramsOffset = symbolsOffset + 4;
-        var paramsSize = u32(descriptor, symbolsOffset);
-        if (paramsSize < 4) {
-          return [];
-        }
-        var count = u32(descriptor, paramsOffset);
-        var kinds = new Array<Int>();
-        var offset = paramsOffset + 4;
-        for (_ in 0...count) {
-          kinds.push(descriptor.getUI8(offset));
-          offset += 8;
-        }
-        return kinds;
+      if (u32(descriptor, entry) == kind) {
+        return {offset: u32(descriptor, entry + 4), length: u32(descriptor, entry + 8)};
       }
     }
-    return [];
+    return null;
+  }
+
+  static function canonicalParamKind(typeKind:Int):Int {
+    return switch (typeKind) {
+      case 0 | 1: 0;
+      case 2 | 4 | 8: 1;
+      case 3 | 5: 2;
+      case 6: 3;
+      case 7: 4;
+      default: throw 'Quadrants descriptor TypeTable kind ${typeKind} is not a supported kernel parameter kind';
+    };
+  }
+
+  static function decodeParamByte(descriptor:hl.Bytes, byteOffsetInEntry:Int):Array<Int> {
+    var typeRange = sectionRange(descriptor, SECTION_TYPE_TABLE);
+    var argRange = sectionRange(descriptor, SECTION_ARG_TABLE);
+    if (typeRange == null || argRange == null) {
+      throw "Quadrants v3 descriptor is missing canonical TypeTable/ArgTable sections";
+    }
+
+    var typeKinds = new Map<Int, Int>();
+    var typeFlags = new Map<Int, Int>();
+    var typeCount = u32(descriptor, typeRange.offset);
+    var typeOffset = typeRange.offset + 4;
+    for (_ in 0...typeCount) {
+      var id = u32(descriptor, typeOffset);
+      typeKinds[id] = descriptor.getUI8(typeOffset + 4);
+      typeFlags[id] = descriptor.getUI8(typeOffset + 7);
+      typeOffset += 16;
+    }
+
+    var count = u32(descriptor, argRange.offset);
+    var values = [for (_ in 0...count) 0];
+    var offset = argRange.offset + 4;
+    for (_ in 0...count) {
+      var paramIndex = u32(descriptor, offset);
+      var typeId = u32(descriptor, offset + 4);
+      var typeKind = typeKinds.get(typeId);
+      if (typeKind == null || paramIndex < 0 || paramIndex >= values.length) {
+        throw "Quadrants v3 descriptor ArgTable is invalid";
+      }
+      if (byteOffsetInEntry == 0) {
+        values[paramIndex] = canonicalParamKind(typeKind);
+      } else if (byteOffsetInEntry == 3) {
+        var flags = typeFlags.get(typeId);
+        values[paramIndex] = (flags == null ? 0 : flags) | descriptor.getUI8(offset + 13);
+      } else {
+        values[paramIndex] = 0;
+      }
+      offset += 16;
+    }
+    return values;
+  }
+
+  static function decodeParamKinds(descriptor:hl.Bytes, descriptorLength:Int):Array<Int> {
+    return decodeParamByte(descriptor, 0);
+  }
+
+  static function decodeParamFlags(descriptor:hl.Bytes, descriptorLength:Int):Array<Int> {
+    return decodeParamByte(descriptor, 3);
   }
 
   static function dtypeByteSize(dtype:DType):Int {
@@ -158,16 +210,74 @@ class KernelRaw {
     return index >= 0 && index < paramKinds.length ? paramKinds[index] : PARAM_KIND_NDARRAY;
   }
 
-  function nativeArgs(values:Array<Dynamic>):hl.NativeArray<Dynamic> {
-    var flattened:Array<Dynamic> = [];
+  inline function paramIsSpec(index:Int):Bool {
+    return index >= 0 && index < paramFlags.length && (paramFlags[index] & PARAM_FLAG_SPEC) != 0;
+  }
+
+  function nativeArray(values:Array<Dynamic>):hl.NativeArray<Dynamic> {
+    var native = new hl.NativeArray<Dynamic>(values.length);
+    for (i in 0...values.length) {
+      native[i] = values[i];
+    }
+    return native;
+  }
+
+  function splitFullArgs(values:Array<Dynamic>):{runtime:Array<Dynamic>, specs:Array<Dynamic>} {
+    var runtime:Array<Dynamic> = [];
+    var specs:Array<Dynamic> = [];
     var paramIndex = 0;
     for (value in values) {
+      if (paramIsSpec(paramIndex)) {
+        specs.push(value);
+        paramIndex++;
+      } else {
+        runtime.push(value);
+        paramIndex += Std.isOfType(value, BufferView) ? 3 : (Reflect.field(value, "__qdQuantStorage") != null ? 4 : 1);
+      }
+    }
+    return {runtime: runtime, specs: specs};
+  }
+
+  function nativeRuntimeArgs(values:Array<Dynamic>):hl.NativeArray<Dynamic> {
+    var flattened:Array<Dynamic> = [];
+    var paramIndex = 0;
+    var valueIndex = 0;
+    while (paramIndex < paramKinds.length) {
+      if (paramIsSpec(paramIndex)) {
+        paramIndex++;
+        continue;
+      }
+      if (valueIndex >= values.length) {
+        throw "Quadrants kernel runtime argument count mismatch";
+      }
+      var value = values[valueIndex++];
       if (Std.isOfType(value, BufferView)) {
         var view:BufferView<Dynamic> = cast value;
         flattened.push(view.tensor.nativeHandle());
         flattened.push(view.flatStart);
         flattened.push(view.length);
         paramIndex += 3;
+      } else if (Reflect.field(value, "__qdNativeRelation") != null) {
+        flattened.push(Reflect.callMethod(value, Reflect.field(value, "__qdNativeRelation"), [context]));
+        paramIndex++;
+      } else if (Reflect.field(value, "__qdAttributeStorage") != null) {
+        var storage:Dynamic = Reflect.callMethod(value, Reflect.field(value, "__qdAttributeStorage"), []);
+        var field:FieldRuntime = cast storage;
+        if (paramKindAt(paramIndex) != PARAM_KIND_FIELD && paramKindAt(paramIndex) != PARAM_KIND_MESH_ATTRIBUTE) {
+          throw "MeshAttribute kernel parameter requires a Field-backed attribute resource";
+        }
+        if (!field.hasSNode()) {
+          throw "Quadrants MeshAttribute kernel arguments must use placed Field storage";
+        }
+        flattened.push(field.snodeId);
+        paramIndex++;
+      } else if (Reflect.field(value, "__qdQuantStorage") != null) {
+        var storage:Dynamic = Reflect.callMethod(value, Reflect.field(value, "__qdQuantStorage"), []);
+        flattened.push(storage.nativeHandle());
+        flattened.push(Reflect.callMethod(value, Reflect.field(value, "__qdQuantScale"), []));
+        flattened.push(Reflect.callMethod(value, Reflect.field(value, "__qdQuantMinRaw"), []));
+        flattened.push(Reflect.callMethod(value, Reflect.field(value, "__qdQuantMaxRaw"), []));
+        paramIndex += 4;
       } else if (Std.isOfType(value, FieldRuntime)) {
         var field:FieldRuntime = cast value;
         if (paramKindAt(paramIndex) != PARAM_KIND_FIELD) {
@@ -187,11 +297,10 @@ class KernelRaw {
         paramIndex++;
       }
     }
-    var nativeArgs = new hl.NativeArray<Dynamic>(flattened.length);
-    for (i in 0...flattened.length) {
-      nativeArgs[i] = flattened[i];
+    if (valueIndex != values.length) {
+      throw "Quadrants kernel runtime argument count mismatch";
     }
-    return nativeArgs;
+    return nativeArray(flattened);
   }
 
   function callOptionalSync(value:Dynamic, methodName:String):Void {
@@ -259,6 +368,27 @@ class KernelRaw {
     return Reflect.callMethod(control, readMethod, [0]);
   }
 
+  function runtimeLaunchArgIdForFullValueIndex(values:Array<Dynamic>, controlArgId:Int):Int {
+    var paramIndex = 0;
+    var runtimeArgId = 0;
+    for (valueIndex in 0...values.length) {
+      if (paramIsSpec(paramIndex)) {
+        if (valueIndex == controlArgId) {
+          throw "Quadrants graph_do_while control argument cannot be a Spec<T> parameter";
+        }
+        paramIndex++;
+        continue;
+      }
+      if (valueIndex == controlArgId) {
+        return runtimeArgId;
+      }
+      var width = Std.isOfType(values[valueIndex], BufferView) ? 3 : (Reflect.field(values[valueIndex], "__qdQuantStorage") != null ? 4 : 1);
+      paramIndex += width;
+      runtimeArgId += width;
+    }
+    throw "Quadrants graph_do_while control argument index is out of range";
+  }
+
   function recordCoverageLaunch(kind:String):Void {
     if (Coverage.enabled) {
       Coverage.registerKernelLaunch(Kernel.fromRaw(this), kind);
@@ -266,73 +396,110 @@ class KernelRaw {
   }
 
   public function launchDynamic(values:Array<Dynamic>):Void {
-    requireOpen();
-    syncFieldArgsToTensor(values);
-    if (graphLaunchByDefault) {
-      Native.kernel_launch_graph(context.nativeHandle(), handle, nativeArgs(values));
-    } else {
-      Native.kernel_launch(context.nativeHandle(), handle, nativeArgs(values));
-    }
-    syncFieldArgsFromTensor(values);
-    recordCoverageLaunch(graphLaunchByDefault ? "launchGraphDefault" : "launch");
+    var split = splitFullArgs(values);
+    launchSpecialized(split.runtime, split.specs, graphLaunchByDefault ? "launchGraphDefault" : "launch", graphLaunchByDefault);
   }
 
   public function launchRetDynamic(values:Array<Dynamic>):Dynamic {
-    requireOpen();
-    syncFieldArgsToTensor(values);
-    var result = Native.kernel_launch_ret(context.nativeHandle(), handle, nativeArgs(values));
-    syncFieldArgsFromTensor(values);
-    recordCoverageLaunch("launchRet");
-    return result;
+    var split = splitFullArgs(values);
+    return launchRetSpecialized(split.runtime, split.specs);
   }
 
   public function launchRetsDynamic(values:Array<Dynamic>):hl.NativeArray<Dynamic> {
-    requireOpen();
-    syncFieldArgsToTensor(values);
-    var result = Native.kernel_launch_rets(context.nativeHandle(), handle, nativeArgs(values));
-    syncFieldArgsFromTensor(values);
-    recordCoverageLaunch("launchRets");
-    return result;
+    var split = splitFullArgs(values);
+    return launchRetsSpecialized(split.runtime, split.specs);
   }
 
   public function launchOnDynamic(stream:Stream, values:Array<Dynamic>):Void {
-    requireOpen();
-    syncFieldArgsToTensor(values);
-    Native.kernel_launch_on(context.nativeHandle(), handle, stream.nativeHandle(), nativeArgs(values));
-    syncFieldArgsFromTensor(values);
-    recordCoverageLaunch("launchOn");
+    var split = splitFullArgs(values);
+    launchOnSpecialized(stream, split.runtime, split.specs);
   }
 
   public function launchGraphDynamic(values:Array<Dynamic>):Void {
-    requireOpen();
-    syncFieldArgsToTensor(values);
-    Native.kernel_launch_graph(context.nativeHandle(), handle, nativeArgs(values));
-    syncFieldArgsFromTensor(values);
-    recordCoverageLaunch("launchGraph");
+    var split = splitFullArgs(values);
+    launchSpecialized(split.runtime, split.specs, "launchGraph", true);
   }
 
   public function launchGraphWhileDynamic(controlArgId:Int, values:Array<Dynamic>):Void {
     requireOpen();
     var control = requireGraphWhileControl(values, controlArgId);
+    var split = splitFullArgs(values);
     while (readGraphWhileControl(control) != 0) {
-      syncFieldArgsToTensor(values);
-      Native.kernel_launch_graph(context.nativeHandle(), handle, nativeArgs(values));
-      syncFieldArgsFromTensor(values);
+      launchSpecialized(split.runtime, split.specs, "launchGraphWhile", true);
       context.sync();
-      recordCoverageLaunch("launchGraphWhile");
     }
   }
 
   public function launchGraphDoWhileDynamic(controlArgId:Int, values:Array<Dynamic>):Void {
-    requireOpen();
-    syncFieldArgsToTensor(values);
-    Native.kernel_launch_graph_do_while(context.nativeHandle(), handle, controlArgId, nativeArgs(values));
-    syncFieldArgsFromTensor(values);
-    recordCoverageLaunch("launchGraphDoWhile");
+    var runtimeControlArgId = runtimeLaunchArgIdForFullValueIndex(values, controlArgId);
+    var split = splitFullArgs(values);
+    launchGraphDoWhileSpecialized(runtimeControlArgId, split.runtime, split.specs);
   }
 
   public function launchBuffer(buf:ArgBuffer):Void {
-    launchDynamic(buf.toArray());
+    launchSpecialized(buf.toArray(), buf.specArray(), graphLaunchByDefault ? "launchGraphDefault" : "launch", graphLaunchByDefault);
+  }
+
+  public function launchOnBuffer(stream:Stream, buf:ArgBuffer):Void {
+    launchOnSpecialized(stream, buf.toArray(), buf.specArray());
+  }
+
+  public function launchGraphBuffer(buf:ArgBuffer):Void {
+    launchSpecialized(buf.toArray(), buf.specArray(), "launchGraph", true);
+  }
+
+  public function launchRetBuffer(buf:ArgBuffer):Dynamic {
+    return launchRetSpecialized(buf.toArray(), buf.specArray());
+  }
+
+  public function launchRetsBuffer(buf:ArgBuffer):hl.NativeArray<Dynamic> {
+    return launchRetsSpecialized(buf.toArray(), buf.specArray());
+  }
+
+  function launchSpecialized(runtimeValues:Array<Dynamic>, specValues:Array<Dynamic>, coverageKind:String, graph:Bool):Void {
+    requireOpen();
+    syncFieldArgsToTensor(runtimeValues);
+    if (graph) {
+      Native.kernel_launch_graph_specialized(context.nativeHandle(), handle, nativeRuntimeArgs(runtimeValues), nativeArray(specValues));
+    } else {
+      Native.kernel_launch_specialized(context.nativeHandle(), handle, nativeRuntimeArgs(runtimeValues), nativeArray(specValues));
+    }
+    syncFieldArgsFromTensor(runtimeValues);
+    recordCoverageLaunch(coverageKind);
+  }
+
+  function launchOnSpecialized(stream:Stream, runtimeValues:Array<Dynamic>, specValues:Array<Dynamic>):Void {
+    requireOpen();
+    syncFieldArgsToTensor(runtimeValues);
+    Native.kernel_launch_on_specialized(context.nativeHandle(), handle, stream.nativeHandle(), nativeRuntimeArgs(runtimeValues), nativeArray(specValues));
+    syncFieldArgsFromTensor(runtimeValues);
+    recordCoverageLaunch("launchOn");
+  }
+
+  function launchGraphDoWhileSpecialized(controlArgId:Int, runtimeValues:Array<Dynamic>, specValues:Array<Dynamic>):Void {
+    requireOpen();
+    syncFieldArgsToTensor(runtimeValues);
+    Native.kernel_launch_graph_do_while_specialized(context.nativeHandle(), handle, controlArgId, nativeRuntimeArgs(runtimeValues), nativeArray(specValues));
+    syncFieldArgsFromTensor(runtimeValues);
+    recordCoverageLaunch("launchGraphDoWhile");
+  }
+
+  function launchRetSpecialized(runtimeValues:Array<Dynamic>, specValues:Array<Dynamic>):Dynamic {
+    requireOpen();
+    syncFieldArgsToTensor(runtimeValues);
+    var result = Native.kernel_launch_ret_specialized(context.nativeHandle(), handle, nativeRuntimeArgs(runtimeValues), nativeArray(specValues));
+    syncFieldArgsFromTensor(runtimeValues);
+    recordCoverageLaunch("launchRet");
+    return result;
+  }
+
+  function launchRetsSpecialized(runtimeValues:Array<Dynamic>, specValues:Array<Dynamic>):hl.NativeArray<Dynamic> {
+    requireOpen();
+    syncFieldArgsToTensor(runtimeValues);
+    var result = Native.kernel_launch_rets_specialized(context.nativeHandle(), handle, nativeRuntimeArgs(runtimeValues), nativeArray(specValues));
+    syncFieldArgsFromTensor(runtimeValues);
+    recordCoverageLaunch("launchRets");
+    return result;
   }
 
   public function descriptorHash():String {

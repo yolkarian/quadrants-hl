@@ -15,9 +15,11 @@ class Context {
   final fieldMirrorFallbackEvents:Array<FieldMirrorFallbackEvent> = [];
   final optionWarningMessages:Array<String> = [];
   final configuredOptions:ContextOptions;
+  var profilerInstance:Profiler = null;
 
   public function new(arch:Arch = Cpu, enableProfiler:Bool = false, options:ContextOptions = null) {
     Native.ensureConfigured();
+    VersionInfo.checkNativeCompatibility();
     var selectedArch = options != null && options.arch != null ? cast options.arch : arch;
     this.arch = selectedArch;
     var profilerEnabled = enableProfiler;
@@ -125,7 +127,10 @@ class Context {
   }
 
   public function profiler():Profiler {
-    return new Profiler(this);
+    if (profilerInstance == null) {
+      profilerInstance = new Profiler(this);
+    }
+    return profilerInstance;
   }
 
   public function isExtensionEnabled(extension:Extension):Bool {

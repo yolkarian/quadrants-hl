@@ -9,11 +9,11 @@ import quadrants.Tensor;
 import quadrants.Types.Arch;
 import quadrants.Types.I32;
 
-var ctx = new Context(Arch.Cpu);
+var ctx = Context.create({arch: Arch.Cpu});
 var a = new Tensor<I32>(ctx, [4]);
 var out = new Tensor<I32>(ctx, [4]);
 
-final k = Kernel.build(ctx, macro (a, out) -> {
+final k = Kernel.build(ctx, macro (a:Tensor<I32>, out:Tensor<I32>) -> {
   for (i in 0...4) {
     out[i] = a[i] * 2;
   }

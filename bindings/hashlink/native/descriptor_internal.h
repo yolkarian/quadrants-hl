@@ -12,6 +12,8 @@ namespace quadrants::hashlink {
 DescriptorDType parse_dtype(std::uint8_t value);
 lang::DataType lower_dtype(DescriptorDType dtype);
 ParameterKind parse_parameter_kind(std::uint8_t value);
+TypeTableKind parse_type_table_kind(std::uint8_t value);
+ArgTableKind parse_arg_table_kind(std::uint8_t value);
 ExprOpcode parse_expr_opcode(std::uint8_t value);
 StmtOpcode parse_stmt_opcode(std::uint8_t value);
 

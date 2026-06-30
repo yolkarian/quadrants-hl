@@ -154,7 +154,7 @@ class Scan {
   }
 
   static function scanAddI32(input:Tensor<I32>, output:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<I32>, output:Tensor<I32>, n:Int) -> {
         var acc:I32 = 0;
@@ -173,7 +173,7 @@ class Scan {
   }
 
   static function scanAddU32(input:Tensor<U32>, output:Tensor<U32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<U32>, output:Tensor<U32>, n:Int) -> {
         var acc:U32 = 0;
@@ -192,7 +192,7 @@ class Scan {
   }
 
   static function scanAddI64(input:Tensor<I64>, output:Tensor<I64>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<I64>, output:Tensor<I64>, n:Int) -> {
         var acc:I64 = 0;
@@ -211,7 +211,7 @@ class Scan {
   }
 
   static function scanAddU64(input:Tensor<U64>, output:Tensor<U64>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<U64>, output:Tensor<U64>, n:Int) -> {
         var acc:U64 = 0;
@@ -230,7 +230,7 @@ class Scan {
   }
 
   static function scanAddF32(input:Tensor<F32>, output:Tensor<F32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<F32>, output:Tensor<F32>, n:Int) -> {
         var acc:F32 = 0.0;
@@ -249,7 +249,7 @@ class Scan {
   }
 
   static function scanAddF64(input:Tensor<F64>, output:Tensor<F64>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<F64>, output:Tensor<F64>, n:Int) -> {
         var acc:F64 = 0.0;
@@ -268,7 +268,7 @@ class Scan {
   }
 
   static function scanMinI32(input:Tensor<I32>, output:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<I32>, output:Tensor<I32>, n:Int) -> {
         var acc:I32 = 2147483647;
@@ -289,7 +289,7 @@ class Scan {
   }
 
   static function scanMinU32(input:Tensor<U32>, output:Tensor<U32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<U32>, output:Tensor<U32>, n:Int, identity:U32) -> {
         var acc:U32 = identity;
@@ -310,7 +310,7 @@ class Scan {
   }
 
   static function scanMinI64(input:Tensor<I64>, output:Tensor<I64>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<I64>, output:Tensor<I64>, n:Int, identity:haxe.Int64) -> {
         var acc:I64 = identity;
@@ -331,7 +331,7 @@ class Scan {
   }
 
   static function scanMinU64(input:Tensor<U64>, output:Tensor<U64>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<U64>, output:Tensor<U64>, n:Int, identity:U64) -> {
         var acc:U64 = identity;
@@ -352,7 +352,7 @@ class Scan {
   }
 
   static function scanMinF32(input:Tensor<F32>, output:Tensor<F32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<F32>, output:Tensor<F32>, n:Int) -> {
         var acc:F32 = 3.4028234663852886e38;
@@ -373,7 +373,7 @@ class Scan {
   }
 
   static function scanMinF64(input:Tensor<F64>, output:Tensor<F64>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<F64>, output:Tensor<F64>, n:Int) -> {
         var acc:F64 = 1.7976931348623157e308;
@@ -394,7 +394,7 @@ class Scan {
   }
 
   static function scanMaxI32(input:Tensor<I32>, output:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<I32>, output:Tensor<I32>, n:Int) -> {
         var acc:I32 = -2147483647 - 1;
@@ -415,7 +415,7 @@ class Scan {
   }
 
   static function scanMaxU32(input:Tensor<U32>, output:Tensor<U32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<U32>, output:Tensor<U32>, n:Int) -> {
         var acc:U32 = 0;
@@ -436,7 +436,7 @@ class Scan {
   }
 
   static function scanMaxI64(input:Tensor<I64>, output:Tensor<I64>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<I64>, output:Tensor<I64>, n:Int, identity:haxe.Int64) -> {
         var acc:I64 = identity;
@@ -457,7 +457,7 @@ class Scan {
   }
 
   static function scanMaxU64(input:Tensor<U64>, output:Tensor<U64>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<U64>, output:Tensor<U64>, n:Int) -> {
         var acc:U64 = 0;
@@ -478,7 +478,7 @@ class Scan {
   }
 
   static function scanMaxF32(input:Tensor<F32>, output:Tensor<F32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<F32>, output:Tensor<F32>, n:Int) -> {
         var acc:F32 = -3.4028234663852886e38;
@@ -499,7 +499,7 @@ class Scan {
   }
 
   static function scanMaxF64(input:Tensor<F64>, output:Tensor<F64>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<F64>, output:Tensor<F64>, n:Int) -> {
         var acc:F64 = -1.7976931348623157e308;
@@ -580,7 +580,7 @@ class Scan {
     return haxe.Int64.make(-2147483648, 0);
   }
 
-  static function closeKernel(kernel:Kernel):Void {
+  static function closeKernel(kernel:Dynamic):Void {
     if (kernel != null) {
       kernel.close();
     }

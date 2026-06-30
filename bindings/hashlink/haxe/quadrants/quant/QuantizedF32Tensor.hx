@@ -64,6 +64,22 @@ class QuantizedF32Tensor {
     storage.write(flatIndex, raw);
   }
 
+  @:noCompletion public inline function __qdQuantStorage():Tensor<I32> {
+    return storage;
+  }
+
+  @:noCompletion public inline function __qdQuantScale():Float {
+    return scale;
+  }
+
+  @:noCompletion public inline function __qdQuantMinRaw():Int {
+    return minRaw;
+  }
+
+  @:noCompletion public inline function __qdQuantMaxRaw():Int {
+    return maxRaw;
+  }
+
   public function close():Void {
     storage.close();
   }

@@ -121,6 +121,65 @@ std::string checked_string(const KernelDescriptor &descriptor, std::uint32_t id,
   return descriptor.strings[id];
 }
 
+const TypeTableEntry *find_type_entry(const KernelDescriptor &descriptor, std::uint32_t type_id) {
+  for (const auto &entry : descriptor.type_table) {
+    if (entry.id == type_id) {
+      return &entry;
+    }
+  }
+  return nullptr;
+}
+
+ParameterKind parameter_kind_from_type_kind(TypeTableKind kind) {
+  switch (kind) {
+    case TypeTableKind::primitive:
+    case TypeTableKind::spec:
+      return ParameterKind::scalar;
+    case TypeTableKind::tensor_resource:
+    case TypeTableKind::struct_tensor_resource:
+    case TypeTableKind::quant_resource:
+      return ParameterKind::ndarray;
+    case TypeTableKind::field_resource:
+    case TypeTableKind::struct_field_resource:
+      return ParameterKind::field;
+    case TypeTableKind::mesh_relation_resource:
+      return ParameterKind::mesh_relation;
+    case TypeTableKind::mesh_attribute_resource:
+      return ParameterKind::mesh_attribute;
+    case TypeTableKind::sparse_matrix_resource:
+    case TypeTableKind::mesh_resource:
+      throw std::runtime_error("HashLink v3 descriptor resource kind is not supported by HashLink lowering yet");
+  }
+  throw std::runtime_error("HashLink v3 descriptor has an unsupported canonical type kind");
+}
+
+void canonicalize_parameters_from_arg_table(KernelDescriptor &descriptor) {
+  if (descriptor.arg_table.size() != descriptor.parameters.size()) {
+    throw std::runtime_error("HashLink v3 ArgTable must contain exactly one entry per parameter");
+  }
+  std::vector<bool> seen(descriptor.parameters.size(), false);
+  for (const auto &arg : descriptor.arg_table) {
+    if (arg.parameter_index >= descriptor.parameters.size() || seen[arg.parameter_index]) {
+      throw std::runtime_error("HashLink v3 ArgTable has duplicate or out-of-range parameter entries");
+    }
+    seen[arg.parameter_index] = true;
+    const TypeTableEntry *type = find_type_entry(descriptor, arg.type_id);
+    if (type == nullptr) {
+      throw std::runtime_error("HashLink v3 ArgTable references an unknown TypeTable id");
+    }
+    auto &param = descriptor.parameters[arg.parameter_index];
+    param.kind = parameter_kind_from_type_kind(type->kind);
+    param.dtype = type->dtype;
+    param.rank = type->rank;
+    param.flags = type->flags;
+    if (arg.kind == ArgTableKind::spec_constant) {
+      param.kind = ParameterKind::scalar;
+      param.flags |= ParameterDescriptor::flag_spec_constant;
+    }
+    param.name_id = arg.name_id;
+  }
+}
+
 lang::DebugInfo make_debug_info(const KernelDescriptor &descriptor) {
   lang::DebugInfo info;
   if (descriptor.source_spans.empty()) {
@@ -256,6 +315,21 @@ std::unique_ptr<ExpressionDescriptor> parse_expression(DescriptorReader &reader,
     case ExprOpcode::snode_is_active:
       expr->target = parse_expression(reader, descriptor, depth + 1);
       expr->indices = parse_indices(reader, descriptor, depth + 1);
+      break;
+    case ExprOpcode::mesh_relation_size:
+      expr->index = reader.read_u32();
+      if (expr->index >= descriptor.parameters.size()) {
+        throw std::runtime_error("HashLink kernel descriptor references an invalid mesh relation parameter");
+      }
+      expr->operand = parse_expression(reader, descriptor, depth + 1);
+      break;
+    case ExprOpcode::mesh_relation_get:
+      expr->index = reader.read_u32();
+      if (expr->index >= descriptor.parameters.size()) {
+        throw std::runtime_error("HashLink kernel descriptor references an invalid mesh relation parameter");
+      }
+      expr->lhs = parse_expression(reader, descriptor, depth + 1);
+      expr->rhs = parse_expression(reader, descriptor, depth + 1);
       break;
     case ExprOpcode::shape_axis:
       expr->target = parse_expression(reader, descriptor, depth + 1);
@@ -525,13 +599,16 @@ class LoweringContext {
                   lang::Kernel &kernel,
                   const KernelDescriptor &descriptor,
                   std::vector<lang::Expr> params,
-                  std::vector<lang::Expr> locals)
-      : compile_config_(&program.compile_config()),
+                  std::vector<lang::Expr> locals,
+                  const std::vector<MeshRelationSpecialization> *mesh_relations)
+      : program_(&program),
+        compile_config_(&program.compile_config()),
         debug_info_(make_debug_info(descriptor)),
         local_descriptors_(&descriptor.locals),
         local_allocated_(descriptor.locals.size(), false),
         params_(std::move(params)),
         locals_(std::move(locals)),
+        mesh_relations_(mesh_relations),
         builder_(kernel.context->builder()) {
   }
 
@@ -590,6 +667,68 @@ class LoweringContext {
       throw std::runtime_error(std::string("HashLink Field.") + operation + " target does not have a pointer/hash/bitmasked SNode parent");
     }
     return parent;
+  }
+
+  lang::Expr make_snode_field_expr(int snode_id, lang::DataType dtype, const std::string &name) {
+    if (program_ == nullptr) {
+      throw std::runtime_error("HashLink descriptor lowering has no Program for SNode resource lookup");
+    }
+    lang::SNode *snode = program_->get_snode_by_id(snode_id);
+    if (snode == nullptr || !snode->is_place()) {
+      throw std::runtime_error("HashLink mesh relation resource references an invalid SNode field");
+    }
+    if (snode->dt->get_compute_type() != dtype) {
+      throw std::runtime_error("HashLink mesh relation SNode dtype mismatch");
+    }
+    auto field_expr = lang::Expr::make<lang::FieldExpression>(dtype, program_->get_next_global_id(name));
+    auto field = field_expr.cast<lang::FieldExpression>();
+    field->set_snode(snode);
+    field->snode_grad_type = SNodeGradType::kPrimal;
+    return type_checked(field_expr);
+  }
+
+  lang::Expr snode_load_i32(int snode_id, lang::Expr index, const std::string &name) {
+    lang::ExprGroup indices;
+    indices.push_back(cast_to(index, lang::PrimitiveType::i32));
+    auto field = make_snode_field_expr(snode_id, lang::PrimitiveType::i32, name);
+    return type_checked(builder_.expr_subscript(field, indices, debug_info_));
+  }
+
+  const MeshRelationSpecialization &mesh_relation_for(std::uint32_t parameter_index) const {
+    if (mesh_relations_ == nullptr || parameter_index >= mesh_relations_->size() || !mesh_relations_->at(parameter_index).present) {
+      throw std::runtime_error("HashLink mesh relation kernel parameter requires launch-time mesh topology specialization");
+    }
+    return mesh_relations_->at(parameter_index);
+  }
+
+  lang::Expr lower_mesh_relation_size(const ExpressionDescriptor &expr) {
+    const auto &relation = mesh_relation_for(expr.index);
+    if (relation.fixed) {
+      return const_i32(static_cast<std::int32_t>(relation.fixed_degree));
+    }
+    auto source = cast_to(lower_expression(*expr.operand), lang::PrimitiveType::i32);
+    auto one = const_i32(1);
+    auto offset0 = snode_load_i32(relation.offset_snode_id, source, "__qd_mesh_relation_offset");
+    auto offset1 = snode_load_i32(relation.offset_snode_id,
+                                  binary(lang::BinaryOpType::add, source, one),
+                                  "__qd_mesh_relation_offset_next");
+    return cast_to(binary(lang::BinaryOpType::sub, offset1, offset0), lang::PrimitiveType::i32);
+  }
+
+  lang::Expr lower_mesh_relation_get(const ExpressionDescriptor &expr) {
+    const auto &relation = mesh_relation_for(expr.index);
+    auto source = cast_to(lower_expression(*expr.lhs), lang::PrimitiveType::i32);
+    auto neighbor = cast_to(lower_expression(*expr.rhs), lang::PrimitiveType::i32);
+    lang::Expr flat_index;
+    if (relation.fixed) {
+      flat_index = binary(lang::BinaryOpType::add,
+                          binary(lang::BinaryOpType::mul, source, const_i32(static_cast<std::int32_t>(relation.fixed_degree))),
+                          neighbor);
+    } else {
+      auto offset = snode_load_i32(relation.offset_snode_id, source, "__qd_mesh_relation_offset");
+      flat_index = binary(lang::BinaryOpType::add, offset, neighbor);
+    }
+    return cast_to(snode_load_i32(relation.value_snode_id, flat_index, "__qd_mesh_relation_value"), lang::PrimitiveType::i32);
   }
 
   void ensure_local_allocated(std::uint32_t local_id) {
@@ -795,6 +934,10 @@ class LoweringContext {
         auto indices = lower_indices(expr.indices);
         return type_checked(builder_.snode_is_active(activation_snode(target, "isActive"), indices));
       }
+      case ExprOpcode::mesh_relation_size:
+        return lower_mesh_relation_size(expr);
+      case ExprOpcode::mesh_relation_get:
+        return lower_mesh_relation_get(expr);
       case ExprOpcode::atomic_add:
       case ExprOpcode::atomic_sub:
       case ExprOpcode::atomic_min:
@@ -1076,12 +1219,14 @@ class LoweringContext {
     throw std::runtime_error("HashLink kernel descriptor statement could not be lowered");
   }
 
+  lang::Program *program_{nullptr};
   const lang::CompileConfig *compile_config_{nullptr};
   lang::DebugInfo debug_info_;
   const std::vector<LocalDescriptor> *local_descriptors_{nullptr};
   std::vector<bool> local_allocated_;
   std::vector<lang::Expr> params_;
   std::vector<lang::Expr> locals_;
+  const std::vector<MeshRelationSpecialization> *mesh_relations_{nullptr};
   lang::ASTBuilder &builder_;
 };
 
@@ -1129,13 +1274,13 @@ KernelDescriptor decode_descriptor(const std::uint8_t *data, std::size_t size) {
     const std::uint32_t section_table_offset = reader.read_u32();
     const std::uint32_t total_size = reader.read_u32();
     if (total_size != size || total_size < kHeaderSize) {
-      throw std::runtime_error("HashLink v2 kernel descriptor has invalid size");
+      throw std::runtime_error("HashLink v3 kernel descriptor has invalid size");
     }
     if (section_table_offset < kHeaderSize || section_table_offset > total_size) {
-      throw std::runtime_error("HashLink v2 kernel descriptor section table offset is invalid");
+      throw std::runtime_error("HashLink v3 kernel descriptor section table offset is invalid");
     }
     if (section_count > (total_size - section_table_offset) / 12) {
-      throw std::runtime_error("HashLink v2 kernel descriptor section table is truncated");
+      throw std::runtime_error("HashLink v3 kernel descriptor section table is truncated");
     }
 
     struct Section {
@@ -1143,27 +1288,27 @@ KernelDescriptor decode_descriptor(const std::uint8_t *data, std::size_t size) {
       std::uint32_t size{0};
       bool present{false};
     };
-    std::array<Section, 11> sections{};
+    std::array<Section, 16> sections{};
     reader.seek(section_table_offset);
     for (std::uint32_t i = 0; i < section_count; ++i) {
       const std::uint32_t kind = reader.read_u32();
       const std::uint32_t section_offset = reader.read_u32();
       const std::uint32_t section_size = reader.read_u32();
       if (kind == 0 || kind >= sections.size()) {
-        throw std::runtime_error("HashLink v2 kernel descriptor has an unknown section kind");
+        throw std::runtime_error("HashLink v3 kernel descriptor has an unknown section kind");
       }
       if (sections[kind].present) {
-        throw std::runtime_error("HashLink v2 kernel descriptor has a duplicate section");
+        throw std::runtime_error("HashLink v3 kernel descriptor has a duplicate section");
       }
       if (section_offset > total_size || section_size > total_size - section_offset) {
-        throw std::runtime_error("HashLink v2 kernel descriptor section range is invalid");
+        throw std::runtime_error("HashLink v3 kernel descriptor section range is invalid");
       }
       sections[kind] = Section{section_offset, section_size, true};
     }
 
     auto require_section = [&](std::uint32_t kind, const char *name) -> Section {
       if (kind >= sections.size() || !sections[kind].present) {
-        throw std::runtime_error(std::string("HashLink v2 kernel descriptor is missing ") + name + " section");
+        throw std::runtime_error(std::string("HashLink v3 kernel descriptor is missing ") + name + " section");
       }
       return sections[kind];
     };
@@ -1179,12 +1324,12 @@ KernelDescriptor decode_descriptor(const std::uint8_t *data, std::size_t size) {
     for (std::uint32_t i = 0; i < string_count; ++i) {
       const std::uint32_t len = reader.read_u32();
       if (reader.pos() > strings_end || len > strings_end - reader.pos()) {
-        throw std::runtime_error("HashLink v2 kernel descriptor string section is truncated");
+        throw std::runtime_error("HashLink v3 kernel descriptor string section is truncated");
       }
       descriptor.strings.push_back(reader.read_string(len));
     }
     if (reader.pos() != strings_end) {
-      throw std::runtime_error("HashLink v2 kernel descriptor string section has trailing data");
+      throw std::runtime_error("HashLink v3 kernel descriptor string section has trailing data");
     }
 
     const Section source_spans = require_section(2, "SourceSpans");
@@ -1209,7 +1354,7 @@ KernelDescriptor decode_descriptor(const std::uint8_t *data, std::size_t size) {
       descriptor.source_spans.push_back(span);
     }
     if (reader.pos() != source_spans_end) {
-      throw std::runtime_error("HashLink v2 kernel descriptor source span section has trailing data");
+      throw std::runtime_error("HashLink v3 kernel descriptor source span section has trailing data");
     }
 
     const Section symbols = require_section(5, "Symbols");
@@ -1217,7 +1362,7 @@ KernelDescriptor decode_descriptor(const std::uint8_t *data, std::size_t size) {
     const std::size_t symbols_end = symbols.offset + symbols.size;
     const std::uint32_t params_size = reader.read_u32();
     if (params_size > symbols_end - reader.pos()) {
-      throw std::runtime_error("HashLink v2 kernel descriptor symbol parameter table is truncated");
+      throw std::runtime_error("HashLink v3 kernel descriptor symbol parameter table is truncated");
     }
     const std::size_t params_end = reader.pos() + params_size;
     const std::uint32_t parameter_count = reader.read_u32();
@@ -1237,14 +1382,14 @@ KernelDescriptor decode_descriptor(const std::uint8_t *data, std::size_t size) {
       descriptor.parameters.push_back(param);
     }
     if (reader.pos() != params_end) {
-      throw std::runtime_error("HashLink v2 kernel descriptor parameter table has trailing data");
+      throw std::runtime_error("HashLink v3 kernel descriptor parameter table has trailing data");
     }
     if (reader.pos() + sizeof(std::uint32_t) > symbols_end) {
-      throw std::runtime_error("HashLink v2 kernel descriptor symbol local table is truncated");
+      throw std::runtime_error("HashLink v3 kernel descriptor symbol local table is truncated");
     }
     const std::uint32_t locals_size = reader.read_u32();
     if (locals_size > symbols_end - reader.pos()) {
-      throw std::runtime_error("HashLink v2 kernel descriptor symbol local table is truncated");
+      throw std::runtime_error("HashLink v3 kernel descriptor symbol local table is truncated");
     }
     const std::size_t locals_end = reader.pos() + locals_size;
     const std::uint32_t local_count = reader.read_u32();
@@ -1266,8 +1411,162 @@ KernelDescriptor decode_descriptor(const std::uint8_t *data, std::size_t size) {
       descriptor.locals.push_back(local);
     }
     if (reader.pos() != symbols_end) {
-      throw std::runtime_error("HashLink v2 kernel descriptor symbol section has trailing data");
+      throw std::runtime_error("HashLink v3 kernel descriptor symbol section has trailing data");
     }
+
+    const Section canonical_types = require_section(11, "TypeTable");
+    reader.seek(canonical_types.offset);
+    const std::size_t canonical_types_end = canonical_types.offset + canonical_types.size;
+    const std::uint32_t canonical_type_count = reader.read_u32();
+    require_section_entries_fit(reader.pos(), canonical_types_end, canonical_type_count, 16, "canonical type table");
+    descriptor.type_table.reserve(canonical_type_count);
+    for (std::uint32_t i = 0; i < canonical_type_count; ++i) {
+      TypeTableEntry entry;
+      entry.id = reader.read_u32();
+      entry.kind = parse_type_table_kind(reader.read_u8());
+      entry.dtype = parse_dtype(reader.read_u8());
+      entry.rank = reader.read_u8();
+      entry.flags = reader.read_u8();
+      entry.struct_id = reader.read_u32();
+      reader.read_u32();
+      if (entry.id == 0) {
+        throw std::runtime_error("HashLink v3 TypeTable entry id must be non-zero");
+      }
+      descriptor.type_table.push_back(entry);
+    }
+    if (reader.pos() != canonical_types_end) {
+      throw std::runtime_error("HashLink v3 TypeTable section has trailing data");
+    }
+
+    auto has_type_id = [&](std::uint32_t type_id) {
+      for (const auto &entry : descriptor.type_table) {
+        if (entry.id == type_id) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const Section args = require_section(15, "ArgTable");
+    reader.seek(args.offset);
+    const std::size_t args_end = args.offset + args.size;
+    const std::uint32_t arg_count = reader.read_u32();
+    require_section_entries_fit(reader.pos(), args_end, arg_count, 16, "arg table");
+    descriptor.arg_table.reserve(arg_count);
+    for (std::uint32_t i = 0; i < arg_count; ++i) {
+      ArgTableEntry entry;
+      entry.parameter_index = reader.read_u32();
+      entry.type_id = reader.read_u32();
+      entry.name_id = reader.read_u32();
+      entry.kind = parse_arg_table_kind(reader.read_u8());
+      entry.flags = reader.read_u8();
+      reader.read_u8();
+      reader.read_u8();
+      if (entry.parameter_index >= descriptor.parameters.size()) {
+        throw std::runtime_error("HashLink v3 ArgTable parameter index is out of range");
+      }
+      if (!has_type_id(entry.type_id)) {
+        throw std::runtime_error("HashLink v3 ArgTable references an unknown TypeTable id");
+      }
+      checked_string(descriptor, entry.name_id, "arg name");
+      descriptor.arg_table.push_back(entry);
+    }
+    if (reader.pos() != args_end) {
+      throw std::runtime_error("HashLink v3 ArgTable section has trailing data");
+    }
+
+    const Section resources = require_section(12, "ResourceTable");
+    reader.seek(resources.offset);
+    const std::size_t resources_end = resources.offset + resources.size;
+    const std::uint32_t resource_count = reader.read_u32();
+    require_section_entries_fit(reader.pos(), resources_end, resource_count, 16, "resource table");
+    descriptor.resource_table.reserve(resource_count);
+    for (std::uint32_t i = 0; i < resource_count; ++i) {
+      ResourceTableEntry entry;
+      entry.parameter_index = reader.read_u32();
+      entry.type_id = reader.read_u32();
+      entry.name_id = reader.read_u32();
+      entry.kind = parse_type_table_kind(reader.read_u8());
+      entry.rank = reader.read_u8();
+      entry.flags = reader.read_u8();
+      reader.read_u8();
+      if (entry.parameter_index >= descriptor.parameters.size()) {
+        throw std::runtime_error("HashLink v3 ResourceTable parameter index is out of range");
+      }
+      if (!has_type_id(entry.type_id)) {
+        throw std::runtime_error("HashLink v3 ResourceTable references an unknown TypeTable id");
+      }
+      checked_string(descriptor, entry.name_id, "resource name");
+      descriptor.resource_table.push_back(entry);
+    }
+    if (reader.pos() != resources_end) {
+      throw std::runtime_error("HashLink v3 ResourceTable section has trailing data");
+    }
+
+    const Section structs = require_section(13, "StructTable");
+    reader.seek(structs.offset);
+    const std::size_t structs_end = structs.offset + structs.size;
+    const std::uint32_t struct_count = reader.read_u32();
+    descriptor.struct_table.reserve(struct_count);
+    for (std::uint32_t i = 0; i < struct_count; ++i) {
+      if (reader.pos() + 20 > structs_end) {
+        throw std::runtime_error("HashLink v3 StructTable section is truncated");
+      }
+      StructTableEntry entry;
+      entry.id = reader.read_u32();
+      entry.name_id = reader.read_u32();
+      entry.size_bytes = reader.read_u32();
+      entry.align_bytes = reader.read_u32();
+      const std::uint32_t field_count = reader.read_u32();
+      checked_string(descriptor, entry.name_id, "struct name");
+      require_section_entries_fit(reader.pos(), structs_end, field_count, 12, "struct field table");
+      entry.fields.reserve(field_count);
+      for (std::uint32_t field = 0; field < field_count; ++field) {
+        StructFieldTableEntry field_entry;
+        field_entry.name_id = reader.read_u32();
+        field_entry.type_id = reader.read_u32();
+        field_entry.offset = reader.read_u32();
+        checked_string(descriptor, field_entry.name_id, "struct field name");
+        if (!has_type_id(field_entry.type_id)) {
+          throw std::runtime_error("HashLink v3 StructTable references an unknown TypeTable id");
+        }
+        entry.fields.push_back(field_entry);
+      }
+      descriptor.struct_table.push_back(std::move(entry));
+    }
+    if (reader.pos() != structs_end) {
+      throw std::runtime_error("HashLink v3 StructTable section has trailing data");
+    }
+
+    const Section specs = require_section(14, "SpecTable");
+    reader.seek(specs.offset);
+    const std::size_t specs_end = specs.offset + specs.size;
+    const std::uint32_t spec_count = reader.read_u32();
+    require_section_entries_fit(reader.pos(), specs_end, spec_count, 16, "spec table");
+    descriptor.spec_table.reserve(spec_count);
+    for (std::uint32_t i = 0; i < spec_count; ++i) {
+      SpecTableEntry entry;
+      entry.parameter_index = reader.read_u32();
+      entry.type_id = reader.read_u32();
+      entry.name_id = reader.read_u32();
+      entry.dtype = parse_dtype(reader.read_u8());
+      entry.flags = reader.read_u8();
+      reader.read_u8();
+      reader.read_u8();
+      if (entry.parameter_index >= descriptor.parameters.size()) {
+        throw std::runtime_error("HashLink v3 SpecTable parameter index is out of range");
+      }
+      if (!has_type_id(entry.type_id)) {
+        throw std::runtime_error("HashLink v3 SpecTable references an unknown TypeTable id");
+      }
+      checked_string(descriptor, entry.name_id, "spec name");
+      descriptor.spec_table.push_back(entry);
+    }
+    if (reader.pos() != specs_end) {
+      throw std::runtime_error("HashLink v3 SpecTable section has trailing data");
+    }
+
+    canonicalize_parameters_from_arg_table(descriptor);
 
     const Section functions = require_section(8, "Functions");
     reader.seek(functions.offset);
@@ -1305,7 +1604,7 @@ KernelDescriptor decode_descriptor(const std::uint8_t *data, std::size_t size) {
       descriptor.functions.push_back(std::move(function));
     }
     if (reader.pos() != functions_end) {
-      throw std::runtime_error("HashLink v2 kernel descriptor function section has trailing data");
+      throw std::runtime_error("HashLink v3 kernel descriptor function section has trailing data");
     }
 
     const Section statements = require_section(7, "Statements");
@@ -1328,7 +1627,7 @@ KernelDescriptor decode_descriptor(const std::uint8_t *data, std::size_t size) {
         throw std::runtime_error("HashLink kernel descriptor return count is out of range");
       }
       if (return_count > statements_end - reader.pos()) {
-        throw std::runtime_error("HashLink v2 kernel descriptor return dtype table is truncated");
+        throw std::runtime_error("HashLink v3 kernel descriptor return dtype table is truncated");
       }
       if (return_count == 0) {
         if (descriptor.has_return) {
@@ -1345,7 +1644,7 @@ KernelDescriptor decode_descriptor(const std::uint8_t *data, std::size_t size) {
       }
     }
     if (reader.pos() != statements_end) {
-      throw std::runtime_error("HashLink v2 kernel descriptor statement section has trailing data");
+      throw std::runtime_error("HashLink v3 kernel descriptor statement section has trailing data");
     }
     validate_descriptor(descriptor);
     return descriptor;
@@ -1373,7 +1672,9 @@ KernelBuildResult build_kernel_from_descriptor(lang::Program &program,
                                               AutodiffMode autodiff_mode,
                                               const std::vector<int> *field_snode_ids,
                                               const std::vector<int> *field_adjoint_snode_ids,
-                                              const std::vector<int> *field_dual_snode_ids) {
+                                              const std::vector<int> *field_dual_snode_ids,
+                                              const std::vector<SpecValue> *spec_values,
+                                              const std::vector<MeshRelationSpecialization> *mesh_relations) {
   const std::string kernel_name = checked_string(descriptor, descriptor.kernel_name_id, "kernel name");
   const lang::DebugInfo debug_info = make_debug_info(descriptor);
   const auto require_field_metadata_size = [&](const std::vector<int> *ids, const char *what) {
@@ -1384,6 +1685,12 @@ KernelBuildResult build_kernel_from_descriptor(lang::Program &program,
   require_field_metadata_size(field_snode_ids, "SNode");
   require_field_metadata_size(field_adjoint_snode_ids, "adjoint SNode");
   require_field_metadata_size(field_dual_snode_ids, "dual SNode");
+  if (spec_values != nullptr && spec_values->size() != descriptor.parameters.size()) {
+    throw std::runtime_error("HashLink spec constant specialization metadata has the wrong parameter count");
+  }
+  if (mesh_relations != nullptr && mesh_relations->size() != descriptor.parameters.size()) {
+    throw std::runtime_error("HashLink mesh relation specialization metadata has the wrong parameter count");
+  }
 
   lang::Kernel *kernel_ptr = nullptr;
   lang::Kernel &kernel = program.create_kernel(
@@ -1392,8 +1699,14 @@ KernelBuildResult build_kernel_from_descriptor(lang::Program &program,
         arg_ids.reserve(descriptor.parameters.size());
         for (const auto &param : descriptor.parameters) {
           const std::string name = checked_string(descriptor, param.name_id, "parameter name");
-          if (param.kind == ParameterKind::scalar || param.kind == ParameterKind::field) {
-            const auto scalar_dtype = param.kind == ParameterKind::field ? lower_dtype(DescriptorDType::i32) : lower_dtype(param.dtype);
+          if (param.is_spec_constant() && spec_values != nullptr) {
+            arg_ids.emplace_back();
+          } else if (param.kind == ParameterKind::scalar || param.kind == ParameterKind::field ||
+                     param.kind == ParameterKind::mesh_attribute || param.kind == ParameterKind::mesh_relation) {
+            const auto scalar_dtype = (param.kind == ParameterKind::field || param.kind == ParameterKind::mesh_attribute ||
+                                       param.kind == ParameterKind::mesh_relation)
+                                          ? lower_dtype(DescriptorDType::i32)
+                                          : lower_dtype(param.dtype);
             arg_ids.push_back(kernel->insert_scalar_param(scalar_dtype, name));
           } else {
             arg_ids.push_back(kernel->insert_ndarray_param(lower_dtype(param.dtype), param.rank, name, param.needs_grad()));
@@ -1433,15 +1746,57 @@ KernelBuildResult build_kernel_from_descriptor(lang::Program &program,
           }
           return field_snode;
         };
+
+        auto make_spec_constant = [&](const SpecValue &value, DescriptorDType dtype) -> lang::Expr {
+          lang::Expr expr;
+          switch (dtype) {
+            case DescriptorDType::i8:
+            case DescriptorDType::i16:
+            case DescriptorDType::i32:
+              expr = lang::Expr::make<lang::ConstExpression>(lang::PrimitiveType::i32, static_cast<int64>(value.signed_value));
+              break;
+            case DescriptorDType::i64:
+              expr = lang::Expr::make<lang::ConstExpression>(lang::PrimitiveType::i64, static_cast<int64>(value.signed_value));
+              break;
+            case DescriptorDType::u8:
+            case DescriptorDType::u16:
+            case DescriptorDType::u32:
+              expr = lang::Expr::make<lang::ConstExpression>(lang::PrimitiveType::u32, static_cast<uint32>(value.unsigned_value));
+              break;
+            case DescriptorDType::u64:
+              expr = lang::Expr::make<lang::ConstExpression>(lang::PrimitiveType::u64, static_cast<uint64>(value.unsigned_value));
+              break;
+            case DescriptorDType::f16:
+            case DescriptorDType::f32:
+              expr = lang::Expr::make<lang::ConstExpression>(lang::PrimitiveType::f32, static_cast<float32>(value.float_value));
+              break;
+            case DescriptorDType::f64:
+              expr = lang::Expr::make<lang::ConstExpression>(lang::PrimitiveType::f64, value.float_value);
+              break;
+            case DescriptorDType::u1:
+              expr = lang::Expr::make<lang::ConstExpression>(lang::PrimitiveType::u1, static_cast<int64>(value.bool_value ? 1 : 0));
+              break;
+          }
+          if (expr.expr->ret_type != lower_dtype(dtype)) {
+            expr = lang::cast(expr, lower_dtype(dtype));
+          }
+          expr.set_dbg_info(debug_info);
+          expr.type_check(&program.compile_config());
+          return expr;
+        };
         std::vector<lang::Expr> params;
         params.reserve(descriptor.parameters.size());
         for (std::size_t i = 0; i < descriptor.parameters.size(); ++i) {
           const auto &param = descriptor.parameters[i];
           lang::Expr expr;
           if (param.kind == ParameterKind::scalar) {
-            expr = lang::Expr::make<lang::ArgLoadExpression>(arg_ids[i], lower_dtype(param.dtype), false, true,
-                                                             debug_info);
-          } else if (param.kind == ParameterKind::field) {
+            if (param.is_spec_constant() && spec_values != nullptr) {
+              expr = make_spec_constant(spec_values->at(i), param.dtype);
+            } else {
+              expr = lang::Expr::make<lang::ArgLoadExpression>(arg_ids[i], lower_dtype(param.dtype), false, true,
+                                                               debug_info);
+            }
+          } else if (param.kind == ParameterKind::field || param.kind == ParameterKind::mesh_attribute) {
             if (field_snode_ids == nullptr) {
               throw std::runtime_error("HashLink Field kernel parameter requires launch-time SNode specialization");
             }
@@ -1466,6 +1821,12 @@ KernelBuildResult build_kernel_from_descriptor(lang::Program &program,
               expr.cast<lang::FieldExpression>()->dual =
                   make_field_expr(dual, name + "_dual", dtype, SNodeGradType::kDual);
             }
+          } else if (param.kind == ParameterKind::mesh_relation) {
+            if (mesh_relations == nullptr || i >= mesh_relations->size() || !mesh_relations->at(i).present) {
+              throw std::runtime_error("HashLink MeshRelation kernel parameter requires launch-time mesh topology specialization");
+            }
+            expr = lang::Expr::make<lang::ArgLoadExpression>(arg_ids[i], lower_dtype(DescriptorDType::i32), false, true,
+                                                             debug_info);
           } else {
             expr = lang::Expr::make<lang::ExternalTensorExpression>(lower_dtype(param.dtype), param.rank, arg_ids[i],
                                                                     param.needs_grad(), BoundaryMode::kUnsafe);
@@ -1491,7 +1852,7 @@ KernelBuildResult build_kernel_from_descriptor(lang::Program &program,
           locals.push_back(expr);
         }
 
-        LoweringContext lowering(program, *kernel, descriptor, std::move(params), std::move(locals));
+        LoweringContext lowering(program, *kernel, descriptor, std::move(params), std::move(locals), mesh_relations);
         lowering.lower_statements(descriptor.statements);
       },
       kernel_name, autodiff_mode);

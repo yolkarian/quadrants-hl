@@ -75,8 +75,8 @@ class DescriptorWriter {
         case 0: "scalar";
         case 1: "tensor";
         case 2: "field";
-        case 3: "struct_tensor";
-        case 4: "struct_field";
+        case 3: "mesh_relation";
+        case 4: "mesh_attribute";
         default: 'unknown(${kind})';
       };
     }
@@ -86,8 +86,8 @@ class DescriptorWriter {
         case 0: role == "spec" || role == "template" ? "spec" : "primitive";
         case 1: "tensor_resource";
         case 2: "field_resource";
-        case 3: "struct_tensor_resource";
-        case 4: "struct_field_resource";
+        case 3: "mesh_relation_resource";
+        case 4: "mesh_attribute_resource";
         default: "primitive";
       };
     }
@@ -147,10 +147,10 @@ class DescriptorWriter {
         ensureCapability("field_resource_param");
       }
       if (kind == 3) {
-        ensureCapability("struct_tensor");
+        ensureCapability("mesh_kernel_relations");
       }
       if (kind == 4) {
-        ensureCapability("struct_field");
+        ensureCapability("mesh_kernel_attributes");
       }
     }
 

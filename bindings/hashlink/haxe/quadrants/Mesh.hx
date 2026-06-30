@@ -1,6 +1,8 @@
 package quadrants;
 
 import quadrants.Field;
+import quadrants.FieldRuntime;
+import quadrants.Types.I32;
 import quadrants.mesh.MeshAttribute;
 import quadrants.mesh.MeshDomain;
 import quadrants.mesh.MeshElement;
@@ -15,9 +17,16 @@ enum abstract MeshElementType(Int) from Int to Int {
   var Cell = 3;
 }
 
+private typedef MeshNativeOffsets = {
+  var context:Context;
+  var owned:Array<Field<I32>>;
+  var total:Array<Field<I32>>;
+}
+
 class Mesh {
   final counts:Array<Int>;
   final relations:Array<Array<Array<Int>>>;
+  var nativeOffsets:Array<MeshNativeOffsets> = [];
 
 
   public static function load(context:Context, path:String):Mesh {
@@ -44,6 +53,43 @@ class Mesh {
 
   public function count(type:MeshElementType):Int {
     return counts[type];
+  }
+
+  @:noCompletion public function __qdNativeCounts():hl.NativeArray<Int> {
+    return TensorStorage.nativeIntArray([for (value in counts) value]);
+  }
+
+  function ensureNativeOffsets(ctx:Context):MeshNativeOffsets {
+    for (entry in nativeOffsets) {
+      if (entry.context == ctx) {
+        return entry;
+      }
+    }
+    var owned = new Array<Field<I32>>();
+    var total = new Array<Field<I32>>();
+    for (type in 0...4) {
+      var ownedField = new Field<I32>(ctx, [2]);
+      ownedField.write(0, 0);
+      ownedField.write(1, counts[type]);
+      var totalField = new Field<I32>(ctx, [2]);
+      totalField.write(0, 0);
+      totalField.write(1, counts[type]);
+      owned.push(ownedField);
+      total.push(totalField);
+    }
+    var entry = {context: ctx, owned: owned, total: total};
+    nativeOffsets.push(entry);
+    return entry;
+  }
+
+  @:noCompletion public function __qdOwnedOffsetSNodeIds(ctx:Context):hl.NativeArray<Int> {
+    var entry = ensureNativeOffsets(ctx);
+    return TensorStorage.nativeIntArray([for (field in entry.owned) (cast field : FieldRuntime).snodeId]);
+  }
+
+  @:noCompletion public function __qdTotalOffsetSNodeIds(ctx:Context):hl.NativeArray<Int> {
+    var entry = ensureNativeOffsets(ctx);
+    return TensorStorage.nativeIntArray([for (field in entry.total) (cast field : FieldRuntime).snodeId]);
   }
 
   inline function relationId(from:MeshElementType, to:MeshElementType):Int {

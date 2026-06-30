@@ -1,6 +1,6 @@
 # Getting started with Haxe/HashLink
 
-Quadrants is used from Haxe by compiling your Haxe program to HashLink bytecode (`.hl`) and running it with the HashLink JIT (`hl`). The Haxe macro frontend emits a compact kernel descriptor at Haxe compile time; `quadrants.hdll` compiles and launches that kernel through the Quadrants native runtime at run time.
+Quadrants is used from Haxe by compiling your Haxe program to HashLink bytecode (`.hl`) and running it with the HashLink JIT (`hl`). The Haxe macro frontend emits a QDHL v3 descriptor with canonical type/arg/resource tables and KernelIr at Haxe compile time; `quadrants.hdll` validates, specializes, compiles, and launches that kernel through the Quadrants native runtime at run time.
 
 ## Prerequisites
 
@@ -28,7 +28,7 @@ import quadrants.Types.I32;
 class Main {
   static function main():Void {
     final n = 16;
-    var ctx = new Context(Arch.Cpu);
+    var ctx = Context.create({arch: Arch.Cpu});
     var input = new Tensor<I32>(ctx, [n]);
     var output = new Tensor<I32>(ctx, [n]);
 
@@ -37,7 +37,7 @@ class Main {
       output.write(i, 0);
     }
 
-    var k = Kernel.build(ctx, macro (input, output, n) -> {
+    var k = Kernel.build(ctx, macro (input:Tensor<I32>, output:Tensor<I32>, n:Int) -> {
       for (i in 0...n) {
         output[i] = input[i] * 2;
       }
@@ -93,6 +93,6 @@ haxe -cp bindings/hashlink/haxe -D quadrants_hdll_path="$QD_BUILD_DIR/quadrants.
 
 ## Next steps
 
-- Read [Haxe/HashLink public API](haxe_api.md) for the replacement surface for the old Python binding.
-- Read [Haxe kernel language](kernel_language.md) for the supported kernel DSL subset.
+- Read [Haxe/HashLink API v3](haxe_api_v3.md) for the recommended typed API.
+- Read [Haxe kernels v3](haxe_kernel_v3.md) and [Haxe kernel language](kernel_language.md) for the supported kernel DSL subset.
 - Read [Supported systems](supported_systems.md) before enabling CUDA, Vulkan, Metal, or AMDGPU.

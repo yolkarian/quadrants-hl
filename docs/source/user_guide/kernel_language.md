@@ -3,7 +3,7 @@
 Quadrants kernels are written as Haxe macro arrow functions and passed to `Kernel.build`. They are not arbitrary Haxe functions: the macro accepts a deliberately small DSL that can be lowered to Quadrants IR and rejects unsupported constructs at Haxe compile time.
 
 ```haxe
-var k = Kernel.build(ctx, macro (a, b, out, n) -> {
+var k = Kernel.build(ctx, macro (a:Tensor<F32>, b:Tensor<F32>, out:Tensor<F32>, n:Int) -> {
   for (i in 0...n) {
     var x = a[i] + b[i];
     if (x > 0) {
@@ -17,7 +17,7 @@ var k = Kernel.build(ctx, macro (a, b, out, n) -> {
 
 ## Parameters
 
-Kernel parameters may be primitive scalars, `Tensor<T>` ndarrays, direct `Field<T>` SNode fields, or one-dimensional `BufferView<T>` views. If an untyped parameter is used as `a[i]`, it is inferred as an ndarray; otherwise it is inferred as a scalar. Annotate fields explicitly as `Field<T>` when the kernel should bind the placed SNode instead of the tensor-ABI mirror.
+Kernel parameters may be primitive scalars, `Tensor<T>` ndarrays, direct `Field<T>` SNode fields, or one-dimensional `BufferView<T>` views. In API v3 examples, annotate every parameter explicitly so `Kernel.build` returns a typed wrapper. Untyped parameter inference is retained only for legacy/raw descriptor paths. Annotate fields explicitly as `Field<T>` when the kernel should bind the placed SNode instead of the tensor-ABI mirror.
 
 ```haxe
 import quadrants.Tensor;
@@ -49,7 +49,7 @@ A `BufferView<T>` kernel parameter is flattened at launch to the underlying tens
 - `Ndrange.of2Axes(a, b, AxisOrder.of2(1, 0))` and `rangesNAxes(...)` variants to change iteration nesting order. The `AxisOrder.ofN(...)` arguments are canonical axis indices listed outermost first and must be a permutation of `0...N`; yielded `I[axis]` values remain in canonical axis order.
 - `for (i in fieldOrTensor)` or `for (i in Grouped.of(fieldOrTensor))` struct-for over a direct `Field<T>` or `Tensor<T>` parameter. `Grouped.of(Ndrange.of3Axes(...))` supports the same typed ndrange domains and axis order controls.
 - `for (i in Static.range(begin, end))` static loops over integer literals; `Static.value(literal)` can wrap compile-time literal constants used in static bounds or expressions.
-- `for (v in Mesh.forVertices(count))`, `Mesh.forEdges(count)`, `Mesh.forFaces(count)`, or `Mesh.forCells(count)` static mesh-for over a non-negative integer literal count. Current kernel mesh-for support covers loop indices only. `quadrants.mesh.MeshRelation` / `MeshAttribute` kernel parameters are rejected at compile time because the QDHL descriptor does not yet carry typed mesh resource metadata for native relation/index-conversion lowering.
+- `for (v in Mesh.forVertices(count))`, `Mesh.forEdges(count)`, `Mesh.forFaces(count)`, or `Mesh.forCells(count)` static mesh-for over a non-negative integer literal count. `quadrants.mesh.MeshRelation` / `MeshAttribute` kernel parameters support `size`, `get`, `read`, and `write` through QDHL mesh resource metadata and native topology/field resources.
 - `while` loops.
 - `break` and `continue` inside loops.
 - `if` / `else` statements. Literal `if (true)` / `if (false)` and `if (Static.value(trueOrFalse))` conditions are expanded at macro time.
@@ -57,7 +57,7 @@ A `BufferView<T>` kernel parameter is flattened at launch to the underlying tens
 - Atomic compound assignment (`+=`, `-=`, `*=`, `&=`, `|=`, `^=`) on ndarray elements. Use `atomicAdd(a[i], value)` and related atomic calls when the old value is needed.
 - Loop scheduling hints before the loop they decorate: `blockDim(n)`, `parallelize(n)`, and `serialize()`. The same lowered hints are available through `quadrants.runtime.LoopConfig.blockDim(...)`, `parallelize(...)`, and `serialize()`.
 - `print(valueOrLiteral)` and `assert(condition, "message")` frontend statements.
-- `return;` with no value, primitive scalar `return value;` launched through `Kernel.launchRet(...)`, fixed primitive tuple returns written as `return [a, b, ...];`, and flattened vector/matrix/struct local returns launched through `Kernel.launchRets(...)`. Struct locals may contain previously declared struct locals; nested field access uses `outer.inner.field`.
+- `return;` with no value, primitive scalar `return value;` returned directly from typed `k.launch(...)`, fixed primitive tuple returns written as `return [a, b, ...];`, and flattened vector/matrix/struct local returns decoded by the typed wrapper. Struct locals may contain previously declared struct locals; nested field access uses `outer.inner.field`.
 
 ## Local scopes
 

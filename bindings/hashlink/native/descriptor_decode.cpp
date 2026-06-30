@@ -31,8 +31,52 @@ ParameterKind parse_parameter_kind(std::uint8_t value) {
       return ParameterKind::ndarray;
     case ParameterKind::field:
       return ParameterKind::field;
+    case ParameterKind::mesh_relation:
+      return ParameterKind::mesh_relation;
+    case ParameterKind::mesh_attribute:
+      return ParameterKind::mesh_attribute;
   }
   throw std::runtime_error("HashLink kernel descriptor uses an unsupported parameter kind");
+}
+
+TypeTableKind parse_type_table_kind(std::uint8_t value) {
+  switch (static_cast<TypeTableKind>(value)) {
+    case TypeTableKind::primitive:
+      return TypeTableKind::primitive;
+    case TypeTableKind::spec:
+      return TypeTableKind::spec;
+    case TypeTableKind::tensor_resource:
+      return TypeTableKind::tensor_resource;
+    case TypeTableKind::field_resource:
+      return TypeTableKind::field_resource;
+    case TypeTableKind::struct_tensor_resource:
+      return TypeTableKind::struct_tensor_resource;
+    case TypeTableKind::struct_field_resource:
+      return TypeTableKind::struct_field_resource;
+    case TypeTableKind::mesh_relation_resource:
+      return TypeTableKind::mesh_relation_resource;
+    case TypeTableKind::mesh_attribute_resource:
+      return TypeTableKind::mesh_attribute_resource;
+    case TypeTableKind::quant_resource:
+      return TypeTableKind::quant_resource;
+    case TypeTableKind::sparse_matrix_resource:
+      return TypeTableKind::sparse_matrix_resource;
+    case TypeTableKind::mesh_resource:
+      return TypeTableKind::mesh_resource;
+  }
+  throw std::runtime_error("HashLink kernel descriptor uses an unsupported canonical type kind");
+}
+
+ArgTableKind parse_arg_table_kind(std::uint8_t value) {
+  switch (static_cast<ArgTableKind>(value)) {
+    case ArgTableKind::runtime_scalar:
+      return ArgTableKind::runtime_scalar;
+    case ArgTableKind::runtime_resource:
+      return ArgTableKind::runtime_resource;
+    case ArgTableKind::spec_constant:
+      return ArgTableKind::spec_constant;
+  }
+  throw std::runtime_error("HashLink kernel descriptor uses an unsupported canonical arg kind");
 }
 
 ExprOpcode parse_expr_opcode(std::uint8_t value) {
@@ -131,6 +175,8 @@ ExprOpcode parse_expr_opcode(std::uint8_t value) {
     case ExprOpcode::snode_append:
     case ExprOpcode::snode_length:
     case ExprOpcode::snode_is_active:
+    case ExprOpcode::mesh_relation_size:
+    case ExprOpcode::mesh_relation_get:
       return static_cast<ExprOpcode>(value);
   }
   throw std::runtime_error("HashLink kernel descriptor uses an unsupported expression opcode");

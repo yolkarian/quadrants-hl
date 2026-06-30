@@ -10,7 +10,7 @@ final add = Kernel.build(ctx, macro (a:Tensor<F32>, b:Tensor<F32>, out:Tensor<F3
 add.launch(a, b, out, n);
 ```
 
-`Spec<T>` marks a specialization constant in the descriptor/cache key model:
+`Spec<T>` marks a specialization constant in the descriptor/cache key model. The generated launcher sends `Spec<T>` values through the specialization channel, not as kernel runtime arguments; native code specializes/caches the compiled kernel by those values.
 
 ```haxe
 final k = Kernel.build(ctx, macro (x:Tensor<F32>, n:Spec<Int>) -> {
@@ -47,6 +47,8 @@ final custom = CustomGradient.register(forward, {
   validation: validation
 });
 ```
+
+Struct, mesh, and quant resource parameters are typed. Scalar-member `StructTensor<S>` values can be load-copy-stored, mesh relation/attribute params expose `size/get/read/write`, and `QuantizedF32Tensor` exposes kernel `read/write` with explicit quantization metadata.
 
 Streams and graph control are explicit and typed:
 

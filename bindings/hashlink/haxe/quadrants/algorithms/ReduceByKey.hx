@@ -85,7 +85,7 @@ class ReduceByKey {
   }
 
   static function reduceByKeyAddI32(keys:Tensor<I32>, values:Tensor<I32>, outKeys:Tensor<I32>, outValues:Tensor<I32>, countOut:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keys.context, macro (keys:Tensor<I32>, values:Tensor<I32>, outKeys:Tensor<I32>, outValues:Tensor<I32>, countOut:Tensor<I32>, n:Int) -> {
         var outCount = 0;
@@ -118,7 +118,7 @@ class ReduceByKey {
   }
 
   static function reduceByKeyAddU32(keys:Tensor<I32>, values:Tensor<U32>, outKeys:Tensor<I32>, outValues:Tensor<U32>, countOut:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keys.context, macro (keys:Tensor<I32>, values:Tensor<U32>, outKeys:Tensor<I32>, outValues:Tensor<U32>, countOut:Tensor<I32>, n:Int) -> {
         var outCount = 0;
@@ -151,7 +151,7 @@ class ReduceByKey {
   }
 
   static function reduceByKeyAddI64(keys:Tensor<I32>, values:Tensor<I64>, outKeys:Tensor<I32>, outValues:Tensor<I64>, countOut:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keys.context, macro (keys:Tensor<I32>, values:Tensor<I64>, outKeys:Tensor<I32>, outValues:Tensor<I64>, countOut:Tensor<I32>, n:Int) -> {
         var outCount = 0;
@@ -184,7 +184,7 @@ class ReduceByKey {
   }
 
   static function reduceByKeyAddU64(keys:Tensor<I32>, values:Tensor<U64>, outKeys:Tensor<I32>, outValues:Tensor<U64>, countOut:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keys.context, macro (keys:Tensor<I32>, values:Tensor<U64>, outKeys:Tensor<I32>, outValues:Tensor<U64>, countOut:Tensor<I32>, n:Int) -> {
         var outCount = 0;
@@ -217,7 +217,7 @@ class ReduceByKey {
   }
 
   static function reduceByKeyAddF32(keys:Tensor<I32>, values:Tensor<F32>, outKeys:Tensor<I32>, outValues:Tensor<F32>, countOut:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keys.context, macro (keys:Tensor<I32>, values:Tensor<F32>, outKeys:Tensor<I32>, outValues:Tensor<F32>, countOut:Tensor<I32>, n:Int) -> {
         var outCount = 0;
@@ -250,7 +250,7 @@ class ReduceByKey {
   }
 
   static function reduceByKeyAddF64(keys:Tensor<I32>, values:Tensor<F64>, outKeys:Tensor<I32>, outValues:Tensor<F64>, countOut:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keys.context, macro (keys:Tensor<I32>, values:Tensor<F64>, outKeys:Tensor<I32>, outValues:Tensor<F64>, countOut:Tensor<I32>, n:Int) -> {
         var outCount = 0;
@@ -283,7 +283,7 @@ class ReduceByKey {
   }
 
   static function reduceByKeyGlobalAddI32(keys:Tensor<I32>, values:Tensor<I32>, outKeys:Tensor<I32>, outValues:Tensor<I32>, countOut:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keys.context, macro (keys:Tensor<I32>, values:Tensor<I32>, outKeys:Tensor<I32>, outValues:Tensor<I32>, countOut:Tensor<I32>, n:Int) -> {
         var outCount = 0;
@@ -318,7 +318,7 @@ class ReduceByKey {
   }
 
   static function reduceByKeyGlobalAddU32(keys:Tensor<I32>, values:Tensor<U32>, outKeys:Tensor<I32>, outValues:Tensor<U32>, countOut:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keys.context, macro (keys:Tensor<I32>, values:Tensor<U32>, outKeys:Tensor<I32>, outValues:Tensor<U32>, countOut:Tensor<I32>, n:Int) -> {
         var outCount = 0;
@@ -353,7 +353,7 @@ class ReduceByKey {
   }
 
   static function reduceByKeyGlobalAddI64(keys:Tensor<I32>, values:Tensor<I64>, outKeys:Tensor<I32>, outValues:Tensor<I64>, countOut:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keys.context, macro (keys:Tensor<I32>, values:Tensor<I64>, outKeys:Tensor<I32>, outValues:Tensor<I64>, countOut:Tensor<I32>, n:Int) -> {
         var outCount = 0;
@@ -388,7 +388,7 @@ class ReduceByKey {
   }
 
   static function reduceByKeyGlobalAddU64(keys:Tensor<I32>, values:Tensor<U64>, outKeys:Tensor<I32>, outValues:Tensor<U64>, countOut:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keys.context, macro (keys:Tensor<I32>, values:Tensor<U64>, outKeys:Tensor<I32>, outValues:Tensor<U64>, countOut:Tensor<I32>, n:Int) -> {
         var outCount = 0;
@@ -423,7 +423,7 @@ class ReduceByKey {
   }
 
   static function reduceByKeyGlobalAddF32(keys:Tensor<I32>, values:Tensor<F32>, outKeys:Tensor<I32>, outValues:Tensor<F32>, countOut:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keys.context, macro (keys:Tensor<I32>, values:Tensor<F32>, outKeys:Tensor<I32>, outValues:Tensor<F32>, countOut:Tensor<I32>, n:Int) -> {
         var outCount = 0;
@@ -458,7 +458,7 @@ class ReduceByKey {
   }
 
   static function reduceByKeyGlobalAddF64(keys:Tensor<I32>, values:Tensor<F64>, outKeys:Tensor<I32>, outValues:Tensor<F64>, countOut:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(keys.context, macro (keys:Tensor<I32>, values:Tensor<F64>, outKeys:Tensor<I32>, outValues:Tensor<F64>, countOut:Tensor<I32>, n:Int) -> {
         var outCount = 0;
@@ -533,7 +533,7 @@ class ReduceByKey {
     return count;
   }
 
-  static function closeKernel(kernel:Kernel):Void {
+  static function closeKernel(kernel:Dynamic):Void {
     if (kernel != null) {
       kernel.close();
     }

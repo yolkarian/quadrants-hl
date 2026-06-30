@@ -110,15 +110,15 @@ class Capabilities {
     };
     mesh = {
       hostHandles: true,
-      kernelRelations: false,
-      kernelAttributes: false,
+      kernelRelations: true,
+      kernelAttributes: true,
       indexConversion: false,
     };
     quant = {
       quantArrayPlacement: true,
-      bitStructPlacement: false,
-      floatPlacement: false,
-      kernelParameters: false,
+      bitStructPlacement: true,
+      floatPlacement: true,
+      kernelParameters: true,
     };
     profiler = {
       kernel: profilerFeatures.kernel,
@@ -134,7 +134,7 @@ class Capabilities {
     };
     version = VersionInfo.current();
     fieldResourceParam = true;
-    structTensor = false;
+    structTensor = true;
     meshKernelAccess = mesh.kernelRelations && mesh.kernelAttributes;
     quantKernelParam = quant.kernelParameters;
     streamParallel = streams.parallelBlocks;

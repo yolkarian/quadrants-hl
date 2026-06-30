@@ -76,7 +76,7 @@ class Select {
   }
 
   static function selectI32Impl(input:Tensor<I32>, flags:Tensor<I32>, output:Tensor<I32>, countOut:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<I32>, flags:Tensor<I32>, output:Tensor<I32>, countOut:Tensor<I32>, n:Int) -> {
         var count = 0;
@@ -97,7 +97,7 @@ class Select {
   }
 
   static function selectU32Impl(input:Tensor<U32>, flags:Tensor<I32>, output:Tensor<U32>, countOut:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<U32>, flags:Tensor<I32>, output:Tensor<U32>, countOut:Tensor<I32>, n:Int) -> {
         var count = 0;
@@ -118,7 +118,7 @@ class Select {
   }
 
   static function selectI64Impl(input:Tensor<I64>, flags:Tensor<I32>, output:Tensor<I64>, countOut:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<I64>, flags:Tensor<I32>, output:Tensor<I64>, countOut:Tensor<I32>, n:Int) -> {
         var count = 0;
@@ -139,7 +139,7 @@ class Select {
   }
 
   static function selectU64Impl(input:Tensor<U64>, flags:Tensor<I32>, output:Tensor<U64>, countOut:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<U64>, flags:Tensor<I32>, output:Tensor<U64>, countOut:Tensor<I32>, n:Int) -> {
         var count = 0;
@@ -160,7 +160,7 @@ class Select {
   }
 
   static function selectF32Impl(input:Tensor<F32>, flags:Tensor<I32>, output:Tensor<F32>, countOut:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<F32>, flags:Tensor<I32>, output:Tensor<F32>, countOut:Tensor<I32>, n:Int) -> {
         var count = 0;
@@ -181,7 +181,7 @@ class Select {
   }
 
   static function selectF64Impl(input:Tensor<F64>, flags:Tensor<I32>, output:Tensor<F64>, countOut:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<F64>, flags:Tensor<I32>, output:Tensor<F64>, countOut:Tensor<I32>, n:Int) -> {
         var count = 0;
@@ -260,7 +260,7 @@ class Select {
     return count;
   }
 
-  static function closeKernel(kernel:Kernel):Void {
+  static function closeKernel(kernel:Dynamic):Void {
     if (kernel != null) {
       kernel.close();
     }

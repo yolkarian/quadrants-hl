@@ -1,4 +1,4 @@
-// EXPECT_ERROR: Unsupported Quadrants typed kernel dtype MeshAttribute
+// EXPECT_ERROR: Unsupported Quadrants typed kernel dtype String
 import quadrants.Context;
 import quadrants.Kernel;
 import quadrants.Tensor;
@@ -10,7 +10,7 @@ import quadrants.mesh.Vertex;
 class UnsupportedMeshAttributeKernelAccess {
   static function main():Void {
     var ctx = new Context(Arch.Cpu);
-    Kernel.build(ctx, macro (attribute:MeshAttribute<Vertex, I32>, out:Tensor<I32>) -> {
+    Kernel.build(ctx, macro (attribute:MeshAttribute<Vertex, String>, out:Tensor<I32>) -> {
       out[0] = 0;
     });
   }

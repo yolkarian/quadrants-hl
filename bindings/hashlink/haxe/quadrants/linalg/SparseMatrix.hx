@@ -174,8 +174,53 @@ class SparseMatrix<T> implements LinearOperator<T> {
     }
   }
 
+  public inline function matvec(x:Tensor<T>, y:Tensor<T>):Void {
+    matVec(x, y);
+  }
+
   public inline function apply(x:Tensor<T>, y:Tensor<T>):Void {
     matVec(x, y);
+  }
+
+  public function buildFromTensor(dense:Tensor<T>, ?options:{?eps:Float}):Void {
+    var runtime:TensorRuntime = requireTensorContext(dense, rows * cols, "dense source");
+    if (runtime.shape.length != 2 || runtime.shape[0] != rows || runtime.shape[1] != cols) {
+      throw "Quadrants sparse buildFromTensor source shape mismatch";
+    }
+    var eps = options == null || options.eps == null ? 0.0 : options.eps;
+    clear();
+    for (row in 0...rows) {
+      for (col in 0...cols) {
+        var value:T = dense.read(row * cols + col);
+        var asFloat = toFloat(value);
+        if (Math.abs(asFloat) > eps) {
+          set(row, col, value);
+        }
+      }
+    }
+  }
+
+  public function mmwrite(path:String):Void {
+    if (path == null || path.length == 0) {
+      throw "Quadrants sparse mmwrite requires a path";
+    }
+    var entries = new Array<{row:Int, col:Int, value:Float}>();
+    for (row in 0...rows) {
+      for (col in 0...cols) {
+        var value = getFloat(row, col);
+        if (value != 0.0) {
+          entries.push({row: row, col: col, value: value});
+        }
+      }
+    }
+    var out = new StringBuf();
+    out.add("%%MatrixMarket matrix coordinate real general\n");
+    out.add("% written by quadrants HashLink sparse bridge\n");
+    out.add('${rows} ${cols} ${entries.length}\n');
+    for (entry in entries) {
+      out.add('${entry.row + 1} ${entry.col + 1} ${entry.value}\n');
+    }
+    sys.io.File.saveContent(path, out.toString());
   }
 
   public function close():Void {

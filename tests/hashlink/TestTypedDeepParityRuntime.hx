@@ -71,9 +71,12 @@ class TestTypedDeepParityRuntime {
       Quant.fixedF32(QuantBits.Bits8, QuantSignedness.Signed, 8);
     }, "fractional bits");
 
-    expectThrowsContains("typed_quant_bitstruct_unsupported", function() {
-      ctx.root.bitStruct(32);
-    }, "bitStruct placement is not supported");
+    var qfloatField = new Field<F32>(ctx);
+    var qfloatSpec = Quant.floatF32(5, 10, QuantSignedness.Signed);
+    ctx.root.dense(Axis.i, 1).bitStruct(32).placeQuant(qfloatField, qfloatSpec);
+    qfloatField.write(0, 1.5);
+    expectNear("typed_quant_bitstruct_float", qfloatField.read(0), 1.5);
+    qfloatField.close();
 
     var nativeField = new Field<F32>(ctx);
     ctx.root.quantArray(Axis.i, 4, QuantBits.Bits32).placeQuant(nativeField, spec);

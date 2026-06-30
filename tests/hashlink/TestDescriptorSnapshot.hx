@@ -3,6 +3,7 @@ import quadrants.CompilerHints;
 import quadrants.Block;
 import quadrants.Vec3;
 import quadrants.Vector;
+import quadrants.Spec;
 import quadrants.Static;
 import quadrants.Shared;
 import quadrants.Struct;
@@ -13,6 +14,9 @@ import quadrants.Tensor;
 import quadrants.Field;
 import quadrants.Mesh;
 import quadrants.VectorNdarray;
+import quadrants.mesh.Edge;
+import quadrants.mesh.MeshRelation;
+import quadrants.mesh.Vertex;
 import quadrants.Types.I8;
 import quadrants.Types.I32;
 import quadrants.Types.I64;
@@ -38,10 +42,17 @@ class TestDescriptorSnapshot {
   static inline var PARAM_SCALAR = 0;
   static inline var PARAM_NDARRAY = 1;
   static inline var PARAM_FIELD = 2;
+  static inline var PARAM_MESH_RELATION = 3;
+  static inline var PARAM_FLAG_SPEC = 2;
   static inline var DTYPE_I32 = 2;
   static inline var SECTION_SYMBOLS = 5;
   static inline var SECTION_STATEMENTS = 7;
   static inline var SECTION_FUNCTIONS = 8;
+  static inline var SECTION_TYPE_TABLE = 11;
+  static inline var SECTION_RESOURCE_TABLE = 12;
+  static inline var SECTION_STRUCT_TABLE = 13;
+  static inline var SECTION_SPEC_TABLE = 14;
+  static inline var SECTION_ARG_TABLE = 15;
   static inline var STMT_RETURN_VALUE = 12;
   static inline var EXPR_CAST = 25;
   static inline var EXPR_ASSUME_IN_RANGE = 87;
@@ -49,6 +60,7 @@ class TestDescriptorSnapshot {
   static inline var STMT_SNODE_ACTIVATE = 37;
   static inline var EXPR_SNODE_APPEND = 92;
   static inline var EXPR_SNODE_LENGTH = 93;
+  static inline var EXPR_MESH_RELATION_GET = 96;
 
   static function sectionOffset(bytes:hl.Bytes, kind:Int):Int {
     var sectionCount = u32(bytes, 8);
@@ -85,6 +97,17 @@ class TestDescriptorSnapshot {
     expectEq('${name}_rank', bytes.getUI8(paramOffset + 2), rank);
   }
 
+  static function expectParamFlags(name:String, bytes:hl.Bytes, index:Int, flags:Int):Void {
+    var symbolsOffset = sectionOffset(bytes, SECTION_SYMBOLS);
+    var paramsOffset = symbolsOffset + 4;
+    var count = u32(bytes, paramsOffset);
+    if (index < 0 || index >= count) {
+      throw '${name}: descriptor parameter index ${index} out of bounds for ${count} parameter(s)';
+    }
+    var paramOffset = paramsOffset + 4 + index * 8;
+    expectEq('${name}_flags', bytes.getUI8(paramOffset + 3), flags);
+  }
+
   static function expectSingleReturnDType(name:String, bytes:hl.Bytes, dtype:Int):Void {
     var statementsOffset = sectionOffset(bytes, SECTION_STATEMENTS);
     var tailOffset = statementsOffset + sectionLength(bytes, SECTION_STATEMENTS) - 7;
@@ -118,8 +141,8 @@ class TestDescriptorSnapshot {
       }
     });
     expectEq("descriptor_magic", u32(descriptor, 0), 0x4c484451);
-    expectEq("descriptor_version", u32(descriptor, 4), 2);
-    expectEq("descriptor_section_count", u32(descriptor, 8), 10);
+    expectEq("descriptor_version", u32(descriptor, 4), 3);
+    expectEq("descriptor_section_count", u32(descriptor, 8), 15);
     expectEq("descriptor_section_table", u32(descriptor, 12), 20);
     expectEq("descriptor_first_section_strings", u32(descriptor, 20), 1);
     expectEq("descriptor_symbols_section", u32(descriptor, 20 + 4 * 12), 5);
@@ -135,10 +158,24 @@ class TestDescriptorSnapshot {
     expectParam("scalar_annotation_param", scalarAnnotationDescriptor, 0, PARAM_SCALAR, DTYPE_I32, 0);
     expectSingleReturnDType("scalar_annotation", scalarAnnotationDescriptor, DTYPE_I32);
 
+    var specDescriptor = Kernel.descriptorBytes(macro (n:Spec<Int>) -> {
+      return n;
+    });
+    expectParam("spec_param", specDescriptor, 0, PARAM_SCALAR, DTYPE_I32, 0);
+    expectParamFlags("spec_param", specDescriptor, 0, PARAM_FLAG_SPEC);
+    expectEq("spec_type_table_count", u32(specDescriptor, sectionOffset(specDescriptor, SECTION_TYPE_TABLE)), 1);
+    var specTableOffset = sectionOffset(specDescriptor, SECTION_SPEC_TABLE);
+    expectEq("spec_table_count", u32(specDescriptor, specTableOffset), 1);
+    expectEq("spec_table_param", u32(specDescriptor, specTableOffset + 4), 0);
+    expectSingleReturnDType("spec_param", specDescriptor, DTYPE_I32);
+
     var tensorParamDescriptor = Kernel.descriptorBytes(macro (a:Tensor<I32>) -> {
       return a[0];
     });
     expectParam("tensor_param", tensorParamDescriptor, 0, PARAM_NDARRAY, DTYPE_I32, 1);
+    var resourceTableOffset = sectionOffset(tensorParamDescriptor, SECTION_RESOURCE_TABLE);
+    expectEq("tensor_resource_table_count", u32(tensorParamDescriptor, resourceTableOffset), 1);
+    expectEq("tensor_resource_table_param", u32(tensorParamDescriptor, resourceTableOffset + 4), 0);
     expectSingleReturnDType("tensor_param", tensorParamDescriptor, DTYPE_I32);
 
     var scalarTensorDescriptor = Kernel.descriptorBytes(macro (a:Tensor<I32>) -> {
@@ -238,6 +275,16 @@ class TestDescriptorSnapshot {
     expectEq("mesh_for_statement_opcode", meshForDescriptor.getUI8(meshForStatementsOffset + 8), STMT_MESH_FOR);
     expectEq("mesh_for_element_type", meshForDescriptor.getUI8(meshForStatementsOffset + 13), 0);
     expectEq("mesh_for_vertex_count", u32(meshForDescriptor, meshForStatementsOffset + 14), 4);
+
+    var meshRelationDescriptor = Kernel.descriptorBytes(macro (rel:MeshRelation<Edge, Vertex>) -> {
+      return rel.get(0, 0);
+    });
+    expectParam("mesh_relation_param", meshRelationDescriptor, 0, PARAM_MESH_RELATION, DTYPE_I32, 0);
+    var meshRelationStatementsOffset = sectionOffset(meshRelationDescriptor, SECTION_STATEMENTS);
+    expectEq("mesh_relation_return_opcode", meshRelationDescriptor.getUI8(meshRelationStatementsOffset + 8), STMT_RETURN_VALUE);
+    expectEq("mesh_relation_expr_opcode", meshRelationDescriptor.getUI8(meshRelationStatementsOffset + 9), EXPR_MESH_RELATION_GET);
+    var meshArgTableOffset = sectionOffset(meshRelationDescriptor, SECTION_ARG_TABLE);
+    expectEq("mesh_relation_arg_table_count", u32(meshRelationDescriptor, meshArgTableOffset), 1);
     var vectorDescriptor = Kernel.descriptorBytes(macro (out:Tensor<F32>) -> {
       var v = Vec3.f32(1.0, 2.0, 3.0);
       var w = Vector.ofArray([4.0, 5.0, 6.0]);

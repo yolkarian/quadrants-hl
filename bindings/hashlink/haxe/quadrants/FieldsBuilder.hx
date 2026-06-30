@@ -15,6 +15,7 @@ class FieldsBuilder {
   static inline var SNODE_POINTER = 3;
   static inline var SNODE_BITMASKED = 4;
   static inline var SNODE_QUANT_ARRAY = 6;
+  static inline var SNODE_BIT_STRUCT = 7;
   static inline var DEFAULT_DYNAMIC_CHUNK_SIZE = 128;
 
   final context:Context;
@@ -76,7 +77,8 @@ class FieldsBuilder {
     if (maxBits <= 0 || maxBits > 64) {
       throw "Quadrants bitStruct maxBits must be in 1...64";
     }
-    throw "Quadrants HashLink native bitStruct placement is not supported; use quantArray(axis, size, maxNumBits) for native quantized array placement";
+    steps.push({kind: SNODE_BIT_STRUCT, axis: -1, size: 1, chunkSize: maxBits});
+    return this;
   }
 
   public function quantArray(axis:Axis, size:Int, maxNumBits:quadrants.quant.QuantBits):FieldsBuilder {
@@ -88,23 +90,39 @@ class FieldsBuilder {
   }
 
   static function validateStepsMatchShape(shape:Array<Int>, steps:Array<FieldPlacementStep>):Void {
-    if (steps.length != shape.length) {
-      throw "Quadrants field placement step rank must match field shape rank";
-    }
-    for (axis in 0...shape.length) {
-      var step = steps[axis];
-      if (step.size != shape[axis]) {
+    var shapeAxis = 0;
+    for (step in steps) {
+      if (step.kind == SNODE_BIT_STRUCT) {
+        continue;
+      }
+      if (shapeAxis >= shape.length) {
+        throw "Quadrants field placement step rank must match field shape rank";
+      }
+      if (step.size != shape[shapeAxis]) {
         throw "Quadrants field placement step size must match field shape";
       }
       if (step.chunkSize <= 0) {
         throw "Quadrants dynamic field chunk size must be positive";
       }
+      shapeAxis++;
+    }
+    if (shapeAxis != shape.length) {
+      throw "Quadrants field placement step rank must match field shape rank";
     }
   }
 
   static function hasQuantArrayStep(steps:Array<FieldPlacementStep>):Bool {
     for (step in steps) {
       if (step.kind == SNODE_QUANT_ARRAY) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static function hasBitStructStep(steps:Array<FieldPlacementStep>):Bool {
+    for (step in steps) {
+      if (step.kind == SNODE_BIT_STRUCT) {
         return true;
       }
     }
@@ -143,6 +161,11 @@ class FieldsBuilder {
     if (hasQuantArrayStep(checkedSteps)) {
       throw "Quadrants quantArray placement requires placeQuant(field, quantSpec)";
     }
+    for (step in checkedSteps) {
+      if (step.kind == SNODE_BIT_STRUCT) {
+        throw "Quadrants bitStruct placement requires placeQuant(field, quantSpec)";
+      }
+    }
     var tree = Native.snode_tree_create(context.nativeHandle());
     var parent = Native.snode_tree_root_id(tree);
     try {
@@ -177,16 +200,13 @@ class FieldsBuilder {
     var checkedShape = TensorStorage.validateShape(shape);
     var checkedSteps = copySteps(steps);
     validateStepsMatchShape(checkedShape, checkedSteps);
-    if (!hasQuantArrayStep(checkedSteps)) {
-      throw "Quadrants placeQuant requires a quantArray placement step";
+    if (!hasQuantArrayStep(checkedSteps) && !hasBitStructStep(checkedSteps)) {
+      throw "Quadrants placeQuant requires a quantArray or bitStruct placement step";
     }
     for (step in checkedSteps) {
-      if (step.kind == SNODE_QUANT_ARRAY && spec.bits > step.chunkSize) {
-        throw "Quadrants quant spec bit width exceeds quantArray maxNumBits";
+      if ((step.kind == SNODE_QUANT_ARRAY || step.kind == SNODE_BIT_STRUCT) && spec.bits > step.chunkSize) {
+        throw "Quadrants quant spec bit width exceeds quant placement maxNumBits";
       }
-    }
-    if (spec.kind == quadrants.quant.QuantKind.FloatStorage) {
-      throw "Quadrants quant float placement requires bitStruct lowering, which is not supported by the HashLink bridge";
     }
     if (spec.offset != 0.0) {
       throw "Quadrants quant fixed offset placement is not supported by the HashLink bridge";
@@ -194,7 +214,32 @@ class FieldsBuilder {
     var tree = Native.snode_tree_create(context.nativeHandle());
     var parent = Native.snode_tree_root_id(tree);
     try {
-      parent = placeStructuralSteps(tree, parent, checkedSteps);
+      for (step in checkedSteps) {
+        if (step.kind == SNODE_BIT_STRUCT) {
+          parent = Native.snode_tree_bit_struct_quant_child(
+            tree,
+            parent,
+            runtime.dtype,
+            spec.kind,
+            spec.bits,
+            spec.signed ? 1 : 0,
+            spec.fractionalBits,
+            spec.exponentBits,
+            spec.fractionBits,
+            spec.scale,
+            step.chunkSize
+          );
+        } else {
+          parent = Native.snode_tree_child(
+            tree,
+            parent,
+            step.kind,
+            TensorStorage.nativeIntArray([step.axis]),
+            TensorStorage.nativeIntArray([step.size]),
+            step.chunkSize
+          );
+        }
+      }
       var name = @:privateAccess "".toUtf8();
       var snodeId = Native.snode_tree_place_quant(
         tree,
@@ -204,6 +249,8 @@ class FieldsBuilder {
         spec.bits,
         spec.signed ? 1 : 0,
         spec.fractionalBits,
+        spec.exponentBits,
+        spec.fractionBits,
         spec.scale,
         name
       );

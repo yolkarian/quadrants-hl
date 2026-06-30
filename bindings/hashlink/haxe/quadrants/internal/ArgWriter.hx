@@ -1,9 +1,14 @@
 package quadrants.internal;
 
 import quadrants.BufferView;
-import quadrants.Field;
+import quadrants.FieldArg;
 import quadrants.Spec;
+import quadrants.StructField;
+import quadrants.StructTensor;
 import quadrants.Tensor;
+import quadrants.mesh.MeshAttribute;
+import quadrants.mesh.MeshRelation;
+import quadrants.quant.QuantizedF32Tensor;
 import quadrants.Types.F16;
 import quadrants.Types.F32;
 import quadrants.Types.F64;
@@ -31,18 +36,18 @@ class ArgWriter {
   public static inline function tensorF32(buf:ArgBuffer, value:Tensor<F32>):Void buf.addValue(value);
   public static inline function tensorF64(buf:ArgBuffer, value:Tensor<F64>):Void buf.addValue(value);
 
-  public static inline function fieldI8(buf:ArgBuffer, value:Field<I8>):Void buf.addValue(value);
-  public static inline function fieldI16(buf:ArgBuffer, value:Field<I16>):Void buf.addValue(value);
-  public static inline function fieldI32(buf:ArgBuffer, value:Field<I32>):Void buf.addValue(value);
-  public static inline function fieldI64(buf:ArgBuffer, value:Field<I64>):Void buf.addValue(value);
-  public static inline function fieldU8(buf:ArgBuffer, value:Field<U8>):Void buf.addValue(value);
-  public static inline function fieldU16(buf:ArgBuffer, value:Field<U16>):Void buf.addValue(value);
-  public static inline function fieldU32(buf:ArgBuffer, value:Field<U32>):Void buf.addValue(value);
-  public static inline function fieldU64(buf:ArgBuffer, value:Field<U64>):Void buf.addValue(value);
-  public static inline function fieldU1(buf:ArgBuffer, value:Field<U1>):Void buf.addValue(value);
-  public static inline function fieldF16(buf:ArgBuffer, value:Field<F16>):Void buf.addValue(value);
-  public static inline function fieldF32(buf:ArgBuffer, value:Field<F32>):Void buf.addValue(value);
-  public static inline function fieldF64(buf:ArgBuffer, value:Field<F64>):Void buf.addValue(value);
+  public static inline function fieldI8(buf:ArgBuffer, value:FieldArg<I8>):Void buf.addValue(value);
+  public static inline function fieldI16(buf:ArgBuffer, value:FieldArg<I16>):Void buf.addValue(value);
+  public static inline function fieldI32(buf:ArgBuffer, value:FieldArg<I32>):Void buf.addValue(value);
+  public static inline function fieldI64(buf:ArgBuffer, value:FieldArg<I64>):Void buf.addValue(value);
+  public static inline function fieldU8(buf:ArgBuffer, value:FieldArg<U8>):Void buf.addValue(value);
+  public static inline function fieldU16(buf:ArgBuffer, value:FieldArg<U16>):Void buf.addValue(value);
+  public static inline function fieldU32(buf:ArgBuffer, value:FieldArg<U32>):Void buf.addValue(value);
+  public static inline function fieldU64(buf:ArgBuffer, value:FieldArg<U64>):Void buf.addValue(value);
+  public static inline function fieldU1(buf:ArgBuffer, value:FieldArg<U1>):Void buf.addValue(value);
+  public static inline function fieldF16(buf:ArgBuffer, value:FieldArg<F16>):Void buf.addValue(value);
+  public static inline function fieldF32(buf:ArgBuffer, value:FieldArg<F32>):Void buf.addValue(value);
+  public static inline function fieldF64(buf:ArgBuffer, value:FieldArg<F64>):Void buf.addValue(value);
 
   public static inline function bufferViewI8(buf:ArgBuffer, value:BufferView<I8>):Void buf.addValue(value);
   public static inline function bufferViewI16(buf:ArgBuffer, value:BufferView<I16>):Void buf.addValue(value);
@@ -71,6 +76,22 @@ class ArgWriter {
   public static inline function scalarF64(buf:ArgBuffer, value:Float):Void buf.addValue(value);
   public static inline function scalarBool(buf:ArgBuffer, value:Bool):Void buf.addValue(value);
 
-  public static inline function spec<T>(buf:ArgBuffer, value:Spec<T>):Void buf.addValue(value.value());
+  public static function structTensor<S>(buf:ArgBuffer, value:StructTensor<S>):Void {
+    for (name in value.members()) {
+      buf.addValue(value.member(name));
+    }
+  }
+
+  public static function structField<S>(buf:ArgBuffer, value:StructField<S>):Void {
+    for (name in value.members()) {
+      buf.addValue(value.member(name));
+    }
+  }
+
+  public static inline function meshRelation<From, To>(buf:ArgBuffer, value:MeshRelation<From, To>):Void buf.addValue(value);
+  public static inline function meshAttribute<Element, Value>(buf:ArgBuffer, value:MeshAttribute<Element, Value>):Void buf.addValue(value);
+  public static inline function quantizedF32Tensor(buf:ArgBuffer, value:QuantizedF32Tensor):Void buf.addValue(value);
+
+  public static inline function spec<T>(buf:ArgBuffer, value:Spec<T>):Void buf.addSpec(value.value());
   public static inline function value<T>(buf:ArgBuffer, value:T):Void buf.addValue(value);
 }

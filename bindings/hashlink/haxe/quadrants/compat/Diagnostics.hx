@@ -69,8 +69,7 @@ class Diagnostics {
       statements: parseStatements(kernel, sectionByKind(sections, 7), strings),
       attributes: attributes,
       descriptor: Reflect.field(attributes, "qdhl.meta.json") == null ? null : haxe.Json.parse(cast Reflect.field(attributes, "qdhl.meta.json")),
-      descriptorV3: Reflect.field(attributes, "qdhl.meta.json") == null ? null : haxe.Json.parse(cast Reflect.field(attributes, "qdhl.meta.json")),
-      descriptorV2: Reflect.field(attributes, "qdhl.meta.json") == null ? null : haxe.Json.parse(cast Reflect.field(attributes, "qdhl.meta.json"))
+      descriptorV3: Reflect.field(attributes, "qdhl.meta.json") == null ? null : haxe.Json.parse(cast Reflect.field(attributes, "qdhl.meta.json"))
     };
   }
 
@@ -443,6 +442,11 @@ class Diagnostics {
       case 8: "functions";
       case 9: "kernels";
       case 10: "attributes";
+      case 11: "typeTable";
+      case 12: "resourceTable";
+      case 13: "structTable";
+      case 14: "specTable";
+      case 15: "argTable";
       default: 'unknown(${kind})';
     };
   }

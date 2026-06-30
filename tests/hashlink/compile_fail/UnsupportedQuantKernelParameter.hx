@@ -1,4 +1,4 @@
-// EXPECT_ERROR: Unsupported Quadrants typed kernel dtype QuantizedF32Tensor
+// EXPECT_ERROR: Quadrants QuantizedF32Tensor.write(index, value) expects two arguments in kernels
 import quadrants.Context;
 import quadrants.Kernel;
 import quadrants.Types.Arch;
@@ -8,7 +8,7 @@ class UnsupportedQuantKernelParameter {
   static function main():Void {
     var ctx = new Context(Arch.Cpu);
     Kernel.build(ctx, macro (q:QuantizedF32Tensor) -> {
-      var n = 0;
+      q.write(0);
     });
   }
 }

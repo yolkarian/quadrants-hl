@@ -30,24 +30,9 @@ class QdStruct {
     local.meta.add(":qdStruct", [], Context.currentPos());
 
     var members = new Array<StructMemberInfo>();
-    var offset = 0;
-    var maxAlign = 1;
-    for (field in fields) {
-      if (!isInstanceVar(field)) {
-        continue;
-      }
-      var type = fieldType(field);
-      if (type == null) {
-        Context.error('Quadrants QdStruct field ${field.name} requires an explicit type annotation', field.pos);
-      }
-      var info = memberInfo(field.name, type, field.pos, offset);
-      offset = info.offset + info.size;
-      if (info.align > maxAlign) {
-        maxAlign = info.align;
-      }
-      members.push(info);
-    }
-    var sizeBytes = alignTo(offset, maxAlign);
+    var layout = collectBuildMembers(fields, "", 0, members);
+    var sizeBytes = alignTo(layout.offset, layout.align);
+    var maxAlign = layout.align;
 
     if (!hasField(fields, "__qdStructSchema")) {
       fields.push(schemaField(local, members, sizeBytes, maxAlign));
@@ -115,6 +100,65 @@ class QdStruct {
         {expr: ECall({expr: EField(path, "__qdStructSchema"), pos: pos}, []), pos: pos};
       default:
         Context.error("QdStruct schema expects a class type", pos);
+    };
+  }
+
+  static function collectBuildMembers(fields:Array<Field>, prefix:String, offset:Int, members:Array<StructMemberInfo>):{offset:Int, align:Int} {
+    var currentOffset = offset;
+    var maxAlign = 1;
+    for (field in fields) {
+      if (!isInstanceVar(field)) {
+        continue;
+      }
+      var type = fieldType(field);
+      if (type == null) {
+        Context.error('Quadrants QdStruct field ${field.name} requires an explicit type annotation', field.pos);
+      }
+      var nested = nestedStructClass(type, field.pos);
+      if (nested != null) {
+        var nestedLayout = collectClassMembers(nested, prefix + field.name + ".", currentOffset, members, field.pos);
+        currentOffset = nestedLayout.offset;
+        if (nestedLayout.align > maxAlign) maxAlign = nestedLayout.align;
+      } else {
+        var info = memberInfo(prefix + field.name, type, field.pos, currentOffset);
+        currentOffset = info.offset + info.size;
+        if (info.align > maxAlign) maxAlign = info.align;
+        members.push(info);
+      }
+    }
+    return {offset: currentOffset, align: maxAlign};
+  }
+
+  static function collectClassMembers(cls:ClassType, prefix:String, offset:Int, members:Array<StructMemberInfo>, pos:Position):{offset:Int, align:Int} {
+    var currentOffset = offset;
+    var maxAlign = 1;
+    for (field in cls.fields.get()) {
+      if (!field.isPublic) {
+        continue;
+      }
+      var type = TypeTools.toComplexType(field.type);
+      var nested = nestedStructClass(type, pos);
+      if (nested != null) {
+        var nestedLayout = collectClassMembers(nested, prefix + field.name + ".", currentOffset, members, pos);
+        currentOffset = nestedLayout.offset;
+        if (nestedLayout.align > maxAlign) maxAlign = nestedLayout.align;
+      } else {
+        var info = memberInfo(prefix + field.name, type, pos, currentOffset);
+        currentOffset = info.offset + info.size;
+        if (info.align > maxAlign) maxAlign = info.align;
+        members.push(info);
+      }
+    }
+    return {offset: currentOffset, align: maxAlign};
+  }
+
+  static function nestedStructClass(type:ComplexType, pos:Position):Null<ClassType> {
+    return switch (Context.followWithAbstracts(Context.resolveType(type, pos))) {
+      case TInst(classRef, _):
+        var cls = classRef.get();
+        cls.meta.extract(":qdStruct").length > 0 || cls.meta.extract("qdStruct").length > 0 ? cls : null;
+      default:
+        null;
     };
   }
 
@@ -204,13 +248,14 @@ class QdStruct {
         var cls = classRef.get();
         var name = cls.name;
         if (isVecName(name) || isMatName(name)) {
-          if (params.length != 1) {
-            Context.error('Quadrants QdStruct ${name} member requires a dtype type parameter', pos);
-          }
-          var dtype = switch (params[0]) {
+          var dtype = if (params.length == 0) {
+            "f32";
+          } else if (params.length == 1) switch (params[0]) {
             case TInst(paramCls, _): dtypeName(paramCls.get().name);
             case TAbstract(paramAbs, _): dtypeName(paramAbs.get().name);
             default: null;
+          } else {
+            Context.error('Quadrants QdStruct ${name} member requires zero or one dtype type parameter', pos);
           };
           if (dtype == null) {
             Context.error('Quadrants QdStruct ${name} member has unsupported element dtype', pos);

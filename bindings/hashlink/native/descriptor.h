@@ -36,6 +36,8 @@ enum class ParameterKind : std::uint8_t {
   scalar = 0,
   ndarray = 1,
   field = 2,
+  mesh_relation = 3,
+  mesh_attribute = 4,
 };
 
 enum class ExprOpcode : std::uint8_t {
@@ -133,6 +135,8 @@ enum class ExprOpcode : std::uint8_t {
   snode_append = 92,
   snode_length = 93,
   snode_is_active = 94,
+  mesh_relation_size = 95,
+  mesh_relation_get = 96,
 };
 
 enum class StmtOpcode : std::uint8_t {
@@ -178,6 +182,7 @@ enum class StmtOpcode : std::uint8_t {
 
 struct ParameterDescriptor {
   static constexpr std::uint8_t flag_needs_grad = 1u;
+  static constexpr std::uint8_t flag_spec_constant = 2u;
   ParameterKind kind{ParameterKind::scalar};
   DescriptorDType dtype{DescriptorDType::i32};
   std::uint8_t rank{0};
@@ -187,6 +192,100 @@ struct ParameterDescriptor {
   bool needs_grad() const {
     return (flags & flag_needs_grad) != 0;
   }
+
+  bool is_spec_constant() const {
+    return (flags & flag_spec_constant) != 0;
+  }
+};
+
+enum class TypeTableKind : std::uint8_t {
+  primitive = 0,
+  spec = 1,
+  tensor_resource = 2,
+  field_resource = 3,
+  struct_tensor_resource = 4,
+  struct_field_resource = 5,
+  mesh_relation_resource = 6,
+  mesh_attribute_resource = 7,
+  quant_resource = 8,
+  sparse_matrix_resource = 9,
+  mesh_resource = 10,
+};
+
+struct TypeTableEntry {
+  std::uint32_t id{0};
+  TypeTableKind kind{TypeTableKind::primitive};
+  DescriptorDType dtype{DescriptorDType::i32};
+  std::uint8_t rank{0};
+  std::uint8_t flags{0};
+  std::uint32_t struct_id{0};
+};
+
+enum class ArgTableKind : std::uint8_t {
+  runtime_scalar = 0,
+  runtime_resource = 1,
+  spec_constant = 2,
+};
+
+struct ArgTableEntry {
+  std::uint32_t parameter_index{0};
+  std::uint32_t type_id{0};
+  std::uint32_t name_id{0};
+  ArgTableKind kind{ArgTableKind::runtime_scalar};
+  std::uint8_t flags{0};
+};
+
+struct ResourceTableEntry {
+  std::uint32_t parameter_index{0};
+  std::uint32_t type_id{0};
+  std::uint32_t name_id{0};
+  TypeTableKind kind{TypeTableKind::tensor_resource};
+  std::uint8_t rank{0};
+  std::uint8_t flags{0};
+};
+
+struct StructFieldTableEntry {
+  std::uint32_t name_id{0};
+  std::uint32_t type_id{0};
+  std::uint32_t offset{0};
+};
+
+struct StructTableEntry {
+  std::uint32_t id{0};
+  std::uint32_t name_id{0};
+  std::uint32_t size_bytes{0};
+  std::uint32_t align_bytes{0};
+  std::vector<StructFieldTableEntry> fields;
+};
+
+struct SpecTableEntry {
+  std::uint32_t parameter_index{0};
+  std::uint32_t type_id{0};
+  std::uint32_t name_id{0};
+  DescriptorDType dtype{DescriptorDType::i32};
+  std::uint8_t flags{0};
+};
+
+struct SpecValue {
+  DescriptorDType dtype{DescriptorDType::i32};
+  std::int64_t signed_value{0};
+  std::uint64_t unsigned_value{0};
+  double float_value{0.0};
+  bool bool_value{false};
+};
+
+struct MeshRelationSpecialization {
+  bool present{false};
+  std::uint8_t from_type{0};
+  std::uint8_t to_type{0};
+  bool fixed{false};
+  std::uint32_t fixed_degree{0};
+  std::array<std::uint32_t, 4> counts{};
+  std::array<int, 4> owned_offset_snode_ids{{-1, -1, -1, -1}};
+  std::array<int, 4> total_offset_snode_ids{{-1, -1, -1, -1}};
+  int value_snode_id{-1};
+  int offset_snode_id{-1};
+  int patch_offset_snode_id{-1};
 };
 
 struct LocalDescriptor {
@@ -260,6 +359,11 @@ struct KernelDescriptor {
   DescriptorDType return_dtype{DescriptorDType::i32};
   std::vector<ParameterDescriptor> parameters;
   std::vector<DescriptorDType> return_dtypes;
+  std::vector<TypeTableEntry> type_table;
+  std::vector<ArgTableEntry> arg_table;
+  std::vector<ResourceTableEntry> resource_table;
+  std::vector<StructTableEntry> struct_table;
+  std::vector<SpecTableEntry> spec_table;
   std::vector<LocalDescriptor> locals;
   std::vector<std::unique_ptr<StatementDescriptor>> statements;
   std::vector<SourceSpanDescriptor> source_spans;
@@ -281,6 +385,8 @@ KernelBuildResult build_kernel_from_descriptor(lang::Program &program,
                                               AutodiffMode autodiff_mode,
                                               const std::vector<int> *field_snode_ids = nullptr,
                                               const std::vector<int> *field_adjoint_snode_ids = nullptr,
-                                              const std::vector<int> *field_dual_snode_ids = nullptr);
+                                              const std::vector<int> *field_dual_snode_ids = nullptr,
+                                              const std::vector<SpecValue> *spec_values = nullptr,
+                                              const std::vector<MeshRelationSpecialization> *mesh_relations = nullptr);
 
 }  // namespace quadrants::hashlink

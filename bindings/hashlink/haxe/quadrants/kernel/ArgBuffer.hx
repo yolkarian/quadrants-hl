@@ -5,10 +5,12 @@ class ArgBuffer {
   static final pool:Array<ArgBuffer> = [];
 
   public final values:Array<Dynamic>;
+  public final specs:Array<Dynamic>;
   var inPool:Bool = false;
 
   public function new() {
     values = [];
+    specs = [];
   }
 
   public static function acquire():ArgBuffer {
@@ -24,12 +26,21 @@ class ArgBuffer {
     values.push(value);
   }
 
+  public function addSpec(value:Dynamic):Void {
+    specs.push(value);
+  }
+
   public function toArray():Array<Dynamic> {
     return [for (value in values) value];
   }
 
+  public function specArray():Array<Dynamic> {
+    return [for (value in specs) value];
+  }
+
   public function clear():Void {
     values.resize(0);
+    specs.resize(0);
   }
 
   public function release():Void {

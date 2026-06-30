@@ -21,6 +21,9 @@ typedef KernelProfilerStats = {
 
 class Profiler {
   final context:Context;
+  final events:Array<Dynamic> = [];
+  final activeNames:Array<String> = [];
+  final activeStarts:Array<Float> = [];
 
   public function new(context:Context) {
     this.context = context;
@@ -46,15 +49,26 @@ class Profiler {
 
   public function start(kernelName:String):Void {
     var nameBytes = @:privateAccess kernelName.toUtf8();
+    activeNames.push(kernelName);
+    activeStarts.push(haxe.Timer.stamp());
     Native.profiler_start(context.nativeHandle(), nameBytes);
   }
 
   public function stop():Void {
     Native.profiler_stop(context.nativeHandle());
+    var end = haxe.Timer.stamp();
+    if (activeNames.length > 0) {
+      var name = activeNames.pop();
+      var begin = activeStarts.pop();
+      events.push({name: name, beginSeconds: begin, endSeconds: end, durationMs: (end - begin) * 1000.0});
+    }
   }
 
   public function clear():Void {
     Native.profiler_clear(context.nativeHandle());
+    events.resize(0);
+    activeNames.resize(0);
+    activeStarts.resize(0);
   }
 
   public function clearInfo():Void {
@@ -136,7 +150,7 @@ class Profiler {
   }
 
   public function traceEvents():Array<Dynamic> {
-    return [];
+    return [for (event in events) Reflect.copy(event)];
   }
 
   public function memoryStats():Dynamic {

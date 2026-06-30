@@ -65,10 +65,10 @@ class Kernel {
   #end
 
   public static macro function build(ctx:haxe.macro.Expr, fn:haxe.macro.Expr, ?options:haxe.macro.Expr):haxe.macro.Expr {
-    return quadrants.macro.FlattenBuild.build(ctx, fn, options, true, "quadrants.Kernel.build");
+    return quadrants.macro.FlattenBuild.build(ctx, fn, options, false, "quadrants.Kernel.build");
   }
 
-  public static macro function buildRaw(ctx:haxe.macro.Expr, fn:haxe.macro.Expr, ?options:haxe.macro.Expr):haxe.macro.Expr {
+  @:noCompletion public static macro function buildRaw(ctx:haxe.macro.Expr, fn:haxe.macro.Expr, ?options:haxe.macro.Expr):haxe.macro.Expr {
     return quadrants.macro.KernelBuilder.buildRaw(ctx, fn, options);
   }
 
@@ -77,34 +77,6 @@ class Kernel {
   }
 
   #if !macro
-  public function launch(...values:Dynamic):Void {
-    rawKernel.launchDynamic(values);
-  }
-
-  public function launchRet(...values:Dynamic):Dynamic {
-    return rawKernel.launchRetDynamic(values);
-  }
-
-  public function launchRets(...values:Dynamic):hl.NativeArray<Dynamic> {
-    return rawKernel.launchRetsDynamic(values);
-  }
-
-  public function launchOn(stream:Stream, ...values:Dynamic):Void {
-    rawKernel.launchOnDynamic(stream, values);
-  }
-
-  public function launchGraph(...values:Dynamic):Void {
-    rawKernel.launchGraphDynamic(values);
-  }
-
-  public function launchGraphWhile(controlArgId:Int, ...values:Dynamic):Void {
-    rawKernel.launchGraphWhileDynamic(controlArgId, values);
-  }
-
-  public function launchGraphDoWhile(controlArgId:Int, ...values:Dynamic):Void {
-    rawKernel.launchGraphDoWhileDynamic(controlArgId, values);
-  }
-
   public function descriptorHash():String {
     return rawKernel.descriptorHash();
   }

@@ -5,62 +5,70 @@ import quadrants.ad.Grad;
 import quadrants.ad.CustomGradient;
 import quadrants.kernel.QKernel;
 
-private class TapeRecord {
-  final kernel:Kernel;
-  final custom:Null<CustomGradient>;
-  public final args:Array<Dynamic>;
+@:noCompletion abstract TapeArgs(Array<Dynamic>) from Array<Dynamic> to Array<Dynamic> {}
 
-  public function new(kernel:Kernel, args:Array<Dynamic>, ?custom:CustomGradient) {
-    if (kernel == null) {
+@:allow(quadrants.Tape)
+private class TapeRecord {
+  final rawKernel:KernelRaw;
+  final custom:Null<CustomGradient>;
+  final args:Array<Dynamic>;
+
+  function new(rawKernel:KernelRaw, args:Array<Dynamic>, ?custom:CustomGradient) {
+    if (rawKernel == null) {
       throw "Quadrants tape cannot record a null kernel";
     }
-    this.kernel = kernel;
+    this.rawKernel = rawKernel;
     this.custom = custom;
     this.args = [for (arg in args) arg];
   }
 
-  public static function fromKernel(kernel:Kernel, args:Array<Dynamic>):TapeRecord {
-    return new TapeRecord(kernel, args);
+  static function fromKernel(kernel:QKernel, args:Array<Dynamic>):TapeRecord {
+    if (kernel == null) {
+      throw "Quadrants tape cannot record a null typed kernel";
+    }
+    return new TapeRecord(kernel.raw(), args);
   }
 
-  public static function fromCustom(custom:CustomGradient, args:Array<Dynamic>):TapeRecord {
+  static function fromCustom(custom:CustomGradient, args:Array<Dynamic>):TapeRecord {
     if (custom == null) {
       throw "Quadrants tape cannot record a null custom gradient";
     }
-    return new TapeRecord(custom.forward, args, custom);
+    return new TapeRecord(custom.forwardRaw(), args, custom);
   }
 
-  public function launchBackward():Void {
+  function launchBackward():Void {
     if (custom != null) {
-      launchBorrowed(custom.backward);
+      custom.backwardRaw().launchDynamic(args);
       return;
     }
-    launchDerived(kernel.grad());
+    launchDerived(rawKernel.grad());
   }
 
-  public function launchForward():Void {
-    if (custom != null && custom.forwardGrad != null) {
-      launchBorrowed(custom.forwardGrad);
-      return;
+  function launchForward():Void {
+    if (custom != null) {
+      var forward = custom.forwardGradRaw();
+      if (forward != null) {
+        forward.launchDynamic(args);
+        return;
+      }
     }
-    launchDerived(kernel.forwardGrad());
+    launchDerived(rawKernel.forwardGrad());
   }
 
-  public function launchValidate():Void {
-    if (custom != null && custom.validate != null) {
-      launchBorrowed(custom.validate);
-      return;
+  function launchValidate():Void {
+    if (custom != null) {
+      var validation = custom.validationRaw();
+      if (validation != null) {
+        validation.launchDynamic(args);
+        return;
+      }
     }
-    launchDerived(kernel.validationKernel());
+    launchDerived(rawKernel.validationKernel());
   }
 
-  function launchBorrowed(replayKernel:Kernel):Void {
-    replayKernel.launch(...args);
-  }
-
-  function launchDerived(replayKernel:Kernel):Void {
+  function launchDerived(replayKernel:KernelRaw):Void {
     try {
-      replayKernel.launch(...args);
+      replayKernel.launchDynamic(args);
     } catch (e:Dynamic) {
       replayKernel.close();
       throw e;
@@ -147,36 +155,16 @@ class Tape {
     records.resize(0);
   }
 
-  public function record(kernel:Kernel, args:Array<Dynamic>):Void {
+  @:noCompletion public function recordKernel(kernel:QKernel, args:TapeArgs):Void {
     if (recording) {
-      records.push(TapeRecord.fromKernel(kernel, args));
+      records.push(TapeRecord.fromKernel(kernel, (args : Array<Dynamic>)));
     }
   }
 
-  public function recordKernel(kernel:QKernel, args:Array<Dynamic>):Void {
-    if (kernel == null) {
-      throw "Quadrants tape cannot record a null typed kernel";
-    }
-    record(kernel.asKernel(), args);
-  }
-
-  public function recordCustom(custom:CustomGradient, args:Array<Dynamic>):Void {
+  @:noCompletion public function recordCustom(custom:CustomGradient, args:TapeArgs):Void {
     if (recording) {
-      records.push(TapeRecord.fromCustom(custom, args));
+      records.push(TapeRecord.fromCustom(custom, (args : Array<Dynamic>)));
     }
-  }
-
-  public function launch(kernel:Kernel, ...args:Dynamic):Void {
-    kernel.launch(...args);
-    record(kernel, args);
-  }
-
-  public function launchCustom(custom:CustomGradient, ...args:Dynamic):Void {
-    if (custom == null) {
-      throw "Quadrants tape cannot launch a null custom gradient";
-    }
-    custom.forward.launch(...args);
-    recordCustom(custom, args);
   }
 
   public function backward(clearAfter:Bool = false):Void {

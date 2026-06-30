@@ -160,6 +160,7 @@ if(QD_BUILD_HASHLINK_TESTS)
   endif()
   find_program(QD_HAXE_EXECUTABLE haxe)
   find_program(QD_HL_EXECUTABLE hl)
+  find_program(QD_BASH_EXECUTABLE bash)
   if(NOT QD_HAXE_EXECUTABLE)
     message(FATAL_ERROR "QD_BUILD_HASHLINK_TESTS=ON requires haxe on PATH")
   endif()
@@ -261,4 +262,14 @@ if(QD_BUILD_HASHLINK_TESTS)
       -DQUADRANTS_RUNTIME_DIR=${QD_RUNTIME_BUILD_DIR}
       -DOUTPUT_DIR=${CMAKE_BINARY_DIR}/hashlink-compile-fail
       -P ${PROJECT_SOURCE_DIR}/cmake/RunHaxeCompileFailTests.cmake)
+
+  if(QD_BASH_EXECUTABLE)
+    add_test(NAME hashlink_public_dynamic_scan
+      COMMAND ${QD_BASH_EXECUTABLE}
+        ${PROJECT_SOURCE_DIR}/tools/check_public_dynamic.sh
+        ${PROJECT_SOURCE_DIR}/bindings/hashlink/haxe/quadrants
+        ${PROJECT_SOURCE_DIR}/tools/public_dynamic_allowlist.txt)
+  else()
+    message(WARNING "bash was not found; hashlink_public_dynamic_scan test is disabled")
+  endif()
 endif()

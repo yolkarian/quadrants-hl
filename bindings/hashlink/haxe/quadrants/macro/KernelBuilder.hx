@@ -6,6 +6,7 @@ import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.PositionTools;
 import haxe.macro.Type;
+import haxe.macro.TypeTools;
 
 import sys.io.File;
 private typedef ParamInfo = {
@@ -15,6 +16,7 @@ private typedef ParamInfo = {
   var dtype:Int;
   var needsGrad:Bool;
   var rankFromShape:Bool;
+  var spec:Bool;
 }
 
 private typedef LocalInfo = {
@@ -55,6 +57,27 @@ private typedef StructFieldInfo = {
 
 private typedef StructLocalInfo = {
   var fields:Map<String, StructFieldInfo>;
+  var order:Array<String>;
+}
+
+private typedef StructResourceMemberInfo = {
+  var name:String;
+  var paramId:Int;
+  var dtype:Int;
+  var lanes:Int;
+  var laneIndex:Int;
+  var offset:Int;
+  var align:Int;
+  var size:Int;
+}
+
+private typedef StructResourceInfo = {
+  var name:String;
+  var structName:String;
+  var kind:Int;
+  var sizeBytes:Int;
+  var alignBytes:Int;
+  var members:Map<String, StructResourceMemberInfo>;
   var order:Array<String>;
 }
 
@@ -144,6 +167,8 @@ private class DescriptorBuilder {
   static inline var PARAM_SCALAR = 0;
   static inline var PARAM_NDARRAY = 1;
   static inline var PARAM_FIELD = 2;
+  static inline var PARAM_MESH_RELATION = 3;
+  static inline var PARAM_MESH_ATTRIBUTE = 4;
   static inline var DTYPE_I8 = 0;
   static inline var DTYPE_I16 = 1;
   static inline var DTYPE_I32 = 2;
@@ -251,6 +276,8 @@ private class DescriptorBuilder {
   static inline var EXPR_SNODE_APPEND = 92;
   static inline var EXPR_SNODE_LENGTH = 93;
   static inline var EXPR_SNODE_IS_ACTIVE = 94;
+  static inline var EXPR_MESH_RELATION_SIZE = 95;
+  static inline var EXPR_MESH_RELATION_GET = 96;
   static inline var STMT_LOCAL_ALLOC = 1;
   static inline var STMT_STORE_INDEX = 2;
   static inline var STMT_RANGE_FOR = 3;
@@ -294,12 +321,18 @@ private class DescriptorBuilder {
   final paramIds:Map<String, Int> = new Map();
   final bufferViewStartParamIds:Map<String, Int> = new Map();
   final bufferViewLengthParamIds:Map<String, Int> = new Map();
+  final meshRelationSizeParamIds:Map<String, Int> = new Map();
+  final meshAttributeParamIds:Map<String, Bool> = new Map();
+  final quantScaleParamIds:Map<String, Int> = new Map();
+  final quantMinParamIds:Map<String, Int> = new Map();
+  final quantMaxParamIds:Map<String, Int> = new Map();
   final locals:Array<LocalInfo> = [];
   final scopes:Array<Map<String, Int>> = [];
   final indexVectorScopes:Array<Map<String, Array<Int>>> = [];
   final vectorScopes:Array<Map<String, VectorLocalInfo>> = [];
   final matrixScopes:Array<Map<String, MatrixLocalInfo>> = [];
   final structScopes:Array<Map<String, StructLocalInfo>> = [];
+  final structResources:Map<String, StructResourceInfo> = new Map();
   final functions:Map<String, QdFunctionInfo>;
   final kernelName:String;
   final descriptorMetadataJson:Null<String>;
@@ -312,24 +345,48 @@ private class DescriptorBuilder {
   var returnDTypes:Array<Int> = [];
   public function new(args:Array<FunctionArg>, functions:Map<String, QdFunctionInfo>, kernelName:String, ?descriptorMetadataJson:String) {
     for (arg in args) {
-      if (paramIds.exists(arg.name)) {
+      if (paramIds.exists(arg.name) || structResources.exists(arg.name)) {
         Context.error('Duplicate Quadrants kernel parameter ${arg.name}', arg.value == null ? Context.currentPos() : arg.value.pos);
       }
       var argPos = arg.value == null ? Context.currentPos() : arg.value.pos;
-      if (isBufferViewComplexType(arg.type)) {
+      var structInfo = structResourceInfo(arg.name, arg.type, argPos);
+      if (structInfo != null) {
+        structResources[arg.name] = structInfo;
+      } else if (isMeshRelationComplexType(arg.type)) {
+        paramIds[arg.name] = params.length;
+        params.push({name: arg.name, kind: PARAM_MESH_RELATION, rank: 0, dtype: DTYPE_I32, needsGrad: false, rankFromShape: false, spec: false});
+        meshRelationSizeParamIds[arg.name] = paramIds[arg.name];
+      } else if (isQuantizedF32TensorComplexType(arg.type)) {
+        paramIds[arg.name] = params.length;
+        params.push({name: arg.name, kind: PARAM_NDARRAY, rank: 1, dtype: DTYPE_I32, needsGrad: false, rankFromShape: false, spec: false});
+        var scaleParamId = params.length;
+        params.push({name: uniqueParameterName('__qd_quant_scale_${arg.name}'), kind: PARAM_SCALAR, rank: 0, dtype: DTYPE_F32, needsGrad: false, rankFromShape: false, spec: false});
+        var minParamId = params.length;
+        params.push({name: uniqueParameterName('__qd_quant_min_${arg.name}'), kind: PARAM_SCALAR, rank: 0, dtype: DTYPE_I32, needsGrad: false, rankFromShape: false, spec: false});
+        var maxParamId = params.length;
+        params.push({name: uniqueParameterName('__qd_quant_max_${arg.name}'), kind: PARAM_SCALAR, rank: 0, dtype: DTYPE_I32, needsGrad: false, rankFromShape: false, spec: false});
+        quantScaleParamIds[arg.name] = scaleParamId;
+        quantMinParamIds[arg.name] = minParamId;
+        quantMaxParamIds[arg.name] = maxParamId;
+      } else if (isBufferViewComplexType(arg.type)) {
         var dtype = bufferViewElementDType(arg.type, argPos);
         paramIds[arg.name] = params.length;
-        params.push({name: arg.name, kind: PARAM_NDARRAY, rank: 1, dtype: dtype, needsGrad: needsGradForDType(dtype), rankFromShape: false});
+        params.push({name: arg.name, kind: PARAM_NDARRAY, rank: 1, dtype: dtype, needsGrad: needsGradForDType(dtype), rankFromShape: false, spec: false});
         var startParamId = params.length;
-        params.push({name: uniqueParameterName('__qd_view_start_${arg.name}'), kind: PARAM_SCALAR, rank: 0, dtype: DTYPE_I32, needsGrad: false, rankFromShape: false});
+        params.push({name: uniqueParameterName('__qd_view_start_${arg.name}'), kind: PARAM_SCALAR, rank: 0, dtype: DTYPE_I32, needsGrad: false, rankFromShape: false, spec: false});
         var lengthParamId = params.length;
-        params.push({name: uniqueParameterName('__qd_view_length_${arg.name}'), kind: PARAM_SCALAR, rank: 0, dtype: DTYPE_I32, needsGrad: false, rankFromShape: false});
+        params.push({name: uniqueParameterName('__qd_view_length_${arg.name}'), kind: PARAM_SCALAR, rank: 0, dtype: DTYPE_I32, needsGrad: false, rankFromShape: false, spec: false});
         bufferViewStartParamIds[arg.name] = startParamId;
         bufferViewLengthParamIds[arg.name] = lengthParamId;
       } else {
         var typeInfo = parameterTypeInfo(arg.type, argPos);
         paramIds[arg.name] = params.length;
-        params.push({name: arg.name, kind: typeInfo.kind, rank: 0, dtype: typeInfo.dtype, needsGrad: typeInfo.needsGrad, rankFromShape: false});
+        params.push({name: arg.name, kind: typeInfo.kind, rank: 0, dtype: typeInfo.dtype, needsGrad: typeInfo.needsGrad, rankFromShape: false, spec: typeInfo.spec});
+        if (isMeshAttributeComplexType(arg.type)) {
+          params[params.length - 1].kind = PARAM_MESH_ATTRIBUTE;
+          params[params.length - 1].rank = 1;
+          meshAttributeParamIds[arg.name] = true;
+        }
       }
     }
     this.functions = functions;
@@ -382,6 +439,13 @@ private class DescriptorBuilder {
         intern(arg.name);
       }
     }
+    for (resourceName in structResources.keys()) {
+      var structInfo = structResources.get(resourceName);
+      intern(structInfo.structName);
+      for (fieldName in structInfo.order) {
+        intern(fieldName);
+      }
+    }
 
     var stringsSection = new ByteWriter();
     stringsSection.u32(strings.length);
@@ -395,7 +459,7 @@ private class DescriptorBuilder {
       paramsSection.u8(param.kind);
       paramsSection.u8(param.dtype);
       paramsSection.u8(param.rank);
-      paramsSection.u8(param.needsGrad ? 1 : 0);
+      paramsSection.u8((param.needsGrad ? 1 : 0) | (param.spec ? 2 : 0));
       paramsSection.u32(intern(param.name));
     }
 
@@ -425,6 +489,129 @@ private class DescriptorBuilder {
 
     var constantsSection = new ByteWriter();
     constantsSection.u32(0);
+
+    function canonicalTypeKind(param:ParamInfo):Int {
+      if (param.spec) {
+        return 1;
+      }
+      return switch (param.kind) {
+        case PARAM_SCALAR: 0;
+        case PARAM_NDARRAY: 2;
+        case PARAM_FIELD: 3;
+        case PARAM_MESH_RELATION: 6;
+        case PARAM_MESH_ATTRIBUTE: 7;
+        default: 0;
+      };
+    }
+
+    var typeEntries:Array<{id:Int, kind:Int, dtype:Int, rank:Int, flags:Int, structId:Int}> = [];
+    var paramTypeIds:Array<Int> = [];
+    var typeKeys:Map<String, Int> = new Map();
+    function ensureCanonicalType(kind:Int, dtype:Int, rank:Int, flags:Int, structId:Int):Int {
+      var key = kind + ":" + dtype + ":" + rank + ":" + flags + ":" + structId;
+      var typeId = typeKeys.get(key);
+      if (typeId == null) {
+        typeId = typeEntries.length + 1;
+        typeKeys[key] = typeId;
+        typeEntries.push({id: typeId, kind: kind, dtype: dtype, rank: rank, flags: flags, structId: structId});
+      }
+      return typeId;
+    }
+    for (param in params) {
+      var kind = canonicalTypeKind(param);
+      var flags = param.needsGrad ? 1 : 0;
+      paramTypeIds.push(ensureCanonicalType(kind, param.dtype, param.rank, flags, 0));
+    }
+
+    var structEntries = [for (name in structResources.keys()) structResources.get(name)];
+    structEntries.sort((a, b) -> Reflect.compare(a.name, b.name));
+    var structIds:Map<String, Int> = new Map();
+    for (i in 0...structEntries.length) {
+      structIds[structEntries[i].structName] = i + 1;
+    }
+    for (structInfo in structEntries) {
+      for (fieldName in structInfo.order) {
+        var member = structInfo.members.get(fieldName);
+        ensureCanonicalType(0, member.dtype, 0, 0, 0);
+      }
+    }
+
+    var canonicalTypesSection = new ByteWriter();
+    canonicalTypesSection.u32(typeEntries.length);
+    for (entry in typeEntries) {
+      canonicalTypesSection.u32(entry.id);
+      canonicalTypesSection.u8(entry.kind);
+      canonicalTypesSection.u8(entry.dtype);
+      canonicalTypesSection.u8(entry.rank);
+      canonicalTypesSection.u8(entry.flags);
+      canonicalTypesSection.u32(entry.structId);
+      canonicalTypesSection.u32(0);
+    }
+
+    var argTableSection = new ByteWriter();
+    argTableSection.u32(params.length);
+    for (index in 0...params.length) {
+      var param = params[index];
+      argTableSection.u32(index);
+      argTableSection.u32(paramTypeIds[index]);
+      argTableSection.u32(intern(param.name));
+      argTableSection.u8(param.spec ? 2 : (param.kind == PARAM_SCALAR ? 0 : 1));
+      argTableSection.u8((param.needsGrad ? 1 : 0) | (param.spec ? 2 : 0));
+      argTableSection.u8(0);
+      argTableSection.u8(0);
+    }
+
+    var resourceTableSection = new ByteWriter();
+    var resourceCount = 0;
+    for (param in params) if (param.kind == PARAM_NDARRAY || param.kind == PARAM_FIELD || param.kind == PARAM_MESH_RELATION || param.kind == PARAM_MESH_ATTRIBUTE) resourceCount++;
+    resourceTableSection.u32(resourceCount);
+    for (index in 0...params.length) {
+      var param = params[index];
+      if (param.kind != PARAM_NDARRAY && param.kind != PARAM_FIELD && param.kind != PARAM_MESH_RELATION && param.kind != PARAM_MESH_ATTRIBUTE) {
+        continue;
+      }
+      resourceTableSection.u32(index);
+      resourceTableSection.u32(paramTypeIds[index]);
+      resourceTableSection.u32(intern(param.name));
+      resourceTableSection.u8(canonicalTypeKind(param));
+      resourceTableSection.u8(param.rank);
+      resourceTableSection.u8(param.needsGrad ? 1 : 0);
+      resourceTableSection.u8(0);
+    }
+
+    var structTableSection = new ByteWriter();
+    structTableSection.u32(structEntries.length);
+    for (structInfo in structEntries) {
+      structTableSection.u32(structIds.get(structInfo.structName));
+      structTableSection.u32(intern(structInfo.structName));
+      structTableSection.u32(structInfo.sizeBytes);
+      structTableSection.u32(structInfo.alignBytes);
+      structTableSection.u32(structInfo.order.length);
+      for (fieldName in structInfo.order) {
+        var member = structInfo.members.get(fieldName);
+        structTableSection.u32(intern(fieldName));
+        structTableSection.u32(ensureCanonicalType(0, member.dtype, 0, 0, 0));
+        structTableSection.u32(member.offset);
+      }
+    }
+
+    var specTableSection = new ByteWriter();
+    var specCount = 0;
+    for (param in params) if (param.spec) specCount++;
+    specTableSection.u32(specCount);
+    for (index in 0...params.length) {
+      var param = params[index];
+      if (!param.spec) {
+        continue;
+      }
+      specTableSection.u32(index);
+      specTableSection.u32(paramTypeIds[index]);
+      specTableSection.u32(intern(param.name));
+      specTableSection.u8(param.dtype);
+      specTableSection.u8(0);
+      specTableSection.u8(0);
+      specTableSection.u8(0);
+    }
 
     var symbolsSection = new ByteWriter();
     symbolsSection.u32(paramsSection.bytes.length);
@@ -479,7 +666,7 @@ private class DescriptorBuilder {
           {
             name: param.name,
             path: param.name,
-            role: "runtime",
+            role: param.spec ? "spec" : "runtime",
             kind: param.kind,
             dtype: param.dtype,
             rank: param.rank,
@@ -500,6 +687,11 @@ private class DescriptorBuilder {
       {kind: 8, bytes: functionsSection.bytes},
       {kind: 9, bytes: kernelsSection.bytes},
       {kind: 10, bytes: attributesSection.bytes},
+      {kind: 11, bytes: canonicalTypesSection.bytes},
+      {kind: 12, bytes: resourceTableSection.bytes},
+      {kind: 13, bytes: structTableSection.bytes},
+      {kind: 14, bytes: specTableSection.bytes},
+      {kind: 15, bytes: argTableSection.bytes},
     ];
 
     var headerSize = 20;
@@ -648,6 +840,22 @@ private class DescriptorBuilder {
     var compoundCount = encodeCompoundWriteStatement(callee, args, writer, pos);
     if (compoundCount != null) {
       return compoundCount;
+    }
+    var quantWriteCount = encodeQuantWriteStatement(callee, args, writer, pos);
+    if (quantWriteCount != null) {
+      return quantWriteCount;
+    }
+    var meshAttrWrite = meshAttributeMethodTarget(callee, "write");
+    if (meshAttrWrite != null) {
+      if (args.length != 2) {
+        Context.error("Quadrants MeshAttribute.write(index, value) expects two arguments in kernels", pos);
+      }
+      writer.u8(STMT_STORE_INDEX);
+      encodeArrayBase(meshAttrWrite, writer, 1);
+      writer.u32(1);
+      encodeArrayIndices(meshAttrWrite, [args[0]], writer);
+      encodeExpression(args[1], writer);
+      return 1;
     }
     var scalarWriteTarget = tensorMethodTarget(callee, "scalarWrite");
     if (scalarWriteTarget == null && name == "scalarWrite" && args.length == 2) {
@@ -1387,6 +1595,10 @@ private class DescriptorBuilder {
       if (frexpInit != null) {
         return encodeStructDeclaration(local.name, pos, frexpInit, writer);
       }
+      var resourceLoad = structWholeAccess(local.expr);
+      if (resourceLoad != null) {
+        return encodeStructResourceLoadDeclaration(local.name, pos, resourceLoad, writer);
+      }
       var structInit = structInitializer(local.expr);
       if (structInit != null) {
         return encodeStructDeclaration(local.name, pos, structInit, writer);
@@ -1556,8 +1768,39 @@ private class DescriptorBuilder {
     return true;
   }
 
+  function encodeStructResourceLoadDeclaration(name:String,
+      pos:Position,
+      access:{resource:StructResourceInfo, indices:Array<Expr>},
+      writer:ByteWriter):Int {
+    if (paramIds.exists(name) || structResources.exists(name)) {
+      Context.error('Quadrants struct local ${name} shadows a kernel parameter', pos);
+    }
+    if (currentScope().exists(name) || currentVectorScope().exists(name) || currentMatrixScope().exists(name) || currentStructScope().exists(name)) {
+      Context.error('Duplicate Quadrants local variable ${name}', pos);
+    }
+    var structFields = new Map<String, StructFieldInfo>();
+    var fieldOrder:Array<String> = [];
+    var count = 0;
+    for (fieldName in access.resource.order) {
+      var member = access.resource.members.get(fieldName);
+      if (member.lanes != 1) {
+        Context.error("Quadrants whole-struct vector/matrix member load currently requires explicit scalar lane lowering", pos);
+      }
+      var localId = declareLocal(uniqueLocalName('__qd_struct_${name}_${fieldName}'), pos, true, member.dtype);
+      structFields[fieldName] = {localId: localId, dtype: member.dtype};
+      fieldOrder.push(fieldName);
+      writer.u8(STMT_ASSIGN);
+      writer.u8(EXPR_LOCAL_LOAD);
+      writer.u32(localId);
+      encodeStructMemberLoad({resource: access.resource, member: member, indices: access.indices}, writer, pos);
+      count++;
+    }
+    currentStructScope()[name] = {fields: structFields, order: fieldOrder};
+    return count;
+  }
+
   function encodeStructDeclaration(name:String, pos:Position, fields:Array<{name:String, value:Expr, dtype:Int}>, writer:ByteWriter):Int {
-    if (paramIds.exists(name)) {
+    if (paramIds.exists(name) || structResources.exists(name)) {
       Context.error('Quadrants struct local ${name} shadows a kernel parameter', pos);
     }
     if (currentScope().exists(name) || currentVectorScope().exists(name) || currentMatrixScope().exists(name) || currentStructScope().exists(name)) {
@@ -2478,7 +2721,21 @@ private class DescriptorBuilder {
     }
     switch (strip(lhs).expr) {
       case EArray(_, _):
-        var matrixLocalId = matrixElementLocalId(lhs);
+        var wholeAccess = structWholeAccess(lhs);
+        var sourceStruct = directStructName(valueExpr);
+        if (wholeAccess != null && sourceStruct != null) {
+          var source = lookupStruct(sourceStruct);
+          for (fieldName in wholeAccess.resource.order) {
+            var member = wholeAccess.resource.members.get(fieldName);
+            var sourceField = source.fields.get(fieldName);
+            if (sourceField == null) {
+              Context.error('Quadrants struct ${sourceStruct} has no field ${fieldName}', pos);
+            }
+            encodeStructMemberStore({resource: wholeAccess.resource, member: member, indices: wholeAccess.indices}, localLoadExpr(sourceField.localId), writer, pos);
+          }
+          extraCount += wholeAccess.resource.order.length - 1;
+        } else {
+          var matrixLocalId = matrixElementLocalId(lhs);
         if (matrixLocalId != null) {
           writer.u8(STMT_ASSIGN);
           writer.u8(EXPR_LOCAL_LOAD);
@@ -2500,6 +2757,7 @@ private class DescriptorBuilder {
             encodeExpression(valueExpr, writer);
           }
         }
+      }
       case EConst(CIdent(name)):
         var localId = ensureLocalForAssignment(name, lhs.pos);
         writer.u8(STMT_ASSIGN);
@@ -2507,17 +2765,22 @@ private class DescriptorBuilder {
         writer.u32(localId);
         encodeExpressionWithExpectedDType(valueExpr, locals[localId].dtype, writer);
       case EField(_, _):
-        var fieldLocalId = vectorComponentLocalId(lhs);
-        if (fieldLocalId == null) {
-          fieldLocalId = structFieldLocalId(lhs);
+        var memberAccess = structMemberAccess(lhs);
+        if (memberAccess != null) {
+          encodeStructMemberStore(memberAccess, valueExpr, writer, pos);
+        } else {
+          var fieldLocalId = vectorComponentLocalId(lhs);
+          if (fieldLocalId == null) {
+            fieldLocalId = structFieldLocalId(lhs);
+          }
+          if (fieldLocalId == null) {
+            Context.error("Quadrants HashLink only supports ndarray element, vector component, matrix element, struct field, or local variable assignments", pos);
+          }
+          writer.u8(STMT_ASSIGN);
+          writer.u8(EXPR_LOCAL_LOAD);
+          writer.u32(fieldLocalId);
+          encodeExpressionWithExpectedDType(valueExpr, locals[fieldLocalId].dtype, writer);
         }
-        if (fieldLocalId == null) {
-          Context.error("Quadrants HashLink only supports ndarray element, vector component, matrix element, struct field, or local variable assignments", pos);
-        }
-        writer.u8(STMT_ASSIGN);
-        writer.u8(EXPR_LOCAL_LOAD);
-        writer.u32(fieldLocalId);
-        encodeExpressionWithExpectedDType(valueExpr, locals[fieldLocalId].dtype, writer);
       default:
         Context.error("Quadrants HashLink only supports ndarray element, vector component, matrix element, struct field, or local variable assignments", pos);
     }
@@ -2597,7 +2860,10 @@ private class DescriptorBuilder {
         writer.u8(unaryOpcode(op, expr.pos));
         encodeExpression(operand, writer);
       case EField(_, _):
-        if (!encodeFrexpFieldAccess(expr, writer) && !encodeVectorAccess(expr, writer) && !encodeStructFieldAccess(expr, writer)) {
+        var structMember = structMemberAccess(expr);
+        if (structMember != null) {
+          encodeStructMemberLoad(structMember, writer, expr.pos);
+        } else if (!encodeFrexpFieldAccess(expr, writer) && !encodeVectorAccess(expr, writer) && !encodeStructFieldAccess(expr, writer)) {
           Context.error("Unsupported Quadrants HashLink kernel expression: " + new haxe.macro.Printer().printExpr(expr), expr.pos);
         }
       case ECall(callee, args):
@@ -2643,7 +2909,7 @@ private class DescriptorBuilder {
         if (paramId == null) {
           Context.error('Quadrants ndarray ${name} is not a kernel parameter', expr.pos);
         }
-        if (params[paramId].kind == PARAM_FIELD) {
+        if (params[paramId].kind == PARAM_FIELD || params[paramId].kind == PARAM_MESH_ATTRIBUTE) {
           markParamField(paramId, rank, expr.pos);
         } else {
           markParamNdarray(paramId, rank, expr.pos);
@@ -2671,6 +2937,88 @@ private class DescriptorBuilder {
       }
     }
     throw "unreachable";
+  }
+
+  function structWholeAccess(expression:Expr):Null<{resource:StructResourceInfo, indices:Array<Expr>}> {
+    var expr = stripNoCasts(expression);
+    return switch (expr.expr) {
+      case EArray(_, _):
+        var access = collectArrayAccess(expr);
+        switch (stripNoCasts(access.base).expr) {
+          case EConst(CIdent(name)):
+            var resource = structResources.get(name);
+            resource == null ? null : {resource: resource, indices: access.indices};
+          default:
+            null;
+        }
+      default:
+        null;
+    };
+  }
+
+  function structMemberAccess(expression:Expr):Null<{resource:StructResourceInfo, member:StructResourceMemberInfo, indices:Array<Expr>}> {
+    var segments:Array<String> = [];
+    var current = stripNoCasts(expression);
+    while (true) {
+      switch (current.expr) {
+        case EField(base, field):
+          segments.unshift(field);
+          current = stripNoCasts(base);
+        default:
+          var whole = structWholeAccess(current);
+          if (whole == null || segments.length == 0) {
+            return null;
+          }
+          var fieldPath = segments.join(".");
+          var member = whole.resource.members.get(fieldPath);
+          if (member == null) {
+            Context.error('Quadrants struct ${whole.resource.structName} has no field ${fieldPath}', expression.pos);
+          }
+          return {resource: whole.resource, member: member, indices: whole.indices};
+      }
+    }
+    return null;
+  }
+
+  function encodeStructMemberLoad(access:{resource:StructResourceInfo, member:StructResourceMemberInfo, indices:Array<Expr>}, writer:ByteWriter, pos:Position):Void {
+    var rank = access.indices.length + (access.member.laneIndex >= 0 ? 1 : 0);
+    if (access.resource.kind == PARAM_FIELD) {
+      markParamField(access.member.paramId, rank, pos);
+    } else {
+      markParamNdarray(access.member.paramId, rank, pos);
+    }
+    writer.u8(EXPR_LOAD_INDEX);
+    writer.u8(EXPR_ARG_LOAD);
+    writer.u32(access.member.paramId);
+    writer.u32(rank);
+    for (index in access.indices) {
+      encodeExpression(index, writer);
+    }
+    if (access.member.laneIndex >= 0) {
+      writer.u8(EXPR_CONST_I32);
+      writer.i32(access.member.laneIndex);
+    }
+  }
+
+  function encodeStructMemberStore(access:{resource:StructResourceInfo, member:StructResourceMemberInfo, indices:Array<Expr>}, value:Expr, writer:ByteWriter, pos:Position):Void {
+    var rank = access.indices.length + (access.member.laneIndex >= 0 ? 1 : 0);
+    if (access.resource.kind == PARAM_FIELD) {
+      markParamField(access.member.paramId, rank, pos);
+    } else {
+      markParamNdarray(access.member.paramId, rank, pos);
+    }
+    writer.u8(STMT_STORE_INDEX);
+    writer.u8(EXPR_ARG_LOAD);
+    writer.u32(access.member.paramId);
+    writer.u32(rank);
+    for (index in access.indices) {
+      encodeExpression(index, writer);
+    }
+    if (access.member.laneIndex >= 0) {
+      writer.u8(EXPR_CONST_I32);
+      writer.i32(access.member.laneIndex);
+    }
+    encodeExpressionWithExpectedDType(value, access.member.dtype, writer);
   }
 
   function directIdentifier(expression:Expr):Null<String> {
@@ -2914,6 +3262,25 @@ private class DescriptorBuilder {
       encodeExpression(args[0], writer);
       return;
     }
+    var quantReadEncoded = encodeQuantReadExpressionCall(callee, args, writer, pos);
+    if (quantReadEncoded) {
+      return;
+    }
+    var meshRelationEncoded = encodeMeshRelationExpressionCall(callee, args, writer, pos);
+    if (meshRelationEncoded) {
+      return;
+    }
+    var meshAttrRead = meshAttributeMethodTarget(callee, "read");
+    if (meshAttrRead != null) {
+      if (args.length != 1) {
+        Context.error("Quadrants MeshAttribute.read(index) expects one argument in kernels", pos);
+      }
+      writer.u8(EXPR_LOAD_INDEX);
+      encodeArrayBase(meshAttrRead, writer, 1);
+      writer.u32(1);
+      encodeArrayIndices(meshAttrRead, [args[0]], writer);
+      return;
+    }
     var internalOpcode = internalExpressionOpcode(path);
     var scalarReadBase = tensorMethodTarget(callee, "scalarRead");
     if (scalarReadBase == null && name == "scalarRead" && args.length == 1) {
@@ -3036,6 +3403,149 @@ private class DescriptorBuilder {
       return;
     }
     Context.error('Unsupported Quadrants HashLink function call ${name}', pos);
+  }
+
+  function quantMethodTarget(callee:Expr, method:String):Null<String> {
+    return switch (strip(callee).expr) {
+      case EField(base, field) if (field == method):
+        switch (stripNoCasts(base).expr) {
+          case EConst(CIdent(name)) if (quantScaleParamIds.exists(name)): name;
+          default: null;
+        }
+      default:
+        null;
+    };
+  }
+
+  function encodeQuantReadExpressionCall(callee:Expr, args:Array<Expr>, writer:ByteWriter, pos:Position):Bool {
+    var name = quantMethodTarget(callee, "read");
+    if (name == null) {
+      return false;
+    }
+    if (args.length != 1) {
+      Context.error("Quadrants QuantizedF32Tensor.read(index) expects one argument in kernels", pos);
+    }
+    writer.u8(EXPR_BINARY_DIV);
+    writer.u8(EXPR_CAST);
+    writer.u8(DTYPE_F32);
+    writer.u8(EXPR_LOAD_INDEX);
+    writer.u8(EXPR_ARG_LOAD);
+    writer.u32(paramIds.get(name));
+    writer.u32(1);
+    encodeExpression(args[0], writer);
+    writer.u8(EXPR_ARG_LOAD);
+    writer.u32(quantScaleParamIds.get(name));
+    return true;
+  }
+
+  function encodeQuantWriteStatement(callee:Expr, args:Array<Expr>, writer:ByteWriter, pos:Position):Null<Int> {
+    var name = quantMethodTarget(callee, "write");
+    if (name == null) {
+      return null;
+    }
+    if (args.length != 2) {
+      Context.error("Quadrants QuantizedF32Tensor.write(index, value) expects two arguments in kernels", pos);
+    }
+    writer.u8(STMT_STORE_INDEX);
+    writer.u8(EXPR_ARG_LOAD);
+    writer.u32(paramIds.get(name));
+    writer.u32(1);
+    encodeExpression(args[0], writer);
+    writer.u8(EXPR_CAST);
+    writer.u8(DTYPE_I32);
+    writer.u8(EXPR_MIN);
+    writer.u8(EXPR_MAX);
+    writer.u8(EXPR_ROUND);
+    writer.u8(EXPR_BINARY_MUL);
+    encodeExpressionWithExpectedDType(args[1], DTYPE_F32, writer);
+    writer.u8(EXPR_ARG_LOAD);
+    writer.u32(quantScaleParamIds.get(name));
+    writer.u8(EXPR_CAST);
+    writer.u8(DTYPE_F32);
+    writer.u8(EXPR_ARG_LOAD);
+    writer.u32(quantMinParamIds.get(name));
+    writer.u8(EXPR_CAST);
+    writer.u8(DTYPE_F32);
+    writer.u8(EXPR_ARG_LOAD);
+    writer.u32(quantMaxParamIds.get(name));
+    return 1;
+  }
+
+  function meshAttributeMethodTarget(callee:Expr, method:String):Null<Expr> {
+    return switch (strip(callee).expr) {
+      case EField(base, field) if (field == method):
+        switch (stripNoCasts(base).expr) {
+          case EConst(CIdent(name)) if (meshAttributeParamIds.exists(name)):
+            base;
+          default:
+            null;
+        }
+      default:
+        null;
+    };
+  }
+
+  function meshRelationCallDType(callee:Expr, args:Array<Expr>, pos:Position):Null<Int> {
+    return switch (strip(callee).expr) {
+      case EField(base, "get"):
+        switch (stripNoCasts(base).expr) {
+          case EConst(CIdent(name)) if (meshRelationSizeParamIds.exists(name)):
+            if (args.length != 2) {
+              Context.error("Quadrants MeshRelation.get(source, neighborIndex) expects two integer arguments in kernels", pos);
+            }
+            DTYPE_I32;
+          default:
+            null;
+        }
+      case EField(base, "size"):
+        switch (stripNoCasts(base).expr) {
+          case EConst(CIdent(name)) if (meshRelationSizeParamIds.exists(name)):
+            if (args.length != 1) {
+              Context.error("Quadrants MeshRelation.size(source) expects one integer argument in kernels", pos);
+            }
+            DTYPE_I32;
+          default:
+            null;
+        }
+      default:
+        null;
+    };
+  }
+
+  function encodeMeshRelationExpressionCall(callee:Expr, args:Array<Expr>, writer:ByteWriter, pos:Position):Bool {
+    return switch (strip(callee).expr) {
+      case EField(base, "get"):
+        switch (stripNoCasts(base).expr) {
+          case EConst(CIdent(name)) if (meshRelationSizeParamIds.exists(name)):
+            if (args.length != 2) {
+              Context.error("Quadrants MeshRelation.get(source, neighborIndex) expects two integer arguments in kernels", pos);
+            }
+            var paramId = paramIds.get(name);
+            writer.u8(EXPR_MESH_RELATION_GET);
+            writer.u32(paramId);
+            encodeExpression(args[0], writer);
+            encodeExpression(args[1], writer);
+            true;
+          default:
+            false;
+        }
+      case EField(base, "size"):
+        switch (stripNoCasts(base).expr) {
+          case EConst(CIdent(name)) if (meshRelationSizeParamIds.exists(name)):
+            if (args.length != 1) {
+              Context.error("Quadrants MeshRelation.size(source) expects one integer argument in kernels", pos);
+            }
+            var paramId = paramIds.get(name);
+            writer.u8(EXPR_MESH_RELATION_SIZE);
+            writer.u32(paramId);
+            encodeExpression(args[0], writer);
+            true;
+          default:
+            false;
+        }
+      default:
+        false;
+    };
   }
 
   function encodeAssumeInRangeCall(args:Array<Expr>, writer:ByteWriter, pos:Position):Void {
@@ -3786,8 +4296,8 @@ private class DescriptorBuilder {
     if (param.kind == PARAM_NDARRAY) {
       Context.error('Quadrants parameter ${param.name} is used as both ndarray and scalar', pos);
     }
-    if (param.kind == PARAM_FIELD) {
-      Context.error('Quadrants parameter ${param.name} is used as both field and scalar', pos);
+    if (param.kind == PARAM_FIELD || param.kind == PARAM_MESH_ATTRIBUTE || param.kind == PARAM_MESH_RELATION) {
+      Context.error('Quadrants parameter ${param.name} is used as both resource and scalar', pos);
     }
     param.kind = PARAM_SCALAR;
     param.rank = 0;
@@ -3796,8 +4306,8 @@ private class DescriptorBuilder {
 
   function markParamNdarray(paramId:Int, rank:Int, pos:Position):Void {
     var param = params[paramId];
-    if (param.kind == PARAM_FIELD) {
-      Context.error('Quadrants Field parameter ${param.name} cannot be used as a Tensor ndarray', pos);
+    if (param.kind == PARAM_FIELD || param.kind == PARAM_MESH_ATTRIBUTE || param.kind == PARAM_MESH_RELATION) {
+      Context.error('Quadrants Field or mesh resource parameter ${param.name} cannot be used as a Tensor ndarray', pos);
     }
     if (param.kind == PARAM_SCALAR) {
       Context.error('Quadrants parameter ${param.name} is used as both scalar and ndarray', pos);
@@ -3821,10 +4331,13 @@ private class DescriptorBuilder {
     if (param.kind == PARAM_NDARRAY) {
       Context.error('Quadrants Tensor parameter ${param.name} cannot be used as a Field SNode', pos);
     }
+    if (param.kind == PARAM_MESH_RELATION) {
+      Context.error('Quadrants MeshRelation parameter ${param.name} cannot be used as a Field SNode', pos);
+    }
     if (param.kind == PARAM_SCALAR) {
       Context.error('Quadrants parameter ${param.name} is used as both scalar and field', pos);
     }
-    if (param.kind == PARAM_FIELD && param.rank != 0 && param.rank != rank) {
+    if ((param.kind == PARAM_FIELD || param.kind == PARAM_MESH_ATTRIBUTE) && param.rank != 0 && param.rank != rank) {
       if (!param.rankFromShape) {
         Context.error('Quadrants field parameter ${param.name} is used with inconsistent rank', pos);
       }
@@ -3832,7 +4345,9 @@ private class DescriptorBuilder {
         Context.error('Quadrants field parameter ${param.name} is used with inconsistent rank', pos);
       }
     }
-    param.kind = PARAM_FIELD;
+    if (param.kind != PARAM_MESH_ATTRIBUTE) {
+      param.kind = PARAM_FIELD;
+    }
     param.rank = rank;
     param.needsGrad = needsGradForDType(param.dtype);
     param.rankFromShape = false;
@@ -3966,6 +4481,17 @@ private class DescriptorBuilder {
       case ETernary(_, ifExpr, elseExpr):
         promoteDType(inferExpressionDType(ifExpr), inferExpressionDType(elseExpr));
       case ECall(callee, args):
+        var meshRelationDType = meshRelationCallDType(callee, args, expr.pos);
+        if (quantMethodTarget(callee, "read") != null) {
+          DTYPE_F32;
+        } else if (meshRelationDType != null) {
+          meshRelationDType;
+        } else {
+        var meshAttrRead = meshAttributeMethodTarget(callee, "read");
+        if (meshAttrRead != null) {
+          var attrName = directIdentifier(meshAttrRead);
+          params[paramIds.get(attrName)].dtype;
+        } else {
         var readDType = tensorReadDType(callee);
         if (readDType != null) {
           readDType;
@@ -4022,11 +4548,17 @@ private class DescriptorBuilder {
             }
           }
         }
+        }
+        }
       case EField(base, field):
-        var frexpDType = frexpFieldAccessDType(expr);
-        if (frexpDType != null) {
-          frexpDType;
+        var memberAccess = structMemberAccess(expr);
+        if (memberAccess != null) {
+          memberAccess.member.dtype;
         } else {
+          var frexpDType = frexpFieldAccessDType(expr);
+          if (frexpDType != null) {
+            frexpDType;
+          } else {
           var vectorName = directVectorName(base);
           if (vectorName != null) {
             var vector = lookupVector(vectorName);
@@ -4040,6 +4572,7 @@ private class DescriptorBuilder {
             structDType == null ? DTYPE_I32 : structDType;
           }
         }
+      }
       default:
         DTYPE_I32;
     };
@@ -4282,25 +4815,28 @@ private class DescriptorBuilder {
     return dtype == DTYPE_F16 || dtype == DTYPE_F32 || dtype == DTYPE_F64;
   }
 
-  function parameterTypeInfo(type:Null<ComplexType>, pos:Position):{kind:Int, dtype:Int, needsGrad:Bool} {
+  function parameterTypeInfo(type:Null<ComplexType>, pos:Position):{kind:Int, dtype:Int, needsGrad:Bool, spec:Bool} {
     if (type == null) {
-      return {kind: PARAM_UNKNOWN, dtype: DTYPE_I32, needsGrad: false};
+      return {kind: PARAM_UNKNOWN, dtype: DTYPE_I32, needsGrad: false, spec: false};
     }
     return switch (type) {
       case TPath(path) if (isFieldPath(path)):
         var dtype = tensorElementDType(path, pos);
-        {kind: PARAM_FIELD, dtype: dtype, needsGrad: needsGradForDType(dtype)};
+        {kind: PARAM_FIELD, dtype: dtype, needsGrad: needsGradForDType(dtype), spec: false};
       case TPath(path) if (isTensorPath(path)):
         var dtype = tensorElementDType(path, pos);
-        {kind: PARAM_NDARRAY, dtype: dtype, needsGrad: needsGradForDType(dtype)};
+        {kind: PARAM_NDARRAY, dtype: dtype, needsGrad: needsGradForDType(dtype), spec: false};
       case TPath(path) if (isSpecPath(path)):
-        {kind: PARAM_SCALAR, dtype: specElementDType(path, pos), needsGrad: false};
+        {kind: PARAM_SCALAR, dtype: specElementDType(path, pos), needsGrad: false, spec: true};
+      case TPath(path) if (isMeshAttributePath(path)):
+        var dtype = meshAttributeValueDType(path, pos);
+        {kind: PARAM_MESH_ATTRIBUTE, dtype: dtype, needsGrad: needsGradForDType(dtype), spec: false};
       case TPath(path) if (isQuantKernelParameterPath(path)):
         Context.error("Quadrants HashLink native quant kernel parameters require descriptor quant type metadata, which is not supported by this backend", pos);
       case TPath(path) if (isMeshKernelParameterPath(path)):
-        Context.error("Quadrants HashLink kernel mesh relation/attribute access requires descriptor mesh resource metadata, which is not supported by this backend", pos);
+        Context.error("Quadrants HashLink kernel mesh domain/element parameters require descriptor mesh resource metadata; pass MeshRelation or MeshAttribute resources instead", pos);
       default:
-        {kind: PARAM_SCALAR, dtype: dtypeFromComplexType(type, pos), needsGrad: false};
+        {kind: PARAM_SCALAR, dtype: dtypeFromComplexType(type, pos), needsGrad: false, spec: false};
     }
   }
 
@@ -4344,21 +4880,269 @@ private class DescriptorBuilder {
     return null;
   }
 
+  function isQuantizedF32TensorPath(path:TypePath):Bool {
+    var fullName = typePathName(path);
+    return fullName == "QuantizedF32Tensor" || fullName == "quadrants.quant.QuantizedF32Tensor";
+  }
+
+  function isQuantizedF32TensorComplexType(type:Null<ComplexType>):Bool {
+    return switch (type) {
+      case TPath(path): isQuantizedF32TensorPath(path);
+      default: false;
+    };
+  }
+
   function isQuantKernelParameterPath(path:TypePath):Bool {
     var fullName = typePathName(path);
-    return fullName == "QuantizedF32Tensor" || fullName == "quadrants.quant.QuantizedF32Tensor"
-      || fullName == "QuantStorageSpec" || fullName == "quadrants.quant.QuantStorageSpec"
+    return fullName == "QuantStorageSpec" || fullName == "quadrants.quant.QuantStorageSpec"
       || fullName == "QuantInt" || fullName == "quadrants.quant.QuantInt"
       || fullName == "QuantFixed" || fullName == "quadrants.quant.QuantFixed"
       || fullName == "QuantFloat" || fullName == "quadrants.quant.QuantFloat";
   }
 
+  function isMeshRelationPath(path:TypePath):Bool {
+    var fullName = typePathName(path);
+    return fullName == "MeshRelation" || fullName == "quadrants.mesh.MeshRelation";
+  }
+
+  function isMeshAttributePath(path:TypePath):Bool {
+    var fullName = typePathName(path);
+    return fullName == "MeshAttribute" || fullName == "quadrants.mesh.MeshAttribute";
+  }
+
+  function isMeshRelationComplexType(type:Null<ComplexType>):Bool {
+    return switch (type) {
+      case TPath(path): isMeshRelationPath(path);
+      default: false;
+    };
+  }
+
+  function isMeshAttributeComplexType(type:Null<ComplexType>):Bool {
+    return switch (type) {
+      case TPath(path): isMeshAttributePath(path);
+      default: false;
+    };
+  }
+
+  function meshAttributeValueDType(path:TypePath, pos:Position):Int {
+    if (path.params == null || path.params.length != 2) {
+      Context.error("Quadrants MeshAttribute<Element, Value> requires element and value type parameters", pos);
+    }
+    return switch (path.params[1]) {
+      case TPType(type): dtypeFromComplexType(type, pos, DTYPE_F32);
+      default: Context.error("Quadrants MeshAttribute value parameter must be a dtype type", pos);
+    };
+  }
+
   function isMeshKernelParameterPath(path:TypePath):Bool {
     var fullName = typePathName(path);
-    return fullName == "MeshRelation" || fullName == "quadrants.mesh.MeshRelation"
-      || fullName == "MeshAttribute" || fullName == "quadrants.mesh.MeshAttribute"
-      || fullName == "MeshDomain" || fullName == "quadrants.mesh.MeshDomain"
+    return fullName == "MeshDomain" || fullName == "quadrants.mesh.MeshDomain"
       || fullName == "MeshElement" || fullName == "quadrants.mesh.MeshElement";
+  }
+
+  function structResourceInfo(name:String, type:Null<ComplexType>, pos:Position):Null<StructResourceInfo> {
+    var kind = switch (type) {
+      case TPath(path) if (isStructTensorPath(path)): PARAM_NDARRAY;
+      case TPath(path) if (isStructFieldPath(path)): PARAM_FIELD;
+      default: return null;
+    };
+    var structType = structResourceElementType(type, pos);
+    var classRef = switch (Context.followWithAbstracts(structType)) {
+      case TInst(ref, _): ref;
+      default: Context.error("Quadrants StructTensor/StructField element type must be a QdStruct class", pos);
+    };
+    var cls = classRef.get();
+    if (cls.meta.extract(":qdStruct").length == 0 && cls.meta.extract("qdStruct").length == 0) {
+      Context.error('StructTensor/StructField element type ${cls.name} must use @:build(quadrants.macro.QdStruct.build())', pos);
+    }
+    var members = new Map<String, StructResourceMemberInfo>();
+    var order:Array<String> = [];
+    var sizeBytes = 0;
+    var alignBytes = 1;
+    var structName = (cls.pack.length == 0 ? "" : cls.pack.join(".") + ".") + cls.name;
+    var layout = collectStructResourceMembers(cls, name, "", kind, 0, members, order, pos);
+    sizeBytes = layout.offset;
+    alignBytes = layout.align;
+    if (order.length == 0) {
+      Context.error('Quadrants QdStruct ${structName} has no kernel-visible fields', pos);
+    }
+    sizeBytes = alignToInt(sizeBytes, alignBytes);
+    return {name: name, structName: structName, kind: kind, sizeBytes: sizeBytes, alignBytes: alignBytes, members: members, order: order};
+  }
+
+  function isStructTensorPath(path:TypePath):Bool {
+    var fullName = typePathName(path);
+    return fullName == "StructTensor" || fullName == "quadrants.StructTensor";
+  }
+
+  function isStructFieldPath(path:TypePath):Bool {
+    var fullName = typePathName(path);
+    return fullName == "StructField" || fullName == "quadrants.StructField";
+  }
+
+  function structResourceElementType(type:Null<ComplexType>, pos:Position):Type {
+    return switch (type) {
+      case TPath(path) if ((isStructTensorPath(path) || isStructFieldPath(path)) && path.params != null && path.params.length == 1):
+        switch (path.params[0]) {
+          case TPType(elementType): Context.resolveType(elementType, pos);
+          default: Context.error("Quadrants StructTensor/StructField type parameter must be a QdStruct type", pos);
+        }
+      default:
+        Context.error("Quadrants StructTensor/StructField parameter requires exactly one QdStruct type parameter", pos);
+    };
+  }
+
+  function collectStructResourceMembers(cls:ClassType,
+      rootName:String,
+      prefix:String,
+      kind:Int,
+      offset:Int,
+      members:Map<String, StructResourceMemberInfo>,
+      order:Array<String>,
+      pos:Position):{offset:Int, align:Int} {
+    var currentOffset = offset;
+    var maxAlign = 1;
+    for (field in cls.fields.get()) {
+      if (!field.isPublic) {
+        continue;
+      }
+      var fieldType = TypeTools.toComplexType(field.type);
+      var nested = nestedQdStructClass(fieldType, pos);
+      if (nested != null) {
+        var nestedLayout = collectStructResourceMembers(nested, rootName, prefix + field.name + ".", kind, currentOffset, members, order, pos);
+        currentOffset = nestedLayout.offset;
+        if (nestedLayout.align > maxAlign) maxAlign = nestedLayout.align;
+        continue;
+      }
+      var fieldPath = prefix + field.name;
+      var classified = qdStructMemberInfo(fieldPath, fieldType, pos, currentOffset);
+      currentOffset = classified.offset + classified.size;
+      if (classified.align > maxAlign) {
+        maxAlign = classified.align;
+      }
+      var paramName = uniqueParameterName(rootName + "." + fieldPath);
+      var paramId = params.length;
+      params.push({name: paramName, kind: kind, rank: 0, dtype: classified.dtype, needsGrad: needsGradForDType(classified.dtype), rankFromShape: false, spec: false});
+      if (classified.lanes == 1) {
+        members[fieldPath] = {
+          name: fieldPath,
+          paramId: paramId,
+          dtype: classified.dtype,
+          lanes: 1,
+          laneIndex: -1,
+          offset: classified.offset,
+          align: classified.align,
+          size: classified.size,
+        };
+        order.push(fieldPath);
+      } else {
+        for (lane in 0...classified.lanes) {
+          var laneName = fieldPath + "." + laneSuffix(fieldType, lane);
+          members[laneName] = {
+            name: laneName,
+            paramId: paramId,
+            dtype: classified.dtype,
+            lanes: 1,
+            laneIndex: lane,
+            offset: classified.offset + lane * dtypeByteSizeForDescriptor(classified.dtype),
+            align: classified.align,
+            size: dtypeByteSizeForDescriptor(classified.dtype),
+          };
+          order.push(laneName);
+        }
+      }
+    }
+    return {offset: currentOffset, align: maxAlign};
+  }
+
+  function nestedQdStructClass(type:ComplexType, pos:Position):Null<ClassType> {
+    return switch (Context.followWithAbstracts(Context.resolveType(type, pos))) {
+      case TInst(classRef, _):
+        var cls = classRef.get();
+        cls.meta.extract(":qdStruct").length > 0 || cls.meta.extract("qdStruct").length > 0 ? cls : null;
+      default:
+        null;
+    };
+  }
+
+  function laneSuffix(type:ComplexType, lane:Int):String {
+    return switch (type) {
+      case TPath(path) if (isVectorTypePath(path)):
+        switch (lane) {
+          case 0: "x";
+          case 1: "y";
+          case 2: "z";
+          case 3: "w";
+          default: Std.string(lane);
+        }
+      case TPath(path) if (isMatrixTypePath(path)):
+        var rows = matrixRowsForTypeName(path.name);
+        "m" + Std.string(Std.int(lane / rows)) + Std.string(lane % rows);
+      default:
+        Std.string(lane);
+    };
+  }
+
+  function qdStructMemberInfo(name:String, type:ComplexType, pos:Position, nextOffset:Int):{dtype:Int, lanes:Int, offset:Int, align:Int, size:Int} {
+    var lanes = 1;
+    var dtype = switch (type) {
+      case TPath(path) if (isVectorTypePath(path)):
+        lanes = vectorLanesForTypeName(path.name);
+        dtypeFromTypeParam(path, pos);
+      case TPath(path) if (isMatrixTypePath(path)):
+        lanes = matrixRowsForTypeName(path.name) * matrixRowsForTypeName(path.name);
+        dtypeFromTypeParam(path, pos);
+      default:
+        dtypeFromComplexType(type, pos, DTYPE_F32);
+    };
+    var bytes = dtypeByteSizeForDescriptor(dtype);
+    var align = bytes;
+    var size = bytes * lanes;
+    var offset = alignToInt(nextOffset, align);
+    return {dtype: dtype, lanes: lanes, offset: offset, align: align, size: size};
+  }
+
+  function dtypeFromTypeParam(path:TypePath, pos:Position):Int {
+    if (path.params == null || path.params.length == 0) {
+      return DTYPE_F32;
+    }
+    if (path.params.length != 1) {
+      Context.error('Quadrants ${path.name} QdStruct member requires zero or one dtype type parameter', pos);
+    }
+    return switch (path.params[0]) {
+      case TPType(type): dtypeFromComplexType(type, pos, DTYPE_F32);
+      default: Context.error('Quadrants ${path.name} QdStruct member type parameter must be a dtype type', pos);
+    };
+  }
+
+  function isVectorTypePath(path:TypePath):Bool {
+    return path.name == "Vec2" || path.name == "Vec3" || path.name == "Vec4";
+  }
+
+  function isMatrixTypePath(path:TypePath):Bool {
+    return path.name == "Mat2" || path.name == "Mat3" || path.name == "Mat4";
+  }
+
+  function vectorLanesForTypeName(name:String):Int {
+    return name == "Vec2" ? 2 : name == "Vec3" ? 3 : name == "Vec4" ? 4 : 1;
+  }
+
+  function matrixRowsForTypeName(name:String):Int {
+    return name == "Mat2" ? 2 : name == "Mat3" ? 3 : name == "Mat4" ? 4 : 1;
+  }
+
+  function dtypeByteSizeForDescriptor(dtype:Int):Int {
+    return switch (dtype) {
+      case DTYPE_I8 | DTYPE_U8 | DTYPE_U1: 1;
+      case DTYPE_I16 | DTYPE_U16 | DTYPE_F16: 2;
+      case DTYPE_I32 | DTYPE_U32 | DTYPE_F32: 4;
+      case DTYPE_I64 | DTYPE_U64 | DTYPE_F64: 8;
+      default: 4;
+    };
+  }
+
+  function alignToInt(value:Int, align:Int):Int {
+    return align <= 1 ? value : Std.int((value + align - 1) / align) * align;
   }
 
   function isBufferViewComplexType(type:Null<ComplexType>):Bool {
@@ -4387,7 +5171,7 @@ private class DescriptorBuilder {
       Context.error("Quadrants Spec<T> requires exactly one type parameter", pos);
     }
     return switch (path.params[0]) {
-      case TPType(type): dtypeFromComplexType(type, pos, DTYPE_I32);
+      case TPType(type): dtypeFromComplexType(type, pos);
       default: Context.error("Quadrants Spec<T> type parameter must be a type", pos);
     };
   }

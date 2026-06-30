@@ -92,9 +92,9 @@ class TypedKernelBuild {
     var schemaExpr = isVoid ? null : schemaExprForComplexType(returnType, pos);
     if (isVoid) {
       var execExpr = if (useStream) {
-        macro raw.launchOnDynamic(stream, __qd_buf.toArray());
+        macro raw.launchOnBuffer(stream, __qd_buf);
       } else if (useGraph) {
-        macro raw.launchGraphDynamic(__qd_buf.toArray());
+        macro raw.launchGraphBuffer(__qd_buf);
       } else {
         macro raw.launchBuffer(__qd_buf);
       };
@@ -128,7 +128,7 @@ class TypedKernelBuild {
       return macro {
         var __qd_buf = quadrants.kernel.ArgBuffer.acquire();
         $b{appendStatements};
-        var __qd_result:$returnType = quadrants.Struct.decodeSchema($e{schemaExpr}, raw.launchRetsDynamic(__qd_buf.toArray()));
+        var __qd_result:$returnType = quadrants.Struct.decodeSchema($e{schemaExpr}, raw.launchRetsBuffer(__qd_buf));
         __qd_buf.release();
         return __qd_result;
       };
@@ -137,7 +137,7 @@ class TypedKernelBuild {
     return macro {
       var __qd_buf = quadrants.kernel.ArgBuffer.acquire();
       $b{appendStatements};
-      var __qd_result:$returnType = cast raw.launchRetDynamic(__qd_buf.toArray());
+      var __qd_result:$returnType = cast raw.launchRetBuffer(__qd_buf);
       __qd_buf.release();
       return __qd_result;
     };
@@ -159,6 +159,21 @@ class TypedKernelBuild {
   static function writerMethodForComplexType(type:ComplexType, pos:Position):String {
     if (isSpecComplexType(type)) {
       return "spec";
+    }
+    if (isStructTensorComplexType(type)) {
+      return "structTensor";
+    }
+    if (isStructFieldComplexType(type)) {
+      return "structField";
+    }
+    if (isMeshRelationComplexType(type)) {
+      return "meshRelation";
+    }
+    if (isMeshAttributeComplexType(type)) {
+      return "meshAttribute";
+    }
+    if (isQuantizedF32TensorComplexType(type)) {
+      return "quantizedF32Tensor";
     }
     var kind = paramKindForComplexType(type, pos);
     var suffix = dtypeSuffix(dtypeForComplexType(type, pos));
@@ -244,8 +259,10 @@ class TypedKernelBuild {
 
   static function paramKindForComplexType(type:ComplexType, pos:Position):Int {
     return switch (stripType(type)) {
-      case TPath(path) if (isFieldPath(path)): 2;
-      case TPath(path) if (isTensorPath(path) || isBufferViewPath(path)): 1;
+      case TPath(path) if (isMeshRelationPath(path)): 3;
+      case TPath(path) if (isMeshAttributePath(path)): 4;
+      case TPath(path) if (isFieldPath(path) || isStructFieldPath(path)): 2;
+      case TPath(path) if (isTensorPath(path) || isBufferViewPath(path) || isStructTensorPath(path) || isQuantizedF32TensorPath(path)): 1;
       default: 0;
     };
   }
@@ -256,6 +273,14 @@ class TypedKernelBuild {
 
   static function dtypeForComplexType(type:ComplexType, pos:Position):Int {
     return switch (stripType(type)) {
+      case TPath(path) if (isStructTensorPath(path) || isStructFieldPath(path) || isMeshRelationPath(path) || isQuantizedF32TensorPath(path)):
+        2;
+      case TPath(path) if (isMeshAttributePath(path)):
+        if (path.params == null || path.params.length != 2) Context.error("Quadrants MeshAttribute<Element, Value> requires two type parameters", pos);
+        switch (path.params[1]) {
+          case TPType(inner): dtypeForComplexType(inner, pos);
+          default: Context.error("Quadrants MeshAttribute value type parameter must be a type", pos);
+        }
       case TPath(path) if (isSpecPath(path)):
         if (path.params == null || path.params.length != 1) {
           Context.error("Quadrants Spec<T> requires exactly one type parameter", pos);
@@ -340,6 +365,66 @@ class TypedKernelBuild {
   static function isBufferViewPath(path:TypePath):Bool {
     var fullName = typePathName(path);
     return fullName == "BufferView" || fullName == "quadrants.BufferView";
+  }
+
+  static function isStructTensorPath(path:TypePath):Bool {
+    var fullName = typePathName(path);
+    return fullName == "StructTensor" || fullName == "quadrants.StructTensor";
+  }
+
+  static function isStructFieldPath(path:TypePath):Bool {
+    var fullName = typePathName(path);
+    return fullName == "StructField" || fullName == "quadrants.StructField";
+  }
+
+  static function isMeshRelationPath(path:TypePath):Bool {
+    var fullName = typePathName(path);
+    return fullName == "MeshRelation" || fullName == "quadrants.mesh.MeshRelation";
+  }
+
+  static function isMeshAttributePath(path:TypePath):Bool {
+    var fullName = typePathName(path);
+    return fullName == "MeshAttribute" || fullName == "quadrants.mesh.MeshAttribute";
+  }
+
+  static function isQuantizedF32TensorPath(path:TypePath):Bool {
+    var fullName = typePathName(path);
+    return fullName == "QuantizedF32Tensor" || fullName == "quadrants.quant.QuantizedF32Tensor";
+  }
+
+  static function isStructTensorComplexType(type:ComplexType):Bool {
+    return switch (stripType(type)) {
+      case TPath(path): isStructTensorPath(path);
+      default: false;
+    };
+  }
+
+  static function isStructFieldComplexType(type:ComplexType):Bool {
+    return switch (stripType(type)) {
+      case TPath(path): isStructFieldPath(path);
+      default: false;
+    };
+  }
+
+  static function isMeshRelationComplexType(type:ComplexType):Bool {
+    return switch (stripType(type)) {
+      case TPath(path): isMeshRelationPath(path);
+      default: false;
+    };
+  }
+
+  static function isMeshAttributeComplexType(type:ComplexType):Bool {
+    return switch (stripType(type)) {
+      case TPath(path): isMeshAttributePath(path);
+      default: false;
+    };
+  }
+
+  static function isQuantizedF32TensorComplexType(type:ComplexType):Bool {
+    return switch (stripType(type)) {
+      case TPath(path): isQuantizedF32TensorPath(path);
+      default: false;
+    };
   }
 
   static function isBufferViewComplexType(type:ComplexType):Bool {

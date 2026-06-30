@@ -2,11 +2,12 @@ class Main {
   static function main():Void {
     TestBindingApi.run();
     TestDescriptorSnapshot.run();
+    descriptor.DescriptorGoldenSnapshot.run();
     TestKernelRawRuntime.run();
     TestContextCapabilitiesRuntime.run();
     TestTypedKernelRuntime.run();
     TestFlattenRuntime.run();
-    TestDescriptorV2Runtime.run();
+    TestDescriptorRuntime.run();
     TestReturn.run();
     TestField.run();
     TestSimtApi.run();

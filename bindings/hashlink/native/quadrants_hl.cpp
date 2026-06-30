@@ -41,6 +41,7 @@ using quadrants::Arch;
 using quadrants::host_arch;
 using quadrants::hashlink::DescriptorDType;
 using quadrants::hashlink::ParameterKind;
+using quadrants::hashlink::SpecValue;
 using quadrants::lang::CompiledKernelData;
 using quadrants::lang::Kernel;
 using quadrants::lang::LaunchContextBuilder;
@@ -336,6 +337,20 @@ std::uint32_t i32_bits(int value) {
   return bits;
 }
 
+std::uint32_t f32_bits(float value) {
+  std::uint32_t bits = 0;
+  static_assert(sizeof(bits) == sizeof(value));
+  std::memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
+std::uint64_t f64_bits(double value) {
+  std::uint64_t bits = 0;
+  static_assert(sizeof(bits) == sizeof(value));
+  std::memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
 }  // namespace
 
 struct qd_context {
@@ -398,6 +413,13 @@ struct qd_snode_tree {
   QdContextState *state{nullptr};
   std::unique_ptr<SNode> root;
   bool committed{false};
+  bool released{false};
+};
+
+struct qd_mesh_relation {
+  void (*finalize)(qd_mesh_relation *self){nullptr};
+  QdContextState *state{nullptr};
+  quadrants::hashlink::MeshRelationSpecialization metadata;
   bool released{false};
 };
 
@@ -546,6 +568,16 @@ void release_snode_tree_handle(qd_snode_tree *tree) noexcept {
   tree->released = true;
 }
 
+void release_mesh_relation_handle(qd_mesh_relation *relation) noexcept {
+  if (relation == nullptr || relation->released) {
+    return;
+  }
+  release_state(relation->state);
+  relation->state = nullptr;
+  relation->metadata.present = false;
+  relation->released = true;
+}
+
 void release_cuda_gl_resource_handle(qd_cuda_gl_resource *resource) noexcept {
   if (resource == nullptr || resource->released) {
     return;
@@ -620,6 +652,11 @@ void finalize_snode_tree(qd_snode_tree *tree) {
   tree->~qd_snode_tree();
 }
 
+void finalize_mesh_relation(qd_mesh_relation *relation) {
+  release_mesh_relation_handle(relation);
+  relation->~qd_mesh_relation();
+}
+
 [[maybe_unused]] void finalize_cuda_gl_resource(qd_cuda_gl_resource *resource) {
   release_cuda_gl_resource_handle(resource);
   resource->~qd_cuda_gl_resource();
@@ -646,6 +683,18 @@ qd_ndarray *make_ndarray_handle(QdContextState &state,
   handle->array = array;
   handle->managed_by_program = managed_by_program;
   handle->imported_dlpack = imported_dlpack;
+  retain_state(&state);
+  return handle;
+}
+
+qd_mesh_relation *make_mesh_relation_handle(QdContextState &state,
+                                            const quadrants::hashlink::MeshRelationSpecialization &metadata) {
+  auto *handle = static_cast<qd_mesh_relation *>(hl_gc_alloc_finalizer(sizeof(qd_mesh_relation)));
+  new (handle) qd_mesh_relation();
+  handle->finalize = finalize_mesh_relation;
+  handle->state = &state;
+  handle->metadata = metadata;
+  handle->metadata.present = true;
   retain_state(&state);
   return handle;
 }
@@ -751,6 +800,16 @@ qd_ndarray *dynamic_to_ndarray(vdynamic *value) {
   return static_cast<qd_ndarray *>(value->v.ptr);
 }
 
+qd_mesh_relation *dynamic_to_mesh_relation(vdynamic *value) {
+  if (value == nullptr) {
+    throw std::runtime_error("Quadrants MeshRelation kernel argument is null");
+  }
+  if (value->t == nullptr || value->t->kind != HABSTRACT || ucmp(value->t->abs_name, USTR("qd_mesh_relation")) != 0) {
+    throw std::runtime_error("Quadrants kernel mesh relation argument must be a quadrants.mesh.MeshRelation");
+  }
+  return static_cast<qd_mesh_relation *>(value->v.ptr);
+}
+
 qd_ndarray &require_ndarray_handle(qd_ndarray *array, const char *name) {
   if (array == nullptr || array->state == nullptr || array->released || array->array == nullptr) {
     throw std::runtime_error(std::string("Quadrants ") + name + " ndarray handle is closed");
@@ -787,6 +846,16 @@ Ndarray &require_typed_ndarray(QdContextState &state, qd_ndarray *array, Primiti
   Ndarray &ndarray = require_ndarray(state, array);
   require_array_dtype(ndarray, dtype);
   return ndarray;
+}
+
+qd_mesh_relation &require_mesh_relation(QdContextState &state, qd_mesh_relation *relation) {
+  if (relation == nullptr || relation->state == nullptr || relation->released) {
+    throw std::runtime_error("Quadrants mesh relation handle is closed");
+  }
+  if (relation->state != &state) {
+    throw std::runtime_error("Quadrants mesh relation belongs to a different context");
+  }
+  return *relation;
 }
 
 std::vector<int> ints_from_hl_array(varray *values, const char *name) {
@@ -978,6 +1047,8 @@ Type *quant_type_from_bridge(int quant_kind,
                              int is_signed,
                              int compute_dtype,
                              int fractional_bits,
+                             int exponent_bits,
+                             int fraction_bits,
                              double scale) {
   if (bits <= 0 || bits > 64) {
     throw std::runtime_error("Quadrants quant bit width must be in 1...64");
@@ -1004,8 +1075,17 @@ Type *quant_type_from_bridge(int quant_kind,
       Type *digits_type = factory.get_quant_int_type(bits, signed_storage, nullptr);
       return factory.get_quant_fixed_type(digits_type, compute_type, scale);
     }
-    case 3:
-      throw std::runtime_error("Quadrants quant float placement requires bit_struct metadata and is not supported by this HashLink bridge");
+    case 3: {
+      if (!quadrants::lang::is_real(compute_type)) {
+        throw std::runtime_error("Quadrants quant float compute dtype must be floating point");
+      }
+      if (exponent_bits <= 0 || fraction_bits <= 0 || bits != (is_signed != 0 ? 1 : 0) + exponent_bits + fraction_bits) {
+        throw std::runtime_error("Quadrants quant float bit layout is invalid");
+      }
+      Type *digits_type = factory.get_quant_int_type((is_signed != 0 ? 1 : 0) + fraction_bits, is_signed != 0, nullptr);
+      Type *exponent_type = factory.get_quant_int_type(exponent_bits, false, nullptr);
+      return factory.get_quant_float_type(digits_type, exponent_type, compute_type);
+    }
     default:
       throw std::runtime_error("Unsupported Quadrants quant kind id: " + std::to_string(quant_kind));
   }
@@ -1879,11 +1959,41 @@ void set_scalar_arg(LaunchContextBuilder &launch_context, int arg_id, Descriptor
 
 bool has_field_parameters(const std::vector<quadrants::hashlink::ParameterDescriptor> &parameters) {
   for (const auto &param : parameters) {
-    if (param.kind == ParameterKind::field) {
+    if (param.kind == ParameterKind::field || param.kind == ParameterKind::mesh_attribute ||
+        param.kind == ParameterKind::mesh_relation) {
       return true;
     }
   }
   return false;
+}
+
+bool has_spec_parameters(const std::vector<quadrants::hashlink::ParameterDescriptor> &parameters) {
+  for (const auto &param : parameters) {
+    if (param.is_spec_constant()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+std::size_t runtime_parameter_count(const std::vector<quadrants::hashlink::ParameterDescriptor> &parameters) {
+  std::size_t count = 0;
+  for (const auto &param : parameters) {
+    if (!param.is_spec_constant()) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+std::size_t spec_parameter_count(const std::vector<quadrants::hashlink::ParameterDescriptor> &parameters) {
+  std::size_t count = 0;
+  for (const auto &param : parameters) {
+    if (param.is_spec_constant()) {
+      ++count;
+    }
+  }
+  return count;
 }
 
 int dynamic_to_field_snode_id(vdynamic *value) {
@@ -1893,22 +2003,119 @@ int dynamic_to_field_snode_id(vdynamic *value) {
   return hl_dyn_casti(&value, &hlt_dyn, &hlt_i32);
 }
 
+SpecValue dynamic_to_spec_value(DescriptorDType dtype, vdynamic *value) {
+  if (value == nullptr) {
+    throw std::runtime_error("Quadrants Spec kernel argument is null");
+  }
+  SpecValue out;
+  out.dtype = dtype;
+  switch (dtype) {
+    case DescriptorDType::i8:
+    case DescriptorDType::i16:
+    case DescriptorDType::i32:
+      out.signed_value = hl_dyn_casti(&value, &hlt_dyn, &hlt_i32);
+      out.unsigned_value = static_cast<std::uint64_t>(out.signed_value);
+      return out;
+    case DescriptorDType::i64:
+      out.signed_value = hl_dyn_casti64(&value, &hlt_dyn);
+      out.unsigned_value = static_cast<std::uint64_t>(out.signed_value);
+      return out;
+    case DescriptorDType::u1:
+      out.bool_value = hl_dyn_casti(&value, &hlt_dyn, &hlt_bool) != 0;
+      out.unsigned_value = out.bool_value ? 1 : 0;
+      return out;
+    case DescriptorDType::u8:
+    case DescriptorDType::u16:
+      out.unsigned_value = static_cast<std::uint64_t>(hl_dyn_casti(&value, &hlt_dyn, &hlt_i32));
+      out.signed_value = static_cast<std::int64_t>(out.unsigned_value);
+      return out;
+    case DescriptorDType::u32:
+    case DescriptorDType::u64:
+      out.unsigned_value = static_cast<std::uint64_t>(hl_dyn_casti64(&value, &hlt_dyn));
+      out.signed_value = static_cast<std::int64_t>(out.unsigned_value);
+      return out;
+    case DescriptorDType::f32:
+    case DescriptorDType::f64:
+    case DescriptorDType::f16:
+      out.float_value = hl_dyn_castd(&value, &hlt_dyn);
+      return out;
+  }
+  throw std::runtime_error("Unsupported Quadrants HashLink Spec dtype");
+}
+
 std::vector<int> collect_field_snode_ids(qd_kernel *kernel, varray *args) {
   if (args == nullptr) {
     throw std::runtime_error("Quadrants kernel argument array is null");
   }
   const auto &parameters = kernel->metadata->parameters;
-  if (args->size != static_cast<int>(parameters.size())) {
-    throw std::runtime_error("Quadrants kernel argument count mismatch");
+  if (args->size != static_cast<int>(runtime_parameter_count(parameters))) {
+    throw std::runtime_error("Quadrants kernel runtime argument count mismatch");
   }
   vdynamic **values = hl_aptr(args, vdynamic *);
   std::vector<int> ids(parameters.size(), -1);
+  std::size_t runtime_index = 0;
   for (std::size_t i = 0; i < parameters.size(); ++i) {
-    if (parameters[i].kind == ParameterKind::field) {
-      ids[i] = dynamic_to_field_snode_id(values[i]);
+    if (parameters[i].is_spec_constant()) {
+      continue;
     }
+    if (parameters[i].kind == ParameterKind::field || parameters[i].kind == ParameterKind::mesh_attribute) {
+      ids[i] = dynamic_to_field_snode_id(values[runtime_index]);
+    }
+    ++runtime_index;
   }
   return ids;
+}
+
+std::vector<quadrants::hashlink::MeshRelationSpecialization> collect_mesh_relation_specializations(QdContextState &state,
+                                                                                                     qd_kernel *kernel,
+                                                                                                     varray *args) {
+  if (args == nullptr) {
+    throw std::runtime_error("Quadrants kernel argument array is null");
+  }
+  const auto &parameters = kernel->metadata->parameters;
+  if (args->size != static_cast<int>(runtime_parameter_count(parameters))) {
+    throw std::runtime_error("Quadrants kernel runtime argument count mismatch");
+  }
+  vdynamic **values = hl_aptr(args, vdynamic *);
+  std::vector<quadrants::hashlink::MeshRelationSpecialization> relations(parameters.size());
+  std::size_t runtime_index = 0;
+  for (std::size_t i = 0; i < parameters.size(); ++i) {
+    if (parameters[i].is_spec_constant()) {
+      continue;
+    }
+    if (parameters[i].kind == ParameterKind::mesh_relation) {
+      qd_mesh_relation &relation = require_mesh_relation(state, dynamic_to_mesh_relation(values[runtime_index]));
+      relations[i] = relation.metadata;
+      relations[i].present = true;
+    }
+    ++runtime_index;
+  }
+  return relations;
+}
+
+std::vector<SpecValue> collect_spec_values(qd_kernel *kernel, varray *specs) {
+  const auto &parameters = kernel->metadata->parameters;
+  const std::size_t spec_count = spec_parameter_count(parameters);
+  if (spec_count == 0) {
+    return std::vector<SpecValue>(parameters.size());
+  }
+  if (specs == nullptr) {
+    throw std::runtime_error("Quadrants kernel Spec argument array is null");
+  }
+  if (specs->size != static_cast<int>(spec_count)) {
+    throw std::runtime_error("Quadrants kernel Spec argument count mismatch");
+  }
+  vdynamic **values = hl_aptr(specs, vdynamic *);
+  std::vector<SpecValue> result(parameters.size());
+  std::size_t spec_index = 0;
+  for (std::size_t i = 0; i < parameters.size(); ++i) {
+    if (!parameters[i].is_spec_constant()) {
+      continue;
+    }
+    result[i] = dynamic_to_spec_value(parameters[i].dtype, values[spec_index]);
+    ++spec_index;
+  }
+  return result;
 }
 
 std::vector<int> collect_field_peer_snode_ids(
@@ -1917,7 +2124,7 @@ std::vector<int> collect_field_peer_snode_ids(
     const std::unordered_map<int, int> &registered_peers) {
   std::vector<int> peer_ids(parameters.size(), -1);
   for (std::size_t i = 0; i < parameters.size(); ++i) {
-    if (parameters[i].kind != ParameterKind::field) {
+    if (parameters[i].kind != ParameterKind::field && parameters[i].kind != ParameterKind::mesh_attribute) {
       continue;
     }
     auto it = registered_peers.find(field_snode_ids[i]);
@@ -1940,14 +2147,82 @@ void append_field_key_part(std::string &key, const char *tag, const std::vector<
   }
 }
 
+void append_mesh_relation_key_part(std::string &key,
+                                   const std::vector<quadrants::hashlink::MeshRelationSpecialization> &relations) {
+  key += "|meshrel=";
+  for (std::size_t i = 0; i < relations.size(); ++i) {
+    const auto &relation = relations[i];
+    if (!relation.present) {
+      continue;
+    }
+    key += std::to_string(i);
+    key.push_back(':');
+    key += std::to_string(relation.from_type);
+    key.push_back('/');
+    key += std::to_string(relation.to_type);
+    key.push_back('/');
+    key += std::to_string(relation.value_snode_id);
+    key.push_back('/');
+    key += std::to_string(relation.offset_snode_id);
+    key.push_back('/');
+    key += std::to_string(relation.fixed ? 1 : 0);
+    key.push_back('/');
+    key += std::to_string(relation.fixed_degree);
+    key.push_back(',');
+  }
+}
 
-std::string field_specialization_key(const std::vector<int> &field_snode_ids,
-                                     const std::vector<int> &field_adjoint_snode_ids,
-                                     const std::vector<int> &field_dual_snode_ids) {
+void append_spec_key_part(std::string &key,
+                          const std::vector<quadrants::hashlink::ParameterDescriptor> &parameters,
+                          const std::vector<SpecValue> &spec_values) {
+  key += "|spec=";
+  for (std::size_t i = 0; i < parameters.size(); ++i) {
+    if (!parameters[i].is_spec_constant()) {
+      continue;
+    }
+    const SpecValue &value = spec_values.at(i);
+    key += std::to_string(i);
+    key.push_back(':');
+    switch (parameters[i].dtype) {
+      case DescriptorDType::i8:
+      case DescriptorDType::i16:
+      case DescriptorDType::i32:
+      case DescriptorDType::i64:
+        key += std::to_string(value.signed_value);
+        break;
+      case DescriptorDType::u8:
+      case DescriptorDType::u16:
+      case DescriptorDType::u32:
+      case DescriptorDType::u64:
+        key += std::to_string(value.unsigned_value);
+        break;
+      case DescriptorDType::u1:
+        key += value.bool_value ? "1" : "0";
+        break;
+      case DescriptorDType::f16:
+      case DescriptorDType::f32:
+        key += std::to_string(f32_bits(static_cast<float>(value.float_value)));
+        break;
+      case DescriptorDType::f64:
+        key += std::to_string(f64_bits(value.float_value));
+        break;
+    }
+    key.push_back(',');
+  }
+}
+
+std::string specialization_key(const std::vector<int> &field_snode_ids,
+                               const std::vector<int> &field_adjoint_snode_ids,
+                               const std::vector<int> &field_dual_snode_ids,
+                               const std::vector<quadrants::hashlink::MeshRelationSpecialization> &mesh_relations,
+                               const std::vector<quadrants::hashlink::ParameterDescriptor> &parameters,
+                               const std::vector<SpecValue> &spec_values) {
   std::string key;
   append_field_key_part(key, "field", field_snode_ids);
   append_field_key_part(key, "adjoint", field_adjoint_snode_ids);
   append_field_key_part(key, "dual", field_dual_snode_ids);
+  append_mesh_relation_key_part(key, mesh_relations);
+  append_spec_key_part(key, parameters, spec_values);
   return key;
 }
 
@@ -1956,7 +2231,7 @@ struct ResolvedKernel {
   const CompiledKernelData *compiled_kernel_data{nullptr};
 };
 
-ResolvedKernel resolve_kernel_for_launch(QdContextState &state, qd_kernel *kernel, varray *args) {
+ResolvedKernel resolve_kernel_for_launch(QdContextState &state, qd_kernel *kernel, varray *args, varray *specs) {
   require_kernel_handle(state, kernel);
   if (kernel->metadata->descriptor == nullptr) {
     return ResolvedKernel{kernel->kernel, kernel->compiled_kernel_data};
@@ -1966,7 +2241,11 @@ ResolvedKernel resolve_kernel_for_launch(QdContextState &state, qd_kernel *kerne
       collect_field_peer_snode_ids(kernel->metadata->parameters, field_snode_ids, state.field_adjoint_snodes);
   std::vector<int> field_dual_snode_ids =
       collect_field_peer_snode_ids(kernel->metadata->parameters, field_snode_ids, state.field_dual_snodes);
-  const std::string key = field_specialization_key(field_snode_ids, field_adjoint_snode_ids, field_dual_snode_ids);
+  std::vector<quadrants::hashlink::MeshRelationSpecialization> mesh_relations =
+      collect_mesh_relation_specializations(state, kernel, args);
+  std::vector<SpecValue> spec_values = collect_spec_values(kernel, specs);
+  const std::string key = specialization_key(field_snode_ids, field_adjoint_snode_ids, field_dual_snode_ids,
+                                             mesh_relations, kernel->metadata->parameters, spec_values);
   for (auto &specialization : kernel->metadata->field_specializations) {
     if (specialization.key == key) {
       kernel->kernel = specialization.kernel;
@@ -1977,7 +2256,7 @@ ResolvedKernel resolve_kernel_for_launch(QdContextState &state, qd_kernel *kerne
   BlockingSection blocking;
   quadrants::hashlink::KernelBuildResult result = quadrants::hashlink::build_kernel_from_descriptor(
       *state.program, *kernel->metadata->descriptor, kernel->metadata->autodiff_mode, &field_snode_ids,
-      &field_adjoint_snode_ids, &field_dual_snode_ids);
+      &field_adjoint_snode_ids, &field_dual_snode_ids, &spec_values, &mesh_relations);
   kernel->metadata->field_specializations.push_back(qd_kernel_specialization{key, result.kernel, result.compiled_kernel_data});
   kernel->kernel = result.kernel;
   kernel->compiled_kernel_data = result.compiled_kernel_data;
@@ -1993,30 +2272,44 @@ void set_kernel_launch_args(QdContextState &state,
     throw std::runtime_error("Quadrants kernel argument array is null");
   }
   const auto &parameters = kernel->metadata->parameters;
-  if (args->size != static_cast<int>(parameters.size())) {
-    throw std::runtime_error("Quadrants kernel argument count mismatch");
+  if (args->size != static_cast<int>(runtime_parameter_count(parameters))) {
+    throw std::runtime_error("Quadrants kernel runtime argument count mismatch");
   }
 
   vdynamic **values = hl_aptr(args, vdynamic *);
+  std::size_t runtime_index = 0;
+  int launch_arg_id = 0;
   for (std::size_t i = 0; i < parameters.size(); ++i) {
     const auto &param = parameters[i];
-    if (param.kind == ParameterKind::scalar) {
-      if (values[i] == nullptr) {
-        throw std::runtime_error("Quadrants scalar kernel argument is null");
-      }
-      set_scalar_arg(launch_context, static_cast<int>(i), param.dtype, values[i]);
+    if (param.is_spec_constant()) {
       continue;
     }
-    if (param.kind == ParameterKind::field) {
-      const int snode_id = dynamic_to_field_snode_id(values[i]);
+    vdynamic *value = values[runtime_index++];
+    if (param.kind == ParameterKind::scalar) {
+      if (value == nullptr) {
+        throw std::runtime_error("Quadrants scalar kernel argument is null");
+      }
+      set_scalar_arg(launch_context, launch_arg_id, param.dtype, value);
+      ++launch_arg_id;
+      continue;
+    }
+    if (param.kind == ParameterKind::field || param.kind == ParameterKind::mesh_attribute) {
+      const int snode_id = dynamic_to_field_snode_id(value);
       if (state.program->get_snode_by_id(snode_id) == nullptr) {
         throw std::runtime_error("Quadrants Field kernel argument is not part of this context");
       }
-      launch_context.set_arg_int(static_cast<int>(i), snode_id);
+      launch_context.set_arg_int(launch_arg_id, snode_id);
+      ++launch_arg_id;
+      continue;
+    }
+    if (param.kind == ParameterKind::mesh_relation) {
+      qd_mesh_relation &relation = require_mesh_relation(state, dynamic_to_mesh_relation(value));
+      launch_context.set_arg_int(launch_arg_id, relation.metadata.value_snode_id);
+      ++launch_arg_id;
       continue;
     }
 
-    qd_ndarray *array_handle = dynamic_to_ndarray(values[i]);
+    qd_ndarray *array_handle = dynamic_to_ndarray(value);
     Ndarray &array = require_ndarray(state, array_handle);
     if (param.rank != array.shape.size()) {
       throw std::runtime_error("Quadrants ndarray kernel argument rank mismatch");
@@ -2025,7 +2318,8 @@ void set_kernel_launch_args(QdContextState &state,
     require_array_dtype(array, dtype);
 
     if (!param.needs_grad()) {
-      launch_context.set_arg_ndarray(static_cast<int>(i), array);
+      launch_context.set_arg_ndarray(launch_arg_id, array);
+      ++launch_arg_id;
       continue;
     }
 
@@ -2035,7 +2329,8 @@ void set_kernel_launch_args(QdContextState &state,
         throw std::runtime_error(std::string("Quadrants autodiff kernel requires tensor ") +
                                  required_autodiff_storage_name(kernel_ref) + " storage");
       }
-      launch_context.set_arg_ndarray_impl(static_cast<int>(i), array.get_device_allocation_ptr_as_int(), array.shape, 0);
+      launch_context.set_arg_ndarray_impl(launch_arg_id, array.get_device_allocation_ptr_as_int(), array.shape, 0);
+      ++launch_arg_id;
       continue;
     }
 
@@ -2045,20 +2340,32 @@ void set_kernel_launch_args(QdContextState &state,
                                " storage shape mismatch");
     }
     require_array_dtype(peer_array, dtype);
-    launch_context.set_arg_ndarray_impl(static_cast<int>(i),
+    launch_context.set_arg_ndarray_impl(launch_arg_id,
                                         array.get_device_allocation_ptr_as_int(),
                                         array.shape,
                                         peer_array.get_device_allocation_ptr_as_int());
+    ++launch_arg_id;
   }
 }
 
 void configure_graph_do_while(qd_kernel *kernel, int control_arg_id, LaunchContextBuilder &launch_context) {
   const auto &parameters = kernel->metadata->parameters;
-  if (control_arg_id < 0 || control_arg_id >= static_cast<int>(parameters.size())) {
+  if (control_arg_id < 0 || control_arg_id >= static_cast<int>(runtime_parameter_count(parameters))) {
     throw std::runtime_error("Quadrants graph_do_while control argument index is out of range");
   }
-  const auto &param = parameters[static_cast<std::size_t>(control_arg_id)];
-  if (param.kind != ParameterKind::ndarray || param.dtype != DescriptorDType::i32) {
+  const quadrants::hashlink::ParameterDescriptor *control_param = nullptr;
+  int runtime_index = 0;
+  for (const auto &param : parameters) {
+    if (param.is_spec_constant()) {
+      continue;
+    }
+    if (runtime_index == control_arg_id) {
+      control_param = &param;
+      break;
+    }
+    ++runtime_index;
+  }
+  if (control_param == nullptr || control_param->kind != ParameterKind::ndarray || control_param->dtype != DescriptorDType::i32) {
     throw std::runtime_error("Quadrants graph_do_while control argument must be an I32 Tensor");
   }
   launch_context.use_graph = true;
@@ -2112,6 +2419,18 @@ varray *make_dynamic_returns(LaunchContextBuilder &launch_context, const std::ve
 }
 
 }  // namespace
+
+HL_PRIM int HL_NAME(hashlink_hdll_abi_version)() {
+  return 3;
+}
+
+HL_PRIM int HL_NAME(hashlink_runtime_abi_version)() {
+  return 1;
+}
+
+HL_PRIM int HL_NAME(hashlink_descriptor_schema_version)() {
+  return 3;
+}
 
 HL_PRIM void HL_NAME(runtime_set_lib_dir)(vbyte *path) {
   guard([&]() {
@@ -2692,6 +3011,71 @@ HL_PRIM int HL_NAME(sparse_cg_solve_f64)(qd_context *ctx,
     require_sparse_dtype(matrix_ref, PrimitiveTypeID::f64);
     return sparse_cg_solve_host(state, matrix_ref, b, x, max_iterations, tolerance);
   });
+}
+
+HL_PRIM qd_mesh_relation *HL_NAME(mesh_relation_create)(qd_context *ctx,
+                                                         int from_type,
+                                                         int to_type,
+                                                         varray *counts,
+                                                         varray *owned_offsets,
+                                                         varray *total_offsets,
+                                                         int value_snode_id,
+                                                         int offset_snode_id,
+                                                         int patch_offset_snode_id,
+                                                         int fixed,
+                                                         int fixed_degree) {
+  return guard([&]() -> qd_mesh_relation * {
+    QdContextState &state = require_context(ctx);
+    auto count_values = ints_from_hl_array(counts, "mesh relation counts");
+    auto owned_values = ints_from_hl_array(owned_offsets, "mesh relation owned offsets");
+    auto total_values = ints_from_hl_array(total_offsets, "mesh relation total offsets");
+    if (count_values.size() != 4 || owned_values.size() != 4 || total_values.size() != 4) {
+      throw std::runtime_error("Quadrants mesh relation metadata arrays must have four entries");
+    }
+    if (from_type < 0 || from_type > 3 || to_type < 0 || to_type > 3) {
+      throw std::runtime_error("Quadrants mesh relation element type is out of range");
+    }
+    auto require_i32_snode = [&](int snode_id, const char *name) {
+      if (snode_id < 0) {
+        return;
+      }
+      SNode *snode = state.program->get_snode_by_id(snode_id);
+      if (snode == nullptr || !snode->is_place()) {
+        throw std::runtime_error(std::string("Quadrants mesh relation ") + name + " is not a placed SNode field");
+      }
+      if (snode->dt->get_compute_type() != PrimitiveType::i32) {
+        throw std::runtime_error(std::string("Quadrants mesh relation ") + name + " must be an I32 SNode field");
+      }
+    };
+    require_i32_snode(value_snode_id, "value");
+    require_i32_snode(offset_snode_id, "offset");
+    require_i32_snode(patch_offset_snode_id, "patch offset");
+    for (int id : owned_values) require_i32_snode(id, "owned offset");
+    for (int id : total_values) require_i32_snode(id, "total offset");
+
+    quadrants::hashlink::MeshRelationSpecialization metadata;
+    metadata.present = true;
+    metadata.from_type = static_cast<std::uint8_t>(from_type);
+    metadata.to_type = static_cast<std::uint8_t>(to_type);
+    metadata.fixed = fixed != 0;
+    metadata.fixed_degree = static_cast<std::uint32_t>(fixed_degree < 0 ? 0 : fixed_degree);
+    for (std::size_t i = 0; i < 4; ++i) {
+      if (count_values[i] < 0) {
+        throw std::runtime_error("Quadrants mesh relation element count must be non-negative");
+      }
+      metadata.counts[i] = static_cast<std::uint32_t>(count_values[i]);
+      metadata.owned_offset_snode_ids[i] = owned_values[i];
+      metadata.total_offset_snode_ids[i] = total_values[i];
+    }
+    metadata.value_snode_id = value_snode_id;
+    metadata.offset_snode_id = offset_snode_id;
+    metadata.patch_offset_snode_id = patch_offset_snode_id;
+    return make_mesh_relation_handle(state, metadata);
+  });
+}
+
+HL_PRIM void HL_NAME(mesh_relation_close)(qd_mesh_relation *relation) {
+  guard([&]() { release_mesh_relation_handle(relation); });
 }
 
 HL_PRIM qd_ndarray *HL_NAME(ndarray_create)(qd_context *ctx, int dtype, varray *shape) {
@@ -3340,6 +3724,48 @@ HL_PRIM int HL_NAME(snode_tree_child)(qd_snode_tree *tree,
   });
 }
 
+HL_PRIM int HL_NAME(snode_tree_bit_struct_quant_child)(qd_snode_tree *tree,
+                                                        int parent_snode_id,
+                                                        int compute_dtype,
+                                                        int quant_kind,
+                                                        int bits,
+                                                        int is_signed,
+                                                        int fractional_bits,
+                                                        int exponent_bits,
+                                                        int fraction_bits,
+                                                        double scale,
+                                                        int max_bits) {
+  return guard([&]() -> int {
+    qd_snode_tree &tree_ref = require_snode_tree(tree);
+    SNode &parent = require_pending_snode(tree_ref, parent_snode_id);
+    if (max_bits <= 0 || max_bits > 64) {
+      throw std::runtime_error("Quadrants bit_struct maxBits must be in 1...64");
+    }
+    TypeFactory &factory = TypeFactory::get_instance();
+    auto *physical_type = static_cast<PrimitiveType *>(factory.get_primitive_int_type(max_bits <= 32 ? 32 : 64, false));
+    Type *quant_type = quant_type_from_bridge(quant_kind, bits, is_signed, compute_dtype, fractional_bits, exponent_bits, fraction_bits, scale);
+    std::vector<Type *> member_types;
+    std::vector<int> member_offsets;
+    std::vector<int> member_exponents;
+    std::vector<std::vector<int>> member_exponent_users;
+    if (quant_kind == 3) {
+      Type *exponent_type = factory.get_quant_int_type(exponent_bits, false, nullptr);
+      member_types = {exponent_type, quant_type};
+      member_offsets = {0, exponent_bits};
+      member_exponents = {-1, 0};
+      member_exponent_users = {{1}, {}};
+    } else {
+      member_types = {quant_type};
+      member_offsets = {0};
+      member_exponents = {-1};
+      member_exponent_users = {{}};
+    }
+    auto *bit_struct_type = factory.get_bit_struct_type(physical_type, member_types, member_offsets,
+                                                        member_exponents, member_exponent_users);
+    return parent.bit_struct(bit_struct_type).id;
+  });
+}
+
 HL_PRIM int HL_NAME(snode_tree_place)(qd_snode_tree *tree, int parent_snode_id, int dtype, vbyte *name) {
   return guard([&]() -> int {
     qd_snode_tree &tree_ref = require_snode_tree(tree);
@@ -3359,19 +3785,25 @@ HL_PRIM int HL_NAME(snode_tree_place_quant)(qd_snode_tree *tree,
                                             int bits,
                                             int is_signed,
                                             int fractional_bits,
+                                            int exponent_bits,
+                                            int fraction_bits,
                                             double scale,
                                             vbyte *name) {
   return guard([&]() -> int {
     qd_snode_tree &tree_ref = require_snode_tree(tree);
     SNode &parent = require_pending_snode(tree_ref, parent_snode_id);
-    if (parent.type != SNodeType::quant_array) {
-      throw std::runtime_error("Quadrants quant placement requires a quant_array SNode parent");
+    if (parent.type != SNodeType::quant_array && parent.type != SNodeType::bit_struct) {
+      throw std::runtime_error("Quadrants quant placement requires a quant_array or bit_struct SNode parent");
+    }
+    if (parent.type == SNodeType::quant_array && quant_kind == 3) {
+      throw std::runtime_error("Quadrants quant float placement requires a bit_struct SNode parent");
     }
     QdContextState &state = *tree_ref.state;
     const std::string field_name = name == nullptr ? std::string() : std::string(reinterpret_cast<const char *>(name));
-    Type *quant_type = quant_type_from_bridge(quant_kind, bits, is_signed, compute_dtype, fractional_bits, scale);
+    Type *quant_type = quant_type_from_bridge(quant_kind, bits, is_signed, compute_dtype, fractional_bits, exponent_bits, fraction_bits, scale);
     Expr field = Expr::make<FieldExpression>(quant_type, state.program->get_next_global_id(field_name));
-    parent.place(field, {}, -1);
+    const int bit_struct_member_id = quant_kind == 3 ? 1 : 0;
+    parent.place(field, {}, parent.type == SNodeType::bit_struct ? bit_struct_member_id : -1);
     return field.snode()->id;
   });
 }
@@ -3576,8 +4008,10 @@ HL_PRIM qd_kernel *HL_NAME(kernel_compile)(qd_context *ctx, vbyte *descriptor_by
         reinterpret_cast<const std::uint8_t *>(descriptor_bytes), static_cast<std::size_t>(descriptor_length));
     const AutodiffMode mode = quadrants::hashlink::autodiff_mode_from_bridge_id(autodiff_mode);
     const bool has_field_params = has_field_parameters(descriptor.parameters);
+    const bool has_spec_params = has_spec_parameters(descriptor.parameters);
+    const bool requires_launch_specialization = has_field_params || has_spec_params;
     quadrants::hashlink::KernelBuildResult result;
-    if (!has_field_params) {
+    if (!requires_launch_specialization) {
       BlockingSection blocking;
       result = quadrants::hashlink::build_kernel_from_descriptor(*state.program, descriptor, mode);
     }
@@ -3587,7 +4021,7 @@ HL_PRIM qd_kernel *HL_NAME(kernel_compile)(qd_context *ctx, vbyte *descriptor_by
     metadata->return_dtypes = descriptor.return_dtypes;
     metadata->autodiff_mode = mode;
     const bool has_return = descriptor.has_return;
-    if (has_field_params) {
+    if (requires_launch_specialization) {
       metadata->descriptor = std::make_unique<quadrants::hashlink::KernelDescriptor>(std::move(descriptor));
     }
 
@@ -3607,7 +4041,19 @@ HL_PRIM qd_kernel *HL_NAME(kernel_compile)(qd_context *ctx, vbyte *descriptor_by
 HL_PRIM void HL_NAME(kernel_launch)(qd_context *ctx, qd_kernel *kernel, varray *args) {
   guard([&]() {
     QdContextState &state = require_context(ctx);
-    ResolvedKernel resolved = resolve_kernel_for_launch(state, kernel, args);
+    ResolvedKernel resolved = resolve_kernel_for_launch(state, kernel, args, nullptr);
+    LaunchContextBuilder launch_context = resolved.kernel->make_launch_context();
+    set_kernel_launch_args(state, kernel, args, *resolved.kernel, launch_context);
+
+    BlockingSection blocking;
+    state.program->launch_kernel(*resolved.compiled_kernel_data, launch_context);
+  });
+}
+
+HL_PRIM void HL_NAME(kernel_launch_specialized)(qd_context *ctx, qd_kernel *kernel, varray *args, varray *specs) {
+  guard([&]() {
+    QdContextState &state = require_context(ctx);
+    ResolvedKernel resolved = resolve_kernel_for_launch(state, kernel, args, specs);
     LaunchContextBuilder launch_context = resolved.kernel->make_launch_context();
     set_kernel_launch_args(state, kernel, args, *resolved.kernel, launch_context);
 
@@ -3619,7 +4065,20 @@ HL_PRIM void HL_NAME(kernel_launch)(qd_context *ctx, qd_kernel *kernel, varray *
 HL_PRIM void HL_NAME(kernel_launch_graph)(qd_context *ctx, qd_kernel *kernel, varray *args) {
   guard([&]() {
     QdContextState &state = require_context(ctx);
-    ResolvedKernel resolved = resolve_kernel_for_launch(state, kernel, args);
+    ResolvedKernel resolved = resolve_kernel_for_launch(state, kernel, args, nullptr);
+    LaunchContextBuilder launch_context = resolved.kernel->make_launch_context();
+    launch_context.use_graph = true;
+    set_kernel_launch_args(state, kernel, args, *resolved.kernel, launch_context);
+
+    BlockingSection blocking;
+    state.program->launch_kernel(*resolved.compiled_kernel_data, launch_context);
+  });
+}
+
+HL_PRIM void HL_NAME(kernel_launch_graph_specialized)(qd_context *ctx, qd_kernel *kernel, varray *args, varray *specs) {
+  guard([&]() {
+    QdContextState &state = require_context(ctx);
+    ResolvedKernel resolved = resolve_kernel_for_launch(state, kernel, args, specs);
     LaunchContextBuilder launch_context = resolved.kernel->make_launch_context();
     launch_context.use_graph = true;
     set_kernel_launch_args(state, kernel, args, *resolved.kernel, launch_context);
@@ -3632,7 +4091,20 @@ HL_PRIM void HL_NAME(kernel_launch_graph)(qd_context *ctx, qd_kernel *kernel, va
 HL_PRIM void HL_NAME(kernel_launch_graph_do_while)(qd_context *ctx, qd_kernel *kernel, int control_arg_id, varray *args) {
   guard([&]() {
     QdContextState &state = require_context(ctx);
-    ResolvedKernel resolved = resolve_kernel_for_launch(state, kernel, args);
+    ResolvedKernel resolved = resolve_kernel_for_launch(state, kernel, args, nullptr);
+    LaunchContextBuilder launch_context = resolved.kernel->make_launch_context();
+    configure_graph_do_while(kernel, control_arg_id, launch_context);
+    set_kernel_launch_args(state, kernel, args, *resolved.kernel, launch_context);
+
+    BlockingSection blocking;
+    state.program->launch_kernel(*resolved.compiled_kernel_data, launch_context);
+  });
+}
+
+HL_PRIM void HL_NAME(kernel_launch_graph_do_while_specialized)(qd_context *ctx, qd_kernel *kernel, int control_arg_id, varray *args, varray *specs) {
+  guard([&]() {
+    QdContextState &state = require_context(ctx);
+    ResolvedKernel resolved = resolve_kernel_for_launch(state, kernel, args, specs);
     LaunchContextBuilder launch_context = resolved.kernel->make_launch_context();
     configure_graph_do_while(kernel, control_arg_id, launch_context);
     set_kernel_launch_args(state, kernel, args, *resolved.kernel, launch_context);
@@ -3645,7 +4117,21 @@ HL_PRIM void HL_NAME(kernel_launch_graph_do_while)(qd_context *ctx, qd_kernel *k
 HL_PRIM void HL_NAME(kernel_launch_on)(qd_context *ctx, qd_kernel *kernel, qd_stream *stream, varray *args) {
   guard([&]() {
     QdContextState &state = require_context(ctx);
-    ResolvedKernel resolved = resolve_kernel_for_launch(state, kernel, args);
+    ResolvedKernel resolved = resolve_kernel_for_launch(state, kernel, args, nullptr);
+    qd_stream &stream_ref = require_stream(state, stream);
+    LaunchContextBuilder launch_context = resolved.kernel->make_launch_context();
+    set_kernel_launch_args(state, kernel, args, *resolved.kernel, launch_context);
+
+    BlockingSection blocking;
+    CurrentStreamScope current_stream(*state.program, stream_ref.stream_handle);
+    state.program->launch_kernel(*resolved.compiled_kernel_data, launch_context);
+  });
+}
+
+HL_PRIM void HL_NAME(kernel_launch_on_specialized)(qd_context *ctx, qd_kernel *kernel, qd_stream *stream, varray *args, varray *specs) {
+  guard([&]() {
+    QdContextState &state = require_context(ctx);
+    ResolvedKernel resolved = resolve_kernel_for_launch(state, kernel, args, specs);
     qd_stream &stream_ref = require_stream(state, stream);
     LaunchContextBuilder launch_context = resolved.kernel->make_launch_context();
     set_kernel_launch_args(state, kernel, args, *resolved.kernel, launch_context);
@@ -3659,7 +4145,28 @@ HL_PRIM void HL_NAME(kernel_launch_on)(qd_context *ctx, qd_kernel *kernel, qd_st
 HL_PRIM vdynamic *HL_NAME(kernel_launch_ret)(qd_context *ctx, qd_kernel *kernel, varray *args) {
   return guard([&]() -> vdynamic * {
     QdContextState &state = require_context(ctx);
-    ResolvedKernel resolved = resolve_kernel_for_launch(state, kernel, args);
+    ResolvedKernel resolved = resolve_kernel_for_launch(state, kernel, args, nullptr);
+    if (!kernel->has_return) {
+      throw std::runtime_error("Quadrants kernel has no return value");
+    }
+    const auto &return_dtypes = kernel->metadata->return_dtypes;
+    if (return_dtypes.size() != 1) {
+      throw std::runtime_error("Quadrants kernel returns multiple values; use launchRets");
+    }
+    LaunchContextBuilder launch_context = resolved.kernel->make_launch_context();
+    set_kernel_launch_args(state, kernel, args, *resolved.kernel, launch_context);
+
+    BlockingSection blocking;
+    state.program->launch_kernel(*resolved.compiled_kernel_data, launch_context);
+    state.program->synchronize_and_assert();
+    return make_dynamic_return(launch_context, return_dtypes.front(), 0);
+  });
+}
+
+HL_PRIM vdynamic *HL_NAME(kernel_launch_ret_specialized)(qd_context *ctx, qd_kernel *kernel, varray *args, varray *specs) {
+  return guard([&]() -> vdynamic * {
+    QdContextState &state = require_context(ctx);
+    ResolvedKernel resolved = resolve_kernel_for_launch(state, kernel, args, specs);
     if (!kernel->has_return) {
       throw std::runtime_error("Quadrants kernel has no return value");
     }
@@ -3680,7 +4187,24 @@ HL_PRIM vdynamic *HL_NAME(kernel_launch_ret)(qd_context *ctx, qd_kernel *kernel,
 HL_PRIM varray *HL_NAME(kernel_launch_rets)(qd_context *ctx, qd_kernel *kernel, varray *args) {
   return guard([&]() -> varray * {
     QdContextState &state = require_context(ctx);
-    ResolvedKernel resolved = resolve_kernel_for_launch(state, kernel, args);
+    ResolvedKernel resolved = resolve_kernel_for_launch(state, kernel, args, nullptr);
+    if (!kernel->has_return) {
+      throw std::runtime_error("Quadrants kernel has no return value");
+    }
+    LaunchContextBuilder launch_context = resolved.kernel->make_launch_context();
+    set_kernel_launch_args(state, kernel, args, *resolved.kernel, launch_context);
+
+    BlockingSection blocking;
+    state.program->launch_kernel(*resolved.compiled_kernel_data, launch_context);
+    state.program->synchronize_and_assert();
+    return make_dynamic_returns(launch_context, kernel->metadata->return_dtypes);
+  });
+}
+
+HL_PRIM varray *HL_NAME(kernel_launch_rets_specialized)(qd_context *ctx, qd_kernel *kernel, varray *args, varray *specs) {
+  return guard([&]() -> varray * {
+    QdContextState &state = require_context(ctx);
+    ResolvedKernel resolved = resolve_kernel_for_launch(state, kernel, args, specs);
     if (!kernel->has_return) {
       throw std::runtime_error("Quadrants kernel has no return value");
     }
@@ -3698,6 +4222,9 @@ HL_PRIM void HL_NAME(kernel_close)(qd_kernel *kernel) {
   guard([&]() { release_kernel_handle(kernel); });
 }
 
+DEFINE_PRIM(_I32, hashlink_hdll_abi_version, _NO_ARG);
+DEFINE_PRIM(_I32, hashlink_runtime_abi_version, _NO_ARG);
+DEFINE_PRIM(_I32, hashlink_descriptor_schema_version, _NO_ARG);
 DEFINE_PRIM(_VOID, runtime_set_lib_dir, _BYTES);
 
 DEFINE_PRIM(_QD_CONTEXT, context_create, _I32);
@@ -3758,6 +4285,9 @@ DEFINE_PRIM(_VOID, sparse_solver_solve_f32, _QD_CONTEXT _QD_SPARSE_SOLVER _QD_SP
 DEFINE_PRIM(_VOID, sparse_solver_solve_f64, _QD_CONTEXT _QD_SPARSE_SOLVER _QD_SPARSE_MATRIX _QD_NDARRAY _QD_NDARRAY);
 DEFINE_PRIM(_I32, sparse_cg_solve_f32, _QD_CONTEXT _QD_SPARSE_MATRIX _QD_NDARRAY _QD_NDARRAY _I32 _F64);
 DEFINE_PRIM(_I32, sparse_cg_solve_f64, _QD_CONTEXT _QD_SPARSE_MATRIX _QD_NDARRAY _QD_NDARRAY _I32 _F64);
+
+DEFINE_PRIM(_QD_MESH_RELATION, mesh_relation_create, _QD_CONTEXT _I32 _I32 _ARR _ARR _ARR _I32 _I32 _I32 _I32 _I32);
+DEFINE_PRIM(_VOID, mesh_relation_close, _QD_MESH_RELATION);
 
 DEFINE_PRIM(_QD_NDARRAY, ndarray_create, _QD_CONTEXT _I32 _ARR);
 DEFINE_PRIM(_QD_NDARRAY, ndarray_import_dlpack, _QD_CONTEXT _I32 _I64);
@@ -3828,8 +4358,9 @@ DEFINE_PRIM(_I64, dlpack_data_pointer, _I64);
 DEFINE_PRIM(_QD_SNODE_TREE, snode_tree_create, _QD_CONTEXT);
 DEFINE_PRIM(_I32, snode_tree_root_id, _QD_SNODE_TREE);
 DEFINE_PRIM(_I32, snode_tree_child, _QD_SNODE_TREE _I32 _I32 _ARR _ARR _I32);
+DEFINE_PRIM(_I32, snode_tree_bit_struct_quant_child, _QD_SNODE_TREE _I32 _I32 _I32 _I32 _I32 _I32 _I32 _I32 _F64 _I32);
 DEFINE_PRIM(_I32, snode_tree_place, _QD_SNODE_TREE _I32 _I32 _BYTES);
-DEFINE_PRIM(_I32, snode_tree_place_quant, _QD_SNODE_TREE _I32 _I32 _I32 _I32 _I32 _I32 _F64 _BYTES);
+DEFINE_PRIM(_I32, snode_tree_place_quant, _QD_SNODE_TREE _I32 _I32 _I32 _I32 _I32 _I32 _I32 _I32 _F64 _BYTES);
 DEFINE_PRIM(_I32, snode_tree_commit, _QD_CONTEXT _QD_SNODE_TREE);
 DEFINE_PRIM(_VOID, snode_tree_close, _QD_SNODE_TREE);
 DEFINE_PRIM(_I32, snode_read_i8, _QD_CONTEXT _I32 _ARR);
@@ -3874,9 +4405,15 @@ DEFINE_PRIM(_VOID, snode_register_adjoint, _QD_CONTEXT _I32 _I32);
 DEFINE_PRIM(_VOID, snode_register_dual, _QD_CONTEXT _I32 _I32);
 DEFINE_PRIM(_QD_KERNEL, kernel_compile, _QD_CONTEXT _BYTES _I32 _I32);
 DEFINE_PRIM(_VOID, kernel_launch, _QD_CONTEXT _QD_KERNEL _ARR);
+DEFINE_PRIM(_VOID, kernel_launch_specialized, _QD_CONTEXT _QD_KERNEL _ARR _ARR);
 DEFINE_PRIM(_VOID, kernel_launch_on, _QD_CONTEXT _QD_KERNEL _QD_STREAM _ARR);
+DEFINE_PRIM(_VOID, kernel_launch_on_specialized, _QD_CONTEXT _QD_KERNEL _QD_STREAM _ARR _ARR);
 DEFINE_PRIM(_VOID, kernel_launch_graph, _QD_CONTEXT _QD_KERNEL _ARR);
+DEFINE_PRIM(_VOID, kernel_launch_graph_specialized, _QD_CONTEXT _QD_KERNEL _ARR _ARR);
 DEFINE_PRIM(_VOID, kernel_launch_graph_do_while, _QD_CONTEXT _QD_KERNEL _I32 _ARR);
+DEFINE_PRIM(_VOID, kernel_launch_graph_do_while_specialized, _QD_CONTEXT _QD_KERNEL _I32 _ARR _ARR);
 DEFINE_PRIM(_DYN, kernel_launch_ret, _QD_CONTEXT _QD_KERNEL _ARR);
+DEFINE_PRIM(_DYN, kernel_launch_ret_specialized, _QD_CONTEXT _QD_KERNEL _ARR _ARR);
 DEFINE_PRIM(_ARR, kernel_launch_rets, _QD_CONTEXT _QD_KERNEL _ARR);
+DEFINE_PRIM(_ARR, kernel_launch_rets_specialized, _QD_CONTEXT _QD_KERNEL _ARR _ARR);
 DEFINE_PRIM(_VOID, kernel_close, _QD_KERNEL);

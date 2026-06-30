@@ -249,13 +249,13 @@ class GradCheck {
 
         input.write(index, original + step);
         prepareLoss(loss, initialLoss, resetLoss);
-        kernel.launch(...args);
+        kernel.raw().launchDynamic(args);
         input.context.sync();
         var plus = loss.read();
 
         input.write(index, original - step);
         prepareLoss(loss, initialLoss, resetLoss);
-        kernel.launch(...args);
+        kernel.raw().launchDynamic(args);
         input.context.sync();
         var minus = loss.read();
 
@@ -284,7 +284,7 @@ class GradCheck {
 
     restoreInputs(inputs, originalInputs);
     prepareLoss(loss, initialLoss, resetLoss);
-    kernel.launch(...args);
+    kernel.raw().launchDynamic(args);
     loss.context.sync();
 
     return new GradCheckResult(failureCount == 0,
@@ -344,15 +344,15 @@ class GradCheck {
     }
     loss.enableGrad();
     prepareLoss(loss, initialLoss, resetLoss);
-    kernel.launch(...args);
+    kernel.raw().launchDynamic(args);
     loss.context.sync();
 
     zeroGradArgs(args);
     loss.seedGrad(1.0);
 
-    var gradKernel = kernel.grad();
+    var gradKernel = kernel.raw().grad();
     try {
-      gradKernel.launch(...args);
+      gradKernel.launchDynamic(args);
       loss.context.sync();
     } catch (e:Dynamic) {
       gradKernel.close();

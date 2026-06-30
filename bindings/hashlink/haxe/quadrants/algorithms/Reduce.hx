@@ -190,7 +190,7 @@ class Reduce {
   }
 
   static function reduceAddI32(input:Tensor<I32>, output:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<I32>, output:Tensor<I32>, n:Int) -> {
         var acc:I32 = 0;
@@ -208,7 +208,7 @@ class Reduce {
   }
 
   static function reduceAddU32(input:Tensor<U32>, output:Tensor<U32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<U32>, output:Tensor<U32>, n:Int) -> {
         var acc:U32 = 0;
@@ -226,7 +226,7 @@ class Reduce {
   }
 
   static function reduceAddI64(input:Tensor<I64>, output:Tensor<I64>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<I64>, output:Tensor<I64>, n:Int) -> {
         var acc:I64 = 0;
@@ -244,7 +244,7 @@ class Reduce {
   }
 
   static function reduceAddU64(input:Tensor<U64>, output:Tensor<U64>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<U64>, output:Tensor<U64>, n:Int) -> {
         var acc:U64 = 0;
@@ -262,7 +262,7 @@ class Reduce {
   }
 
   static function reduceAddF32(input:Tensor<F32>, output:Tensor<F32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<F32>, output:Tensor<F32>, n:Int) -> {
         var acc:F32 = 0.0;
@@ -280,7 +280,7 @@ class Reduce {
   }
 
   static function reduceAddF64(input:Tensor<F64>, output:Tensor<F64>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<F64>, output:Tensor<F64>, n:Int) -> {
         var acc:F64 = 0.0;
@@ -298,7 +298,7 @@ class Reduce {
   }
 
   static function reduceMinI32(input:Tensor<I32>, output:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<I32>, output:Tensor<I32>, n:Int) -> {
         var acc:I32 = input[0];
@@ -318,7 +318,7 @@ class Reduce {
   }
 
   static function reduceMinU32(input:Tensor<U32>, output:Tensor<U32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<U32>, output:Tensor<U32>, n:Int) -> {
         var acc:U32 = input[0];
@@ -338,7 +338,7 @@ class Reduce {
   }
 
   static function reduceMinI64(input:Tensor<I64>, output:Tensor<I64>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<I64>, output:Tensor<I64>, n:Int) -> {
         var acc:I64 = input[0];
@@ -358,7 +358,7 @@ class Reduce {
   }
 
   static function reduceMinU64(input:Tensor<U64>, output:Tensor<U64>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<U64>, output:Tensor<U64>, n:Int) -> {
         var acc:U64 = input[0];
@@ -378,7 +378,7 @@ class Reduce {
   }
 
   static function reduceMinF32(input:Tensor<F32>, output:Tensor<F32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<F32>, output:Tensor<F32>, n:Int) -> {
         var acc:F32 = input[0];
@@ -398,7 +398,7 @@ class Reduce {
   }
 
   static function reduceMinF64(input:Tensor<F64>, output:Tensor<F64>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<F64>, output:Tensor<F64>, n:Int) -> {
         var acc:F64 = input[0];
@@ -418,7 +418,7 @@ class Reduce {
   }
 
   static function reduceMaxI32(input:Tensor<I32>, output:Tensor<I32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<I32>, output:Tensor<I32>, n:Int) -> {
         var acc:I32 = input[0];
@@ -438,7 +438,7 @@ class Reduce {
   }
 
   static function reduceMaxU32(input:Tensor<U32>, output:Tensor<U32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<U32>, output:Tensor<U32>, n:Int) -> {
         var acc:U32 = input[0];
@@ -458,7 +458,7 @@ class Reduce {
   }
 
   static function reduceMaxI64(input:Tensor<I64>, output:Tensor<I64>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<I64>, output:Tensor<I64>, n:Int) -> {
         var acc:I64 = input[0];
@@ -478,7 +478,7 @@ class Reduce {
   }
 
   static function reduceMaxU64(input:Tensor<U64>, output:Tensor<U64>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<U64>, output:Tensor<U64>, n:Int) -> {
         var acc:U64 = input[0];
@@ -498,7 +498,7 @@ class Reduce {
   }
 
   static function reduceMaxF32(input:Tensor<F32>, output:Tensor<F32>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<F32>, output:Tensor<F32>, n:Int) -> {
         var acc:F32 = input[0];
@@ -518,7 +518,7 @@ class Reduce {
   }
 
   static function reduceMaxF64(input:Tensor<F64>, output:Tensor<F64>, n:Int):Void {
-    var kernel:Kernel = null;
+    var kernel:Dynamic = null;
     try {
       kernel = Kernel.build(input.context, macro (input:Tensor<F64>, output:Tensor<F64>, n:Int) -> {
         var acc:F64 = input[0];
@@ -587,7 +587,7 @@ class Reduce {
     }
   }
 
-  static function closeKernel(kernel:Kernel):Void {
+  static function closeKernel(kernel:Dynamic):Void {
     if (kernel != null) {
       kernel.close();
     }

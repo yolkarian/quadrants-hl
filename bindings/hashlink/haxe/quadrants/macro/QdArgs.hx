@@ -100,6 +100,13 @@ class QdArgs {
     if (hasInstanceField(local, "ctx")) {
       statements.push(macro if (this.ctx != null) return this.ctx);
     }
+    for (member in members) {
+      if (member.resource || !isQdArgsComplexType(member.type, member.pos)) {
+        continue;
+      }
+      var access = fieldExpr({expr: EConst(CIdent("this")), pos: pos}, member.name, pos);
+      statements.push(macro if ($e{access} != null) return (cast $e{access}).__qdContext());
+    }
     statements.push(macro throw "Quadrants QdArgs instance has no resource or ctx field to provide a Context for @:kernel methods");
     return {
       name: "__qdContext",
@@ -189,13 +196,23 @@ class QdArgs {
     var cacheName = '__qd_${methodName}Kernel';
     var launchArgs = [macro this].concat([for (arg in fun.args) ({expr: EConst(CIdent(arg.name)), pos: pos} : Expr)]);
     var cacheAccess = fieldExpr({expr: EConst(CIdent("this")), pos: pos}, cacheName, pos);
-    var body = macro {
-      if ($e{cacheAccess} == null) {
-        $e{cacheAccess} = quadrants.Kernel.build(this.__qdContext(), $e{kernelFunction}, {name: $v{local.name + "." + methodName}});
-      }
-      $e{cacheAccess}.launch($a{launchArgs});
+    var returnType = fun.ret == null ? macro : Void : fun.ret;
+    var body = if (isVoidComplexType(returnType)) {
+      macro {
+        if ($e{cacheAccess} == null) {
+          $e{cacheAccess} = quadrants.Kernel.build(this.__qdContext(), $e{kernelFunction}, {name: $v{local.name + "." + methodName}});
+        }
+        $e{cacheAccess}.launch($a{launchArgs});
+      };
+    } else {
+      macro {
+        if ($e{cacheAccess} == null) {
+          $e{cacheAccess} = quadrants.Kernel.build(this.__qdContext(), $e{kernelFunction}, {name: $v{local.name + "." + methodName}});
+        }
+        return $e{cacheAccess}.launch($a{launchArgs});
+      };
     };
-    return FFun({args: fun.args, ret: fun.ret == null ? macro : Void : fun.ret, expr: body, params: fun.params});
+    return FFun({args: fun.args, ret: returnType, expr: body, params: fun.params});
   }
 
   static function rewriteKernelMethodBody(expr:Expr, dataNames:Map<String, Bool>, shadowed:Map<String, Bool>):Expr {
@@ -280,6 +297,18 @@ class QdArgs {
     return TPath({pack: local.pack, name: local.name, params: []});
   }
 
+  static function isVoidComplexType(type:ComplexType):Bool {
+    return switch (type) {
+      case TParent(inner): isVoidComplexType(inner);
+      case TPath(path): typePathName(path) == "Void" || typePathName(path) == "StdTypes.Void";
+      default: false;
+    };
+  }
+
+  static function typePathName(path:TypePath):String {
+    return (path.pack.length == 0 ? "" : path.pack.join(".") + ".") + path.name + (path.sub == null ? "" : "." + path.sub);
+  }
+
   static function fieldExpr(base:Expr, name:String, pos:Position):Expr {
     return {expr: EField(base, name), pos: pos};
   }
@@ -345,6 +374,10 @@ class QdArgs {
 
   static function isResourceComplexType(type:ComplexType, pos:Position):Bool {
     return isResourceType(Context.resolveType(type, pos));
+  }
+
+  static function isQdArgsComplexType(type:ComplexType, pos:Position):Bool {
+    return isQdArgsType(Context.resolveType(type, pos));
   }
 
   static function isResourceType(type:Type):Bool {

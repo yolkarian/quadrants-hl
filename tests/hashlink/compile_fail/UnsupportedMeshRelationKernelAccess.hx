@@ -1,4 +1,4 @@
-// EXPECT_ERROR: Unsupported Quadrants typed kernel dtype MeshRelation
+// EXPECT_ERROR: Quadrants MeshRelation.get(source, neighborIndex) expects two integer arguments in kernels
 import quadrants.Context;
 import quadrants.Kernel;
 import quadrants.Tensor;
@@ -12,7 +12,7 @@ class UnsupportedMeshRelationKernelAccess {
   static function main():Void {
     var ctx = new Context(Arch.Cpu);
     Kernel.build(ctx, macro (relation:MeshRelation<Vertex, Face>, out:Tensor<I32>) -> {
-      out[0] = 0;
+      out[0] = relation.get(0);
     });
   }
 }

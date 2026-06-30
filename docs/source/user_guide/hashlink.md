@@ -149,7 +149,7 @@ LD_LIBRARY_PATH="$QD_BUILD_DIR:${LD_LIBRARY_PATH:-}" \
 hl build/hashlink-smoke-buildtree.hl
 ```
 
-For the user-facing API surface and migration notes from the former Python binding, see [Haxe/HashLink public API](haxe_api.md). For accepted kernel syntax, see [Haxe kernel language](kernel_language.md).
+For the recommended typed API and migration notes from the former Python binding, see [Haxe/HashLink API v3](haxe_api_v3.md) and [Haxe v2 to v3 migration](haxe_migration_v2_to_v3.md). For accepted kernel syntax, see [Haxe kernels v3](haxe_kernel_v3.md) and [Haxe kernel language](kernel_language.md).
 
 ## Minimal API
 
@@ -160,7 +160,7 @@ import quadrants.Tensor;
 import quadrants.Types.Arch;
 import quadrants.Types.I32;
 
-var ctx = new Context(Arch.Cpu);
+var ctx = Context.create({arch: Arch.Cpu});
 var a = new Tensor<I32>(ctx, [16]);
 var b = new Tensor<I32>(ctx, [16]);
 var out = new Tensor<I32>(ctx, [16]);
@@ -170,7 +170,7 @@ for (i in 0...16) {
   b.write(i, 100 - i);
 }
 
-final k = Kernel.build(ctx, macro (a, b, out, n) -> {
+final k = Kernel.build(ctx, macro (a:Tensor<I32>, b:Tensor<I32>, out:Tensor<I32>, n:Int) -> {
   for (i in 0...n) {
     out[i] = a[i] + b[i];
   }
@@ -204,7 +204,7 @@ The current Haxe macro supports:
 - Random scalar calls: `randI32()`, `randU32()`, `randF32()`, and `randF64()`.
 - Explicit casts and `bitCast` to supported primitive scalar types.
 - `print(...)` and `assert(...)` frontend statements.
-- Primitive scalar return values via `Kernel.launchRet(args...)`.
+- Primitive scalar return values via the typed wrapper return value, e.g. `var value = k.launch(args...)`.
 - Autodiff descriptor rebuild helpers (`Kernel.grad()`, `forwardGrad()`, `validationKernel()`) and `Tape` replay for recorded launches.
 - Typed `Ndrange.ofN` domains, `shape(tensor, axis)`, loop hints (`blockDim`, `parallelize`, `serialize`), `@:qdFunc` helper calls, `Grid.threadIdx()`, and `Block`/`Subgroup`/`Workgroup` SIMT helpers inside lowered loops.
 - Template specialization through `Template.build(DType.I32, ctx, macro (...:Tensor<TemplateDType>, ...) -> { ... })`.

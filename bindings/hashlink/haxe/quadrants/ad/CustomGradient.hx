@@ -1,6 +1,6 @@
 package quadrants.ad;
 
-import quadrants.Kernel;
+import quadrants.KernelRaw;
 import quadrants.kernel.QKernel;
 
 typedef CustomGradientOptions = {
@@ -10,10 +10,10 @@ typedef CustomGradientOptions = {
 }
 
 class CustomGradient {
-  public final forward:Kernel;
-  public final backward:Kernel;
-  public final forwardGrad:Null<Kernel>;
-  public final validate:Null<Kernel>;
+  public final forward:QKernel;
+  public final backward:QKernel;
+  public final forwardGrad:Null<QKernel>;
+  public final validate:Null<QKernel>;
 
   public function new(forward:QKernel, backward:QKernel, ?forwardGrad:QKernel, ?validate:QKernel) {
     if (forward == null) {
@@ -22,10 +22,10 @@ class CustomGradient {
     if (backward == null) {
       throw "Quadrants custom gradient requires a backward kernel";
     }
-    this.forward = forward.asKernel();
-    this.backward = backward.asKernel();
-    this.forwardGrad = forwardGrad == null ? null : forwardGrad.asKernel();
-    this.validate = validate == null ? null : validate.asKernel();
+    this.forward = forward;
+    this.backward = backward;
+    this.forwardGrad = forwardGrad;
+    this.validate = validate;
   }
 
   public static function register(forward:QKernel, options:CustomGradientOptions):CustomGradient {
@@ -33,5 +33,21 @@ class CustomGradient {
       throw "Quadrants CustomGradient.register requires options";
     }
     return new CustomGradient(forward, options.backward, options.forwardGrad, options.validation);
+  }
+
+  @:noCompletion public inline function forwardRaw():KernelRaw {
+    return forward.raw();
+  }
+
+  @:noCompletion public inline function backwardRaw():KernelRaw {
+    return backward.raw();
+  }
+
+  @:noCompletion public inline function forwardGradRaw():Null<KernelRaw> {
+    return forwardGrad == null ? null : forwardGrad.raw();
+  }
+
+  @:noCompletion public inline function validationRaw():Null<KernelRaw> {
+    return validate == null ? null : validate.raw();
   }
 }

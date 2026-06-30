@@ -31,6 +31,10 @@ class MeshAttribute<Element, Value> {
     storage.write(element.index, value);
   }
 
+  @:noCompletion public inline function __qdAttributeStorage():Field<Value> {
+    return storage;
+  }
+
   function requireElement(element:MeshElement<Element>):Void {
     if (element == null || element.mesh != mesh || element.kind != kind) {
       throw "Quadrants mesh attribute element mismatch";
