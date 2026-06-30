@@ -6,7 +6,6 @@ import quadrants.Types.F32;
 import quadrants.Types.F64;
 import quadrants.Types.I32;
 import quadrants.Types.U32;
-import quadrants.packed.PackedMatrixField;
 
 class MatrixField<T> implements TensorHandle {
   public final storage:Field<T>;
@@ -61,13 +60,6 @@ class MatrixField<T> implements TensorHandle {
     return new MatrixField<T>(storage, rows, cols);
   }
 
-  public static function fromPacked<T>(packed:PackedMatrixField<T>):MatrixField<T> {
-    return new MatrixField<T>(packed.storage, packed.rows, packed.cols);
-  }
-
-  public function toPacked():PackedMatrixField<T> {
-    return PackedMatrixField.fromField(storage, rows, cols);
-  }
 
   inline function requireShape(expectedRows:Int, expectedCols:Int):Void {
     if (rows != expectedRows || cols != expectedCols) {

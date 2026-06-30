@@ -1,6 +1,6 @@
 # HashLink public Dynamic boundary ledger
 
-HashLink treats `Dynamic` as an interop boundary, not a normal public API design tool. Public APIs that can express dtype or storage-kind relationships use typed generics (`Tensor<T>`, `Field<T>`, `VectorNdarray<T>`, `MatrixNdarray<T>`, `VectorField<T>`, `MatrixField<T>`, `StructMember<T>`).
+HashLink treats `Dynamic` as an interop boundary, not a normal public API design tool. Public APIs that can express dtype or storage-kind relationships use typed generics (`Tensor<T>`, `Field<T>`, `VectorNdarray<T>`, `MatrixNdarray<T>`, `VectorField<T>`, `MatrixField<T>`, `StructTensor<S>`, `StructField<S>`).
 
 | API surface | Classification | Retention reason |
 | --- | --- | --- |
@@ -16,7 +16,6 @@ HashLink treats `Dynamic` as an interop boundary, not a normal public API design
 | `Struct.ofN(...)` kernel-only marker return values | Permanent macro boundary | These values are compile-time DSL markers consumed by `KernelBuilder`, not runtime data APIs. |
 | Descriptor macro builders (`TypeTableBuilder`, `ArgTableBuilder`, `ResourceTableBuilder`, `StructTableBuilder`, `DescriptorWriter`) | Permanent macro boundary | Build macros assemble normalized descriptor metadata as anonymous JSON-like objects; the data does not cross the user runtime API as typed resources. |
 | `StructTensor.__create(...)` and `StructTensor.descriptorResource()` | Internal/descriptor boundary | QdStruct allocation passes generated schema metadata and descriptor-resource snapshots through JSON-like values. User-facing member access remains typed by dtype-specific tensors where possible. |
-| `StructField.add/member/read/write`, `StructOfArraysField.add/member/read/write`, `PackedStructTensor.add/member/read/write` | Compatibility shim | String-keyed heterogeneous struct containers erase member types. New code should use `StructMember<T>` plus `addMember`, `memberBy`, `readMember`, and `writeMember` or dtype-specific member tensors/fields. |
 | `Grad.zeroGrad`, `zeroDual`, `clearAllGradients` | Compatibility shim | These preserve heterogeneous tensor/field utility calls. New code can use `zeroTensorGrad`, `zeroFieldGrad`, `zeroTensorDual`, and `zeroFieldDual`. |
 | `FieldTree.lazyGrad/lazyDual/lazyGrads/lazyDuals` and `FieldPlacementPath.lazyGrad/lazyDual` | Compatibility shim | These preserve heterogeneous field-tree helpers. New code can use `lazyFieldGrad`, `lazyFieldDual`, `lazyFieldGrads`, and `lazyFieldDuals`. |
 
@@ -27,8 +26,6 @@ Removed public `Dynamic` surfaces:
 - Algorithms now type input/output dtype relationships with `Tensor<T>`.
 - `PrefixSumExecutor` scan methods now type input/output dtype relationships with `Tensor<T>`.
 - Vector/matrix ndarray and field wrappers now store `Tensor<T>` or `Field<T>` instead of `Dynamic`.
-- Packed vector/matrix wrappers now store `Tensor<T>` or `Field<T>` instead of `Dynamic`.
-- `PackedHelpers.writeMat2I32/F32` now accept typed `Matrix<I32/F32>` values.
 - `TensorRuntime` and `FieldRuntime` peer storage fields now use `TensorHandle`, `FieldRuntime`, or `TensorHandle` instead of public `Dynamic`.
 - `Ndrange.of(...)` and `Ndrange.ranges(...)` compatibility markers now return the typed `NdrangeDomain` marker instead of `Dynamic`; the preferred APIs remain `of1`/`of2`/`of3`/`of4` and `ranges1`/`ranges2`/`ranges3`/`ranges4`.
 

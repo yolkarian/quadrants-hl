@@ -22,9 +22,6 @@ bindings/hashlink/haxe/quadrants/macro/TypeTableBuilder.hx:
 bindings/hashlink/haxe/quadrants/kernel/ArgBuffer.hx:
 bindings/hashlink/haxe/quadrants/kernel/ArgEncoding.hx:
 bindings/hashlink/haxe/quadrants/kernel/ReturnDecoder.hx:
-bindings/hashlink/haxe/quadrants/packed/Helpers.hx:
-bindings/hashlink/haxe/quadrants/packed/PackedStructTensor.hx:
-bindings/hashlink/haxe/quadrants/packed/StructOfArraysField.hx:
 bindings/hashlink/haxe/quadrants/simt/Helpers.hx:
 bindings/hashlink/haxe/quadrants/snode/FieldPlacementPath.hx:
 bindings/hashlink/haxe/quadrants/snode/FieldTree.hx:

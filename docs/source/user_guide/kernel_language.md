@@ -102,7 +102,6 @@ Kernel parameters may not be shadowed by locals. Re-declaring the same local nam
 - Struct locals from `Struct.ofN("field", value, ...)` or object literals such as `{mass: value, velocity: value + 1}`, with scalar/nested struct fields, field reads, and field assignment/compound assignment.
 - `Grid.threadIdx()` returns the backend linear thread index for the current lowered loop.
 - SIMT helpers: `Block.threadIdx()`, `Block.barrierAnd(value)`, `Block.barrierOr(value)`, `Block.barrierCount(value)`, `Subgroup.size()`, `Subgroup.invocationId()`, `Subgroup.elect()`, `Subgroup.shuffle(value, lane)`, `Subgroup.shuffleUp(value, delta)`, `Subgroup.shuffleDown(value, delta)`, `Subgroup.broadcast(value, lane)`, `Workgroup.localInvocationId()`, `Workgroup.globalInvocationId()`, `Grid.activeMask()`, and `Grid.vkGlobalThreadIdx()`. `quadrants.simt` adds typed block reductions/scans, `SubgroupCompat.shuffleXor*/broadcastFirst*/laneMask*`, and explicit tile qdFuncs for 16x16/32x32 F32/F64 flat tile storage.
-- Packed workaround helper calls from `quadrants.packed.PackedHelpers` for flat primitive storage: `readVec2/3/4I32/F32`, `writeVec2/3/4I32/F32`, `readMat2I32/F32`, `readMat3I32`, `readMat4I32`, and `readMember*/writeMember*` lower to scalar tensor loads/stores and produce normal vector/matrix/scalar kernel locals.
 
 ## Dtypes in annotations and casts
 

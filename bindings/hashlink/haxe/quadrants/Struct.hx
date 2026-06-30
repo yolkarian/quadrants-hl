@@ -9,22 +9,6 @@ class Struct {
     return quadrants.macro.StructMacro.decodeSchema(schemaExpr, valuesExpr);
   }
 
-  public static inline function value1<T0>(member0:StructMember<T0>, value0:T0):StructValue1<T0> {
-    return new StructValue1(member0, value0);
-  }
-
-  public static inline function value2<T0, T1>(member0:StructMember<T0>, value0:T0, member1:StructMember<T1>, value1:T1):StructValue2<T0, T1> {
-    return new StructValue2(member0, value0, member1, value1);
-  }
-
-  public static inline function value3<T0, T1, T2>(member0:StructMember<T0>, value0:T0, member1:StructMember<T1>, value1:T1, member2:StructMember<T2>, value2:T2):StructValue3<T0, T1, T2> {
-    return new StructValue3(member0, value0, member1, value1, member2, value2);
-  }
-
-  public static inline function value4<T0, T1, T2, T3>(member0:StructMember<T0>, value0:T0, member1:StructMember<T1>, value1:T1, member2:StructMember<T2>, value2:T2, member3:StructMember<T3>, value3:T3):StructValue4<T0, T1, T2, T3> {
-    return new StructValue4(member0, value0, member1, value1, member2, value2, member3, value3);
-  }
-
   public static function of1(name0:String, value0:Dynamic):Dynamic {
     throw "Quadrants Struct.of1 is a kernel-only construct";
   }

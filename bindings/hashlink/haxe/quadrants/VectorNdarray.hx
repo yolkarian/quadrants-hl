@@ -6,7 +6,6 @@ import quadrants.Types.F32;
 import quadrants.Types.F64;
 import quadrants.Types.I32;
 import quadrants.Types.U32;
-import quadrants.packed.PackedVectorTensor;
 
 class VectorNdarray<T> implements TensorHandle {
   public final storage:Tensor<T>;
@@ -58,13 +57,6 @@ class VectorNdarray<T> implements TensorHandle {
     return new VectorNdarray<T>(storage, components);
   }
 
-  public static function fromPacked<T>(packed:PackedVectorTensor<T>):VectorNdarray<T> {
-    return new VectorNdarray<T>(packed.storage, packed.components);
-  }
-
-  public function toPacked():PackedVectorTensor<T> {
-    return PackedVectorTensor.fromTensor(storage, components);
-  }
 
   inline function requireComponents(expected:Int):Void {
     if (components != expected) {

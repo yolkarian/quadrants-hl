@@ -6,7 +6,6 @@ import quadrants.Types.F32;
 import quadrants.Types.F64;
 import quadrants.Types.I32;
 import quadrants.Types.U32;
-import quadrants.packed.PackedVectorField;
 
 class VectorField<T> implements TensorHandle {
   public final storage:Field<T>;
@@ -58,13 +57,6 @@ class VectorField<T> implements TensorHandle {
     return new VectorField<T>(storage, components);
   }
 
-  public static function fromPacked<T>(packed:PackedVectorField<T>):VectorField<T> {
-    return new VectorField<T>(packed.storage, packed.components);
-  }
-
-  public function toPacked():PackedVectorField<T> {
-    return PackedVectorField.fromField(storage, components);
-  }
 
   inline function requireComponents(expected:Int):Void {
     if (components != expected) {
