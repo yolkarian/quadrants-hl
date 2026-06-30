@@ -13,7 +13,7 @@ class FieldRuntime implements TensorHandle {
   public var tensor:TensorHandle = null;
   public var gradField:FieldRuntime = null;
   public var dualField:FieldRuntime = null;
-  public var ownsTensor:Bool = false;
+  var ownsTensor:Bool = false;
   public var snodeId(default, null):Int = -1;
   public var snodeTreeId(default, null):Int = -1;
   public var closed:Bool = false;

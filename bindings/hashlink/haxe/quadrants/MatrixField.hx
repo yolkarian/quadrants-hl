@@ -151,16 +151,6 @@ class MatrixField<T> implements TensorHandle {
     return new MatrixField<T>(storage.lazyDual(), rows, cols);
   }
 
-  public function syncBeforeKernel():Void {
-    field.syncSNodeToTensor();
-    field.syncAutodiffPeersToTensor();
-  }
-
-  public function syncAfterKernel():Void {
-    field.syncTensorToSNode();
-    field.syncAutodiffPeersFromTensor();
-  }
-
   public function nativeHandle():QNdarray {
     return field.nativeHandle();
   }

@@ -16,8 +16,7 @@ HashLink treats `Dynamic` as an interop boundary, not a normal public API design
 | `Struct.ofN(...)` kernel-only marker return values | Permanent macro boundary | These values are compile-time DSL markers consumed by `KernelBuilder`, not runtime data APIs. |
 | Descriptor macro builders (`TypeTableBuilder`, `ArgTableBuilder`, `ResourceTableBuilder`, `StructTableBuilder`, `DescriptorWriter`) | Permanent macro boundary | Build macros assemble normalized descriptor metadata as anonymous JSON-like objects; the data does not cross the user runtime API as typed resources. |
 | `StructTensor.__create(...)` and `StructTensor.descriptorResource()` | Internal/descriptor boundary | QdStruct allocation passes generated schema metadata and descriptor-resource snapshots through JSON-like values. User-facing member access remains typed by dtype-specific tensors where possible. |
-| `Grad.zeroGrad`, `zeroDual`, `clearAllGradients` | Compatibility shim | These preserve heterogeneous tensor/field utility calls. New code can use `zeroTensorGrad`, `zeroFieldGrad`, `zeroTensorDual`, and `zeroFieldDual`. |
-| `FieldTree.lazyGrad/lazyDual/lazyGrads/lazyDuals` and `FieldPlacementPath.lazyGrad/lazyDual` | Compatibility shim | These preserve heterogeneous field-tree helpers. New code can use `lazyFieldGrad`, `lazyFieldDual`, `lazyFieldGrads`, and `lazyFieldDuals`. |
+| `Grad.zeroGrad`, `zeroDual`, `clearAllGradients` | Internal/diagnostic boundary | These operate on descriptor-validated tensor/field values in AD tooling. New user code should use `zeroTensorGrad`, `zeroFieldGrad`, `zeroTensorDual`, and `zeroFieldDual`. |
 
 Removed public `Dynamic` surfaces:
 

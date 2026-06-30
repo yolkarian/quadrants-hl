@@ -303,35 +303,6 @@ class KernelRaw {
     return nativeArray(flattened);
   }
 
-  function callOptionalSync(value:Dynamic, methodName:String):Void {
-    var method = Reflect.field(value, methodName);
-    if (method != null) {
-      Reflect.callMethod(value, method, []);
-    }
-  }
-
-  function syncFieldArgsToTensor(values:Array<Dynamic>):Void {
-    for (value in values) {
-      if (!Std.isOfType(value, FieldRuntime)) {
-        callOptionalSync(value, "syncBeforeKernel");
-      }
-    }
-  }
-
-  function syncFieldArgsFromTensor(values:Array<Dynamic>):Void {
-    var paramIndex = 0;
-    for (value in values) {
-      if (Std.isOfType(value, BufferView)) {
-        paramIndex += 3;
-      } else if (Std.isOfType(value, FieldRuntime)) {
-        paramIndex++;
-      } else {
-        callOptionalSync(value, "syncAfterKernel");
-        paramIndex++;
-      }
-    }
-  }
-
   function requireOpen():Void {
     if (closed) {
       throw "Quadrants kernel is closed";
@@ -458,46 +429,36 @@ class KernelRaw {
 
   function launchSpecialized(runtimeValues:Array<Dynamic>, specValues:Array<Dynamic>, coverageKind:String, graph:Bool):Void {
     requireOpen();
-    syncFieldArgsToTensor(runtimeValues);
     if (graph) {
       Native.kernel_launch_graph_specialized(context.nativeHandle(), handle, nativeRuntimeArgs(runtimeValues), nativeArray(specValues));
     } else {
       Native.kernel_launch_specialized(context.nativeHandle(), handle, nativeRuntimeArgs(runtimeValues), nativeArray(specValues));
     }
-    syncFieldArgsFromTensor(runtimeValues);
     recordCoverageLaunch(coverageKind);
   }
 
   function launchOnSpecialized(stream:Stream, runtimeValues:Array<Dynamic>, specValues:Array<Dynamic>):Void {
     requireOpen();
-    syncFieldArgsToTensor(runtimeValues);
     Native.kernel_launch_on_specialized(context.nativeHandle(), handle, stream.nativeHandle(), nativeRuntimeArgs(runtimeValues), nativeArray(specValues));
-    syncFieldArgsFromTensor(runtimeValues);
     recordCoverageLaunch("launchOn");
   }
 
   function launchGraphDoWhileSpecialized(controlArgId:Int, runtimeValues:Array<Dynamic>, specValues:Array<Dynamic>):Void {
     requireOpen();
-    syncFieldArgsToTensor(runtimeValues);
     Native.kernel_launch_graph_do_while_specialized(context.nativeHandle(), handle, controlArgId, nativeRuntimeArgs(runtimeValues), nativeArray(specValues));
-    syncFieldArgsFromTensor(runtimeValues);
     recordCoverageLaunch("launchGraphDoWhile");
   }
 
   function launchRetSpecialized(runtimeValues:Array<Dynamic>, specValues:Array<Dynamic>):Dynamic {
     requireOpen();
-    syncFieldArgsToTensor(runtimeValues);
     var result = Native.kernel_launch_ret_specialized(context.nativeHandle(), handle, nativeRuntimeArgs(runtimeValues), nativeArray(specValues));
-    syncFieldArgsFromTensor(runtimeValues);
     recordCoverageLaunch("launchRet");
     return result;
   }
 
   function launchRetsSpecialized(runtimeValues:Array<Dynamic>, specValues:Array<Dynamic>):hl.NativeArray<Dynamic> {
     requireOpen();
-    syncFieldArgsToTensor(runtimeValues);
     var result = Native.kernel_launch_rets_specialized(context.nativeHandle(), handle, nativeRuntimeArgs(runtimeValues), nativeArray(specValues));
-    syncFieldArgsFromTensor(runtimeValues);
     recordCoverageLaunch("launchRets");
     return result;
   }

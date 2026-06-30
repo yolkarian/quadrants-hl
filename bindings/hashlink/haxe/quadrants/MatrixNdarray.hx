@@ -143,10 +143,6 @@ class MatrixNdarray<T> implements TensorHandle {
     }
   }
 
-  public function syncBeforeKernel():Void {}
-
-  public function syncAfterKernel():Void {}
-
   public function nativeHandle():QNdarray {
     return handle.nativeHandle();
   }

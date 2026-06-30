@@ -47,23 +47,6 @@ class FieldPlacementPath {
     }
   }
 
-  public function placeMany(fields:Array<FieldRuntime>):Void {
-    if (fields == null || fields.length == 0) {
-      throw "Quadrants field placement path requires at least one field";
-    }
-    for (field in fields) {
-      place(field);
-    }
-  }
-
-  public function lazyGrad(field:Dynamic):Dynamic {
-    return FieldTree.lazyGrad(field);
-  }
-
-  public function lazyDual(field:Dynamic):Dynamic {
-    return FieldTree.lazyDual(field);
-  }
-
   public function lazyFieldGrad<T>(field:Field<T>):Field<T> {
     return FieldTree.lazyFieldGrad(field);
   }

@@ -7,7 +7,6 @@ This page summarizes the stabilized Haxe/HashLink public surface after the typed
 | Class | APIs | Status | Migration policy |
 | --- | --- | --- | --- |
 | Final typed APIs | `Tensor<T>`, `Field<T>`, `StructTensor<S>`, `StructField<S>`, typed `quadrants.algorithms`, `quadrants.mesh` typed host handles, `quadrants.quant` descriptors | Recommended for new code | Source compatibility is subordinate to the v3 typed API and safety guarantees. |
-| Compatibility shims | String-keyed struct `add/member/read/write`, heterogeneous `Grad.zeroGrad` / `clearAllGradients`, heterogeneous `FieldTree.lazyGrad` helpers | Retained but not recommended | Do not add new examples using these when a typed alternative exists. Deprecation requires replacement examples and compile-fail coverage. |
 | Interop boundaries | internal raw launch arrays, typed-tape replay args, diagnostics/coverage/profiler JSON-like snapshots, CUDA/GL `glBuffer:Dynamic`, helper `Class<Dynamic>` lists | Permanent | These are documented in [HashLink public Dynamic boundaries](dynamic_boundaries.md) and are not considered normal API typing precedents. |
 
 ## Backend support matrix

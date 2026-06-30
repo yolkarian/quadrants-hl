@@ -67,7 +67,6 @@ typedef DebugOptions = {
   public var debugDumpPrintIrDebugInfo:Bool = false;
   public var debugLaunchEnabled:Null<Bool> = null;
   public var debugTimelineEnabled:Null<Bool> = null;
-  public var warnOnFieldMirrorFallbackEnabled:Null<Bool> = null;
   public var compileCfgOptimization:Null<Bool> = null;
   public var compileNumThreads:Null<Int> = null;
   public var compileOptLevel:Null<OptLevel> = null;
@@ -138,7 +137,6 @@ typedef DebugOptions = {
     clone.debugDumpPrintIrDebugInfo = debugDumpPrintIrDebugInfo;
     clone.debugLaunchEnabled = debugLaunchEnabled;
     clone.debugTimelineEnabled = debugTimelineEnabled;
-    clone.warnOnFieldMirrorFallbackEnabled = warnOnFieldMirrorFallbackEnabled;
     clone.compileCfgOptimization = compileCfgOptimization;
     clone.compileNumThreads = compileNumThreads;
     clone.compileOptLevel = compileOptLevel;
@@ -187,9 +185,6 @@ typedef DebugOptions = {
     }
     if (debugTimelineEnabled != null) {
       context.recordOptionWarning('ContextOptions.debug.timeline=${debugTimelineEnabled} is parsed but not yet applied by the HashLink bridge');
-    }
-    if (warnOnFieldMirrorFallbackEnabled != null) {
-      context.setWarnOnFieldMirrorFallback(warnOnFieldMirrorFallbackEnabled == true);
     }
     if (compileCfgOptimization != null) {
       context.recordOptionWarning('ContextOptions.compile.cfgOptimization=${compileCfgOptimization} is parsed but not yet applied by the HashLink bridge');

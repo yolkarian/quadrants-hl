@@ -68,10 +68,6 @@ class FieldsBuilder {
     return add(SNODE_DYNAMIC, axis, size, chunkSize);
   }
 
-  public function dynamic_(axis:Axis, size:Int, chunkSize:Int = DEFAULT_DYNAMIC_CHUNK_SIZE):FieldsBuilder {
-    return dynamicNode(axis, size, chunkSize);
-  }
-
   public function bitStruct(maxBits:Int):FieldsBuilder {
     ensureMutable();
     if (maxBits <= 0 || maxBits > 64) {
@@ -283,13 +279,6 @@ class FieldsBuilder {
   public function placeQuant<T>(field:Field<T>, spec:quadrants.quant.QuantStorageSpec<T>):Void {
     ensureMutable();
     path().placeQuant(field, spec);
-  }
-
-  public function placeMany(fields:Array<FieldRuntime>):quadrants.snode.FieldPlacementPath {
-    ensureMutable();
-    var result = path();
-    result.placeMany(fields);
-    return result;
   }
 
   public function destroy():Void {

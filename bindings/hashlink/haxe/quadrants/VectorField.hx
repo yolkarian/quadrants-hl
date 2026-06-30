@@ -146,16 +146,6 @@ class VectorField<T> implements TensorHandle {
     return new VectorField<T>(storage.lazyDual(), components);
   }
 
-  public function syncBeforeKernel():Void {
-    field.syncSNodeToTensor();
-    field.syncAutodiffPeersToTensor();
-  }
-
-  public function syncAfterKernel():Void {
-    field.syncTensorToSNode();
-    field.syncAutodiffPeersFromTensor();
-  }
-
   public function nativeHandle():QNdarray {
     return field.nativeHandle();
   }

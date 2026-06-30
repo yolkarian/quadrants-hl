@@ -128,7 +128,6 @@ class Diagnostics {
         elementCount: field.shape == null || field.closed ? 0 : field.elementCount(),
         hasGradStorage: field.gradField != null,
         hasDualStorage: field.dualField != null,
-        ownsTensor: field.ownsTensor,
         snodeId: field.snodeId,
         snodeTreeId: field.snodeTreeId,
         contextArch: archName(field.context.arch)
