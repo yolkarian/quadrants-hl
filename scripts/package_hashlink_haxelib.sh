@@ -243,6 +243,62 @@ validate_rocm_runtime_dir() {
   fi
 }
 
+validate_staged_package_layout() {
+  local dir=$1
+  [[ -f "$dir/haxelib.json" ]] || fail "staged package is missing haxelib.json"
+  grep -q '"classPath"[[:space:]]*:[[:space:]]*"haxe"' "$dir/haxelib.json" || fail "staged haxelib.json must use classPath haxe"
+  grep -q '"version"[[:space:]]*:' "$dir/haxelib.json" || fail "staged haxelib.json is missing version"
+  [[ -d "$dir/haxe/quadrants" ]] || fail "staged package is missing haxe/quadrants/ sources"
+  [[ -f "$dir/haxe/quadrants/Native.hx" ]] || fail "staged package is missing haxe/quadrants/Native.hx"
+  [[ -f "$dir/haxe/quadrants/VersionInfo.hx" ]] || fail "staged package is missing haxe/quadrants/VersionInfo.hx"
+  [[ -f "$dir/quadrants.hdll" || -f "$dir/quadrants64.hdll" ]] || fail "staged package is missing quadrants.hdll"
+
+  local hdll_count
+  hdll_count=$(find "$dir" -maxdepth 1 -type f \( -name 'quadrants.hdll' -o -name 'quadrants64.hdll' \) | wc -l | tr -d '[:space:]')
+  [[ "$hdll_count" == "1" ]] || fail "staged package must contain exactly one quadrants hdll, found $hdll_count"
+
+  local hx_count
+  hx_count=$(find "$dir/haxe/quadrants" -type f -name '*.hx' | wc -l | tr -d '[:space:]')
+  [[ "$hx_count" != "0" ]] || fail "staged package contains no Haxe source files"
+
+  local stray
+  stray=$(find "$dir" -maxdepth 2 -type f \( -name 'PLAN*.md' -o -name 'DIFF.md' -o -name '*.patch' \) -print -quit)
+  [[ -z "$stray" ]] || fail "staged package contains non-release planning/diff file: $stray"
+
+  if [[ -d "$dir/runtime" ]]; then
+    validate_runtime_dir "$dir/runtime"
+  fi
+  if [[ -d "$dir/runtime_rocm70" ]]; then
+    validate_rocm_runtime_dir "$dir/runtime_rocm70"
+  fi
+}
+
+validate_zip_layout() {
+  local zip_file=$1
+  if ! command -v unzip >/dev/null 2>&1; then
+    log "Zip layout: skipped (unzip command not found)"
+    return 0
+  fi
+
+  local listing
+  listing=$(mktemp)
+  unzip -Z1 "$zip_file" > "$listing" || {
+    rm -f -- "$listing"
+    fail "could not inspect created zip: $zip_file"
+  }
+
+  grep -Fxq "haxelib.json" "$listing" || fail "created zip is missing haxelib.json"
+  grep -Fxq "haxe/quadrants/Native.hx" "$listing" || fail "created zip is missing haxe/quadrants/Native.hx"
+  if ! grep -Fxq "quadrants.hdll" "$listing" && ! grep -Fxq "quadrants64.hdll" "$listing"; then
+    fail "created zip is missing quadrants.hdll"
+  fi
+  if grep -Eq '(^|/)(PLAN[^/]*\.md|DIFF\.md|.*\.patch)$' "$listing"; then
+    fail "created zip contains planning/diff files"
+  fi
+  rm -f -- "$listing"
+  log "Zip layout: ok"
+}
+
 copy_top_level_files() {
   local src=$1
   local dst=$2
@@ -562,10 +618,7 @@ if [[ -n "$runtime_dir" ]]; then
   fi
 fi
 
-[[ -f "$stage_dir/haxelib.json" ]] || fail "staged package is missing haxelib.json"
-grep -q '"classPath"[[:space:]]*:[[:space:]]*"haxe"' "$stage_dir/haxelib.json" || fail "staged haxelib.json must use classPath haxe"
-[[ -d "$stage_dir/haxe/quadrants" ]] || fail "staged package is missing haxe/quadrants/ sources"
-[[ -f "$stage_dir/quadrants.hdll" || -f "$stage_dir/quadrants64.hdll" ]] || fail "staged package is missing quadrants.hdll"
+validate_staged_package_layout "$stage_dir"
 
 command -v zip >/dev/null 2>&1 || fail "zip command not found"
 rm -f -- "$out"
@@ -573,6 +626,7 @@ rm -f -- "$out"
   cd "$stage_dir"
   zip -qr "$out" .
 )
+validate_zip_layout "$out"
 
 log "Created: $out"
 if [[ "$keep_stage" -eq 1 ]]; then

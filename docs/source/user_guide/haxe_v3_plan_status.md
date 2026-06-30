@@ -10,8 +10,8 @@ The default HashLink v3 CTest suite passes in the current CPU build:
 
 ```text
 ctest --test-dir build/hashlink-cpu-clang --output-on-failure
-# hashlink_haxe_compile, haxe_v3_smoke, hashlink_macro_compile_fail,
-# hashlink_public_dynamic_scan: passed
+# hashlink_haxe_compile, haxe_v3_smoke, hashlink_descriptor_golden,
+# hashlink_macro_compile_fail, hashlink_public_dynamic_scan: passed
 ```
 
 Only v3 HashLink tests are registered by the default CTest integration; pre-v3 runtime suites are no longer exposed as a CMake compatibility gate.
@@ -31,11 +31,11 @@ Only v3 HashLink tests are registered by the default CTest integration; pre-v3 r
 | 8. Streams/events/graph | Complete | `Context.createStream`, `StreamEvent`, typed `launchOn`, typed graph control tensors on `QKernelN`, and `Graph.parallel` host composition exist. Stream-parallel marker APIs were removed; `graph.nativeDoWhile` is capability-gated and typed `launchGraphDoWhile` fails clearly when unsupported instead of falling back to host loops. | No Phase 8 blocker remains. | Stream/graph tests; `haxe_kernel_v3.md`. |
 | 9. Algorithms/per-thread linalg | Complete | `Algorithms.reduceAdd/reduceMin/exclusiveScanAdd/select/radixSort/radixSortPairs/reduceByKeyAdd`, `Scratch.create/reserve/clear`, and host semantic `Linalg.svd2/svd3/symEig2/symEig3/eig2/polar2/polar3/solve2/solve3/makeSpd` exist. Algorithm calls validate context/scratch ownership; unsupported native performance paths are optimization work, not a v3 API blocker. | No Phase 9 blocker remains. | v3 smoke covers `Scratch`, `reduceAdd`, `solve2`, `symEig2`, and `svd2`; algorithms/linalg tests cover current supported paths. |
 | 10. Sparse/Mesh/Quant | Complete | Sparse F32/F64 host-reference matrices/solvers with strict COO/CSR tensor validation, typed host mesh handles, static mesh-for lowering, mesh relation/attribute kernel access through canonical mesh resource descriptors, native SNode-backed mesh topology handles, field-backed mesh attributes, quant descriptors, int/fixed `quantArray(...).placeQuant(...)`, native `bitStruct(...).placeQuant(...)`, quant-float SNode placement, `QuantizedF32Tensor` kernel read/write parameters, sparse `buildFromTensor`, MatrixMarket write, and host matvec helpers exist. Native sparse backend and mesh index-conversion are explicit capabilities instead of silent fallback paths. | No Phase 10 blocker remains. | v3 smoke covers sparse bridge, mesh relation/attribute native topology, quantized kernel params, and quant-float bitStruct placement; sparse/mesh/quant runtime and compile-fail tests; `haxe_api_v3.md`, `haxe_capabilities.md`. |
-| 11. Profiler/diagnostics/release | Partial | Profiler query APIs, scoped trace-event recording, diagnostics dumps, coverage hooks, native/Haxe ABI self-check, version constants, haxelib metadata, and packaging script exist. | Memory profiler is capability-gated; release package layout validation is still limited. | Legacy profiler/diagnostics/release tests; `haxe_release_readiness.md`, `dynamic_boundaries.md`. |
+| 11. Profiler/diagnostics/release | Complete | Profiler query APIs, scoped trace-event recording, diagnostics dumps, coverage hooks, native/Haxe ABI self-check, version constants, haxelib metadata, explicit memory-profiler capability/status probes, and the haxelib packaging script exist. The packaging script validates staged source/native/runtime layout and final zip contents. | No Phase 11 blocker remains. | Profiler/diagnostics/release tests; `haxe_release_readiness.md`, `dynamic_boundaries.md`. |
 
 ## Current conclusion
 
-The repository now implements the v3 descriptor/resource and mesh-topology blockers that previously prevented the Haxe/HashLink binding from using canonical descriptor tables for native argument/resource semantics. Some broad release-readiness items remain capability-gated or intentionally low-performance (for example native sparse backend parity, stream-parallel backend lowering, and expanded golden snapshot coverage), so this page should still be read as a status ledger rather than a release declaration.
+The repository now implements all v3 plan phases in the default HashLink path. Backend-specific accelerators that are not available in the current native build are represented as explicit capabilities or validation errors rather than compatibility shims or silent fallbacks.
 
 For release gating, treat these as the minimum checks:
 
