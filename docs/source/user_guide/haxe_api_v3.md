@@ -51,9 +51,12 @@ final ptr = x.devicePointer();
 Device-wide algorithms are available through one flat facade:
 
 ```haxe
+final scratch = Scratch.create(ctx);
+scratch.reserve(4096);
 Algorithms.reduceAdd(ctx, input, output, scratch);
 Algorithms.exclusiveScanAdd(ctx, input, output, scratch);
 Algorithms.radixSort(ctx, keys, tmpKeys, scratch, {beginBit: 0, endBit: 32});
+scratch.clear();
 ```
 
 Per-thread linalg entrypoints live under `quadrants.funcs.Linalg` with explicit sizes (`svd2`, `svd3`, `solve2`, `solve3`, ...).

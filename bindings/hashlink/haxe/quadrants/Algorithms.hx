@@ -17,26 +17,31 @@ typedef RadixSortOptions = {
 class Algorithms {
   public static function reduceAdd<T>(ctx:Context, input:Tensor<T>, output:Tensor<T>, ?scratch:Scratch, ?n:Int = -1):Void {
     requireContext(ctx, input);
+    requireScratch(ctx, scratch);
     Reduce.deviceReduceAdd(input, output, n);
   }
 
   public static function reduceMin<T>(ctx:Context, input:Tensor<T>, output:Tensor<T>, ?scratch:Scratch, ?n:Int = -1):Void {
     requireContext(ctx, input);
+    requireScratch(ctx, scratch);
     Reduce.deviceReduceMin(input, output, n);
   }
 
   public static function exclusiveScanAdd<T>(ctx:Context, input:Tensor<T>, output:Tensor<T>, ?scratch:Scratch, ?n:Int = -1):Void {
     requireContext(ctx, input);
+    requireScratch(ctx, scratch);
     Scan.deviceExclusiveScanAdd(input, output, n);
   }
 
   public static function select<T>(ctx:Context, input:Tensor<T>, flags:Tensor<I32>, output:Tensor<T>, count:Tensor<I32>, ?scratch:Scratch, ?n:Int = -1):Void {
     requireContext(ctx, input);
+    requireScratch(ctx, scratch);
     Select.deviceSelect(input, flags, output, count, n);
   }
 
   public static function radixSort<T>(ctx:Context, keys:Tensor<T>, tmpKeys:Tensor<T>, ?scratch:Scratch, ?options:RadixSortOptions):Void {
     requireContext(ctx, keys);
+    requireScratch(ctx, scratch);
     Sort.deviceRadixSort(keys, tmpKeys, -1,
       options == null || options.ascending != false,
       options == null || options.beginBit == null ? 0 : options.beginBit,
@@ -51,6 +56,7 @@ class Algorithms {
       ?scratch:Scratch,
       ?options:RadixSortOptions):Void {
     requireContext(ctx, keys);
+    requireScratch(ctx, scratch);
     Sort.deviceRadixSortPairs(keys, values, tmpKeys, tmpValues, -1,
       options == null || options.ascending != false,
       options == null || options.beginBit == null ? 0 : options.beginBit,
@@ -66,6 +72,7 @@ class Algorithms {
       ?scratch:Scratch,
       ?n:Int = -1):Void {
     requireContext(ctx, keys);
+    requireScratch(ctx, scratch);
     ReduceByKey.deviceReduceByKeyAdd(keys, values, outKeys, outValues, count, n);
   }
 
@@ -76,6 +83,12 @@ class Algorithms {
     var runtime:TensorRuntime = cast tensor;
     if (runtime.context != ctx) {
       throw "Quadrants Algorithms tensor belongs to a different Context";
+    }
+  }
+
+  static function requireScratch(ctx:Context, scratch:Scratch):Void {
+    if (scratch != null && scratch.context != ctx) {
+      throw "Quadrants Algorithms scratch belongs to a different Context";
     }
   }
 }

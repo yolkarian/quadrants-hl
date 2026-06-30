@@ -6,17 +6,20 @@ import quadrants.Types.F32;
 import quadrants.Types.F64;
 import quadrants.Types.I32;
 import quadrants.Types.I64;
+import quadrants.Types.U8;
 import quadrants.Types.U32;
 import quadrants.Types.U64;
 
 class Scratch {
   public final context:Context;
+  var u8Tensor:Tensor<U8> = null;
   var i32Tensor:Tensor<I32> = null;
   var u32Tensor:Tensor<U32> = null;
   var i64Tensor:Tensor<I64> = null;
   var u64Tensor:Tensor<U64> = null;
   var f32Tensor:Tensor<F32> = null;
   var f64Tensor:Tensor<F64> = null;
+  var u8Capacity:Int = 0;
   var i32Capacity:Int = 0;
   var u32Capacity:Int = 0;
   var i64Capacity:Int = 0;
@@ -30,6 +33,26 @@ class Scratch {
       throw "Quadrants scratch context is required";
     }
     this.context = context;
+  }
+
+  public static function create(context:Context):Scratch {
+    return new Scratch(context);
+  }
+
+  public function reserve(bytes:Int):Void {
+    requireOpen();
+    var capacity = requestedCapacity(bytes);
+    if (u8Tensor == null || u8Capacity < capacity) {
+      if (u8Tensor != null) {
+        u8Tensor.close();
+      }
+      u8Tensor = new Tensor<U8>(context, [capacity]);
+      u8Capacity = capacity;
+    }
+  }
+
+  public function clear():Void {
+    reset();
   }
 
   public function i32(count:Int):Tensor<I32> {
@@ -136,6 +159,11 @@ class Scratch {
   }
 
   function closeOwnedTensors():Void {
+    if (u8Tensor != null) {
+      u8Tensor.close();
+      u8Tensor = null;
+      u8Capacity = 0;
+    }
     if (i32Tensor != null) {
       i32Tensor.close();
       i32Tensor = null;

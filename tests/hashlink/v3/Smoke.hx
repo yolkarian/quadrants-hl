@@ -14,6 +14,7 @@ import quadrants.Tape;
 import quadrants.Tensor;
 import quadrants.Vec3;
 import quadrants.Vector;
+import quadrants.algorithms.Scratch;
 import quadrants.funcs.Linalg;
 import quadrants.mesh.Edge;
 import quadrants.mesh.MeshAttribute;
@@ -83,7 +84,10 @@ class Smoke {
     add.launchTape(tape, x, y, Spec.of(4));
     if (tape.length != 1) throw "typed Tape launch did not record";
     var reduced = new Tensor<I32>(ctx, [1]);
-    Algorithms.reduceAdd(ctx, y, reduced);
+    var scratch = Scratch.create(ctx);
+    scratch.reserve(64);
+    scratch.clear();
+    Algorithms.reduceAdd(ctx, y, reduced, scratch);
     ctx.sync();
     if (reduced.read(0) != 10) throw 'Algorithms.reduceAdd failed: ${reduced.read(0)}';
 
