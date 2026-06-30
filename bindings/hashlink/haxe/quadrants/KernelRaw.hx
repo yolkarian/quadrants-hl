@@ -395,32 +395,32 @@ class KernelRaw {
     }
   }
 
-  public function launchDynamic(values:Array<Dynamic>):Void {
+  @:noCompletion public function launchDynamic(values:Array<Dynamic>):Void {
     var split = splitFullArgs(values);
     launchSpecialized(split.runtime, split.specs, graphLaunchByDefault ? "launchGraphDefault" : "launch", graphLaunchByDefault);
   }
 
-  public function launchRetDynamic(values:Array<Dynamic>):Dynamic {
+  @:noCompletion public function launchRetDynamic(values:Array<Dynamic>):Dynamic {
     var split = splitFullArgs(values);
     return launchRetSpecialized(split.runtime, split.specs);
   }
 
-  public function launchRetsDynamic(values:Array<Dynamic>):hl.NativeArray<Dynamic> {
+  @:noCompletion public function launchRetsDynamic(values:Array<Dynamic>):hl.NativeArray<Dynamic> {
     var split = splitFullArgs(values);
     return launchRetsSpecialized(split.runtime, split.specs);
   }
 
-  public function launchOnDynamic(stream:Stream, values:Array<Dynamic>):Void {
+  @:noCompletion public function launchOnDynamic(stream:Stream, values:Array<Dynamic>):Void {
     var split = splitFullArgs(values);
     launchOnSpecialized(stream, split.runtime, split.specs);
   }
 
-  public function launchGraphDynamic(values:Array<Dynamic>):Void {
+  @:noCompletion public function launchGraphDynamic(values:Array<Dynamic>):Void {
     var split = splitFullArgs(values);
     launchSpecialized(split.runtime, split.specs, "launchGraph", true);
   }
 
-  public function launchGraphWhileDynamic(controlArgId:Int, values:Array<Dynamic>):Void {
+  @:noCompletion public function launchGraphWhileDynamic(controlArgId:Int, values:Array<Dynamic>):Void {
     requireOpen();
     var control = requireGraphWhileControl(values, controlArgId);
     var split = splitFullArgs(values);
@@ -430,29 +430,29 @@ class KernelRaw {
     }
   }
 
-  public function launchGraphDoWhileDynamic(controlArgId:Int, values:Array<Dynamic>):Void {
+  @:noCompletion public function launchGraphDoWhileDynamic(controlArgId:Int, values:Array<Dynamic>):Void {
     var runtimeControlArgId = runtimeLaunchArgIdForFullValueIndex(values, controlArgId);
     var split = splitFullArgs(values);
     launchGraphDoWhileSpecialized(runtimeControlArgId, split.runtime, split.specs);
   }
 
-  public function launchBuffer(buf:ArgBuffer):Void {
+  @:noCompletion public function launchBuffer(buf:ArgBuffer):Void {
     launchSpecialized(buf.toArray(), buf.specArray(), graphLaunchByDefault ? "launchGraphDefault" : "launch", graphLaunchByDefault);
   }
 
-  public function launchOnBuffer(stream:Stream, buf:ArgBuffer):Void {
+  @:noCompletion public function launchOnBuffer(stream:Stream, buf:ArgBuffer):Void {
     launchOnSpecialized(stream, buf.toArray(), buf.specArray());
   }
 
-  public function launchGraphBuffer(buf:ArgBuffer):Void {
+  @:noCompletion public function launchGraphBuffer(buf:ArgBuffer):Void {
     launchSpecialized(buf.toArray(), buf.specArray(), "launchGraph", true);
   }
 
-  public function launchRetBuffer(buf:ArgBuffer):Dynamic {
+  @:noCompletion public function launchRetBuffer(buf:ArgBuffer):Dynamic {
     return launchRetSpecialized(buf.toArray(), buf.specArray());
   }
 
-  public function launchRetsBuffer(buf:ArgBuffer):hl.NativeArray<Dynamic> {
+  @:noCompletion public function launchRetsBuffer(buf:ArgBuffer):hl.NativeArray<Dynamic> {
     return launchRetsSpecialized(buf.toArray(), buf.specArray());
   }
 
