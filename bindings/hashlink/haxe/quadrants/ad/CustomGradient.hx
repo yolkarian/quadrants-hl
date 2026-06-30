@@ -1,6 +1,7 @@
 package quadrants.ad;
 
 import quadrants.KernelRaw;
+import quadrants.descriptor.Descriptor;
 import quadrants.kernel.QKernel;
 
 typedef CustomGradientOptions = {
@@ -22,6 +23,13 @@ class CustomGradient {
     if (backward == null) {
       throw "Quadrants custom gradient requires a backward kernel";
     }
+    validatePeerSchema(forward, backward, "backward");
+    if (forwardGrad != null) {
+      validatePeerSchema(forward, forwardGrad, "forwardGrad");
+    }
+    if (validate != null) {
+      validatePeerSchema(forward, validate, "validation");
+    }
     this.forward = forward;
     this.backward = backward;
     this.forwardGrad = forwardGrad;
@@ -33,6 +41,27 @@ class CustomGradient {
       throw "Quadrants CustomGradient.register requires options";
     }
     return new CustomGradient(forward, options.backward, options.forwardGrad, options.validation);
+  }
+
+  static function validatePeerSchema(forward:QKernel, peer:QKernel, role:String):Void {
+    if (peer == null) {
+      throw 'Quadrants custom gradient ${role} kernel is required';
+    }
+    var forwardMeta = Descriptor.fromKernel(forward);
+    var peerMeta = Descriptor.fromKernel(peer);
+    if (forwardMeta == null || peerMeta == null) {
+      throw 'Quadrants custom gradient ${role} kernel is missing descriptor metadata';
+    }
+    if (forwardMeta.args.length != peerMeta.args.length) {
+      throw 'Quadrants custom gradient ${role} kernel argument count mismatch';
+    }
+    for (i in 0...forwardMeta.args.length) {
+      var expected = forwardMeta.args[i];
+      var actual = peerMeta.args[i];
+      if (expected.kind != actual.kind || expected.role != actual.role) {
+        throw 'Quadrants custom gradient ${role} kernel argument ${i} kind mismatch';
+      }
+    }
   }
 
   @:noCompletion public inline function forwardRaw():KernelRaw {
