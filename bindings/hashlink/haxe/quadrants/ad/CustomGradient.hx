@@ -11,6 +11,8 @@ typedef CustomGradientOptions = {
 }
 
 class CustomGradient {
+  static final registry:Map<String, CustomGradient> = new Map();
+
   public final forward:QKernel;
   public final backward:QKernel;
   public final forwardGrad:Null<QKernel>;
@@ -40,7 +42,21 @@ class CustomGradient {
     if (options == null) {
       throw "Quadrants CustomGradient.register requires options";
     }
-    return new CustomGradient(forward, options.backward, options.forwardGrad, options.validation);
+    var custom = new CustomGradient(forward, options.backward, options.forwardGrad, options.validation);
+    registry.set(key(forward), custom);
+    return custom;
+  }
+
+  @:noCompletion public static function registeredFor(forward:QKernel):Null<CustomGradient> {
+    if (forward == null) {
+      return null;
+    }
+    return registry.get(key(forward));
+  }
+
+  static function key(kernel:QKernel):String {
+    var raw = kernel.raw();
+    return kernel.name() + ":" + raw.descriptorHash() + ":" + raw.autodiffModeValue();
   }
 
   static function validatePeerSchema(forward:QKernel, peer:QKernel, role:String):Void {

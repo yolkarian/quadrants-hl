@@ -157,7 +157,12 @@ class Tape {
 
   @:noCompletion public function recordKernel(kernel:QKernel, args:TapeArgs):Void {
     if (recording) {
-      records.push(TapeRecord.fromKernel(kernel, (args : Array<Dynamic>)));
+      var custom = CustomGradient.registeredFor(kernel);
+      if (custom != null) {
+        records.push(TapeRecord.fromCustom(custom, (args : Array<Dynamic>)));
+      } else {
+        records.push(TapeRecord.fromKernel(kernel, (args : Array<Dynamic>)));
+      }
     }
   }
 

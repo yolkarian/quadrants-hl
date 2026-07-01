@@ -93,10 +93,10 @@ class FieldBuild {
     ], DTypeBuild.voidType(), "{ copyFromTensor(source); }"));
 
     add("lazyGrad", [APublic], fun([], self,
-      '{ if (shape == null) throw "Quadrants field has not been placed"; if (gradField == null) { if (hasSNode()) { var created = new ${fieldClassPath}(context); var runtime:quadrants.FieldRuntime = cast created; runtime.placeCloneOf(this); quadrants.Native.snode_register_adjoint(context.nativeHandle(), snodeId, runtime.snodeId); gradField = created; } else { gradField = new ${fieldClassPath}(context, quadrants.TensorStorage.copyIntArray(shape)); } refreshAutodiffPeerHandles(); } return cast gradField; }'));
+      '{ requireAutodiffDType("grad"); if (shape == null) throw "Quadrants field has not been placed"; if (gradField == null) { if (hasSNode()) { var created = new ${fieldClassPath}(context); var runtime:quadrants.FieldRuntime = cast created; runtime.placeCloneOf(this); quadrants.Native.snode_register_adjoint(context.nativeHandle(), snodeId, runtime.snodeId); gradField = created; } else { gradField = new ${fieldClassPath}(context, quadrants.TensorStorage.copyIntArray(shape)); } refreshAutodiffPeerHandles(); } return cast gradField; }'));
 
     add("lazyDual", [APublic], fun([], self,
-      '{ if (shape == null) throw "Quadrants field has not been placed"; if (dualField == null) { if (hasSNode()) { var created = new ${fieldClassPath}(context); var runtime:quadrants.FieldRuntime = cast created; runtime.placeCloneOf(this); quadrants.Native.snode_register_dual(context.nativeHandle(), snodeId, runtime.snodeId); dualField = created; } else { dualField = new ${fieldClassPath}(context, quadrants.TensorStorage.copyIntArray(shape)); } refreshAutodiffPeerHandles(); } return cast dualField; }'));
+      '{ requireAutodiffDType("dual"); if (shape == null) throw "Quadrants field has not been placed"; if (dualField == null) { if (hasSNode()) { var created = new ${fieldClassPath}(context); var runtime:quadrants.FieldRuntime = cast created; runtime.placeCloneOf(this); quadrants.Native.snode_register_dual(context.nativeHandle(), snodeId, runtime.snodeId); dualField = created; } else { dualField = new ${fieldClassPath}(context, quadrants.TensorStorage.copyIntArray(shape)); } refreshAutodiffPeerHandles(); } return cast dualField; }'));
 
     add("fill", [APublic], fun([
       DTypeBuild.arg("value", valueType)

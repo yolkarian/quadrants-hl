@@ -70,6 +70,10 @@ class QKernel11<A, B, C, D, E, F, G, H, I, J, K, R> implements QKernel {
     return launch(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10);
   }
 
+  public function launchTapeOn(stream:quadrants.Stream, tape:quadrants.Tape, a0:A, a1:B, a2:C, a3:D, a4:E, a5:F, a6:G, a7:H, a8:I, a9:J, a10:K):R {
+    throw "Quadrants Tape launch on explicit streams is not supported; launch typed tape kernels on the default stream and use stream kernels outside Tape";
+  }
+
   public function descriptorHash():String {
     return rawKernel.descriptorHash();
   }

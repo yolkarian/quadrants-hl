@@ -70,6 +70,10 @@ class QKernel2<A, B, R> implements QKernel {
     return launch(a0, a1);
   }
 
+  public function launchTapeOn(stream:quadrants.Stream, tape:quadrants.Tape, a0:A, a1:B):R {
+    throw "Quadrants Tape launch on explicit streams is not supported; launch typed tape kernels on the default stream and use stream kernels outside Tape";
+  }
+
   public function descriptorHash():String {
     return rawKernel.descriptorHash();
   }

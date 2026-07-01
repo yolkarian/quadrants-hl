@@ -5470,7 +5470,142 @@ class KernelBuilder {
   }
 
   static function reverseAutodiffBlockedReason(functionBody:Expr):Null<String> {
-    return null;
+    var writtenResources = new Map<String, Bool>();
+    var reason:Null<String> = null;
+
+    function setReason(message:String, pos:Position):Void {
+      if (reason != null) {
+        return;
+      }
+      var info = Context.getPosInfos(pos);
+      reason = '${message} at ${info.file}:${info.min}';
+    }
+
+    function stripped(expr:Expr):Expr {
+      return expr == null ? null : DescriptorBuilder.strip(expr);
+    }
+
+    function resourceRoot(expr:Expr):Null<String> {
+      var clean = stripped(expr);
+      if (clean == null) {
+        return null;
+      }
+      return switch (clean.expr) {
+        case EConst(CIdent(name)):
+          name;
+        case EField(base, _):
+          resourceRoot(base);
+        default:
+          null;
+      };
+    }
+
+    var visitRead:Expr->Void = null;
+
+    function markWrite(target:Expr):Void {
+      if (reason != null || target == null) {
+        return;
+      }
+      var clean = stripped(target);
+      switch (clean.expr) {
+        case EArray(base, index):
+          visitRead(index);
+          var root = resourceRoot(base);
+          if (root != null) {
+            writtenResources.set(root, true);
+          }
+        case EParenthesis(inner) | EMeta(_, inner) | ECast(inner, _):
+          markWrite(inner);
+        case EField(_, _):
+          // Struct local field writes are handled by native AD; only direct Tensor/Field resource writes are checked here.
+        default:
+          visitRead(clean);
+      }
+    }
+
+    visitRead = function(expr:Expr):Void {
+      if (reason != null || expr == null) {
+        return;
+      }
+      var clean = stripped(expr);
+      switch (clean.expr) {
+        case EConst(_):
+        case EArray(base, index):
+          visitRead(index);
+          var root = resourceRoot(base);
+          if (root != null && writtenResources.exists(root)) {
+            setReason('Quadrants autodiff validation detected read-after-write on resource ${root}; split the kernel or avoid reading a resource after writing it', clean.pos);
+          } else {
+            visitRead(base);
+          }
+        case EBinop(OpAssign, lhs, rhs):
+          visitRead(rhs);
+          markWrite(lhs);
+        case EBinop(OpAssignOp(_), lhs, rhs):
+          visitRead(rhs);
+          markWrite(lhs);
+        case EBinop(_, lhs, rhs):
+          visitRead(lhs);
+          visitRead(rhs);
+        case EUnop(OpIncrement, _, target) | EUnop(OpDecrement, _, target):
+          markWrite(target);
+        case EUnop(_, _, target):
+          visitRead(target);
+        case EField(base, _):
+          visitRead(base);
+        case EParenthesis(inner) | EMeta(_, inner) | ECast(inner, _) | ECheckType(inner, _):
+          visitRead(inner);
+        case ECall(callee, args):
+          visitRead(callee);
+          for (arg in args) visitRead(arg);
+        case ENew(_, args):
+          for (arg in args) visitRead(arg);
+        case EVars(vars):
+          for (variable in vars) visitRead(variable.expr);
+        case EBlock(expressions):
+          for (entry in expressions) visitRead(entry);
+        case EFor(iterator, body):
+          visitRead(iterator);
+          visitRead(body);
+        case EWhile(_, _, _):
+          setReason('Quadrants reverse/validation autodiff does not support dynamic while loops on the current backend', clean.pos);
+        case EIf(cond, ifExpr, elseExpr):
+          visitRead(cond);
+          visitRead(ifExpr);
+          visitRead(elseExpr);
+        case ETernary(cond, ifExpr, elseExpr):
+          visitRead(cond);
+          visitRead(ifExpr);
+          visitRead(elseExpr);
+        case ESwitch(subject, cases, defaultExpr):
+          visitRead(subject);
+          for (caseExpr in cases) {
+            for (value in caseExpr.values) visitRead(value);
+            if (caseExpr.guard != null) visitRead(caseExpr.guard);
+            visitRead(caseExpr.expr);
+          }
+          visitRead(defaultExpr);
+        case ETry(body, catches):
+          visitRead(body);
+          for (catchExpr in catches) visitRead(catchExpr.expr);
+        case EReturn(value):
+          visitRead(value);
+        case EThrow(value):
+          visitRead(value);
+        case EUntyped(value):
+          visitRead(value);
+        case EObjectDecl(fields):
+          for (field in fields) visitRead(field.expr);
+        case EArrayDecl(values):
+          for (value in values) visitRead(value);
+        case EFunction(_, _):
+        case EBreak | EContinue:
+        default:
+      }
+    };
+
+    visitRead(functionBody);
+    return reason;
   }
 
 

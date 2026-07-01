@@ -97,10 +97,10 @@ class TensorBuild {
     ], self, "{ enableGradFlag(enabled); return this; }"));
 
     add("lazyGrad", [APublic], fun([], self,
-      '{ if (gradTensor == null) { gradTensor = new ${DTypeBuild.generatedPack.join(".")}.${className}(context, quadrants.TensorStorage.copyIntArray(shape)); quadrants.Native.ndarray_set_grad_handle(nativeHandle(), (cast gradTensor).nativeHandle()); } return cast gradTensor; }'));
+      '{ requireAutodiffDType("grad"); if (gradTensor == null) { gradTensor = new ${DTypeBuild.generatedPack.join(".")}.${className}(context, quadrants.TensorStorage.copyIntArray(shape)); quadrants.Native.ndarray_set_grad_handle(nativeHandle(), (cast gradTensor).nativeHandle()); } return cast gradTensor; }'));
 
     add("lazyDual", [APublic], fun([], self,
-      '{ if (dualTensor == null) { dualTensor = new ${DTypeBuild.generatedPack.join(".")}.${className}(context, quadrants.TensorStorage.copyIntArray(shape)); quadrants.Native.ndarray_set_dual_handle(nativeHandle(), (cast dualTensor).nativeHandle()); } return cast dualTensor; }'));
+      '{ requireAutodiffDType("dual"); if (dualTensor == null) { dualTensor = new ${DTypeBuild.generatedPack.join(".")}.${className}(context, quadrants.TensorStorage.copyIntArray(shape)); quadrants.Native.ndarray_set_dual_handle(nativeHandle(), (cast dualTensor).nativeHandle()); } return cast dualTensor; }'));
 
     add("fromDLPack", [APublic, AStatic], fun([
       DTypeBuild.arg("context", DTypeBuild.contextType()),

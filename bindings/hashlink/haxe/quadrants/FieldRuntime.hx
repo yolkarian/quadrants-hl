@@ -185,6 +185,15 @@ class FieldRuntime implements TensorHandle {
     Native.snode_copy_from_ndarray(context.nativeHandle(), snodeId, dtype, source.nativeHandle());
   }
 
+  public function requireAutodiffDType(peerName:String):Void {
+    switch (dtype) {
+      case DType.F16 | DType.F32 | DType.F64:
+        return;
+      default:
+        throw 'Quadrants ${peerName} storage requires a real floating dtype field; ${dtype} does not support autodiff';
+    }
+  }
+
   public function refreshAutodiffPeerHandles():Void {
     ensureOpen();
     var primal = nativeHandle();
