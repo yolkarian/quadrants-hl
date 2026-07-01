@@ -6,6 +6,7 @@ import haxe.macro.Expr;
 import haxe.macro.ExprTools;
 import haxe.macro.Type;
 import haxe.macro.TypeTools;
+import quadrants.macro.DescriptorMetadata.QdhlParamMeta;
 
 private typedef FlattenedMember = {
   var flatName:String;
@@ -33,7 +34,7 @@ class FlattenBuild {
     var mapping = new Map<String, String>();
     var transformedArgs = new Array<FunctionArg>();
     var appendStatements = new Array<Expr>();
-    var metadataArgs:Array<Dynamic> = [];
+    var metadataArgs:Array<QdhlParamMeta> = [];
     var hasFlatten = false;
 
     for (arg in sourceArgs) {
@@ -48,14 +49,15 @@ class FlattenBuild {
       if (flattenClass == null) {
         transformedArgs.push({name: arg.name, opt: false, type: arg.type, value: null});
         appendStatements.push(quadrants.macro.TypedKernelBuild.appendStatementForExpr({expr: EConst(CIdent(arg.name)), pos: functionExpr.pos}, arg.type, functionExpr.pos));
-        metadataArgs.push({path: arg.name, role: "runtime", kind: paramKindForComplexType(arg.type, functionExpr.pos), dtype: dtypeForComplexType(arg.type, functionExpr.pos), rank: rankForComplexType(arg.type, functionExpr.pos)});
+        metadataArgs.push({path: arg.name, role: isSpecComplexType(arg.type) ? "spec" : "runtime", kind: paramKindForComplexType(arg.type, functionExpr.pos), dtype: dtypeForComplexType(arg.type, functionExpr.pos), rank: rankForComplexType(arg.type, functionExpr.pos)});
         continue;
       }
       hasFlatten = true;
       var members = flattenMembers(arg.name, identExpr(arg.name, functionExpr.pos), arg.type, functionExpr.pos, mapping);
       for (member in members) {
-        transformedArgs.push({name: member.flatName, opt: false, type: member.type, value: null});
-        appendStatements.push(quadrants.macro.TypedKernelBuild.appendStatementForExpr(member.accessExpr, member.type, functionExpr.pos));
+        var transformedType = member.role == "spec" ? specComplexType(member.type) : member.type;
+        transformedArgs.push({name: member.flatName, opt: false, type: transformedType, value: null});
+        appendStatements.push(quadrants.macro.TypedKernelBuild.appendStatementForExpr(member.accessExpr, transformedType, functionExpr.pos));
         metadataArgs.push({path: member.path, role: member.role, kind: paramKindForComplexType(member.type, functionExpr.pos), dtype: dtypeForComplexType(member.type, functionExpr.pos), rank: rankForComplexType(member.type, functionExpr.pos)});
       }
     }
@@ -116,6 +118,10 @@ class FlattenBuild {
     };
   }
 
+  static function specComplexType(inner:ComplexType):ComplexType {
+    return TPath({pack: ["quadrants"], name: "Spec", params: [TPType(inner)]});
+  }
+
   static function buildLaunchFunction(args:Array<FunctionArg>, appendStatements:Array<Expr>, returnType:ComplexType, useStream:Bool, useGraph:Bool, pos:Position):Expr {
     var closureArgs = new Array<FunctionArg>();
     if (useStream) {
@@ -135,7 +141,7 @@ class FlattenBuild {
     };
   }
 
-  static function descriptorMetadataJson(kernelName:String, args:Array<Dynamic>):String {
+  static function descriptorMetadataJson(kernelName:String, args:Array<QdhlParamMeta>):String {
     return quadrants.macro.DescriptorWriter.metadata(kernelName, args, [], [], []);
   }
 
@@ -191,7 +197,7 @@ class FlattenBuild {
     return switch (stripType(type)) {
       case TPath(path):
         var typeName = path.name;
-        if ((typeName == "Tensor" || typeName == "Field" || typeName == "BufferView" || typeName == "VectorNdarray" || typeName == "MatrixNdarray" || typeName == "VectorField" || typeName == "MatrixField") && path.params.length > 0) {
+        if ((typeName == "Tensor" || typeName == "Field" || typeName == "BufferView" || typeName == "VectorNdarray" || typeName == "MatrixNdarray" || typeName == "VectorField" || typeName == "MatrixField" || typeName == "Spec") && path.params.length > 0) {
           dtypeFromTypeParam(path.params[0], pos);
         } else {
           dtypeNameToId(typeName);
@@ -205,6 +211,16 @@ class FlattenBuild {
     return switch (type) {
       case TParent(inner): stripType(inner);
       default: type;
+    };
+  }
+
+  static function isSpecComplexType(type:ComplexType):Bool {
+    return switch (stripType(type)) {
+      case TPath(path):
+        var fullName = (path.pack == null || path.pack.length == 0 ? "" : path.pack.join(".") + ".") + path.name;
+        fullName == "Spec" || fullName == "quadrants.Spec";
+      default:
+        false;
     };
   }
 

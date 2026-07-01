@@ -15,6 +15,28 @@ import quadrants.Types.Arch;
 import quadrants.Types.F32;
 import quadrants.Types.I32;
 
+@:build(quadrants.macro.QdArgs.build())
+class DescriptorGoldenConfig {
+  public var n:Int;
+  public var base:Int;
+
+  public function new(n:Int, base:Int) {
+    this.n = n;
+    this.base = base;
+  }
+}
+
+@:build(quadrants.macro.QdArgs.build())
+class DescriptorGoldenState {
+  public var out:Tensor<I32>;
+  public var config:DescriptorGoldenConfig;
+
+  public function new(ctx:Context, n:Int, base:Int) {
+    this.out = new Tensor<I32>(ctx, [n]);
+    this.config = new DescriptorGoldenConfig(n, base);
+  }
+}
+
 @:build(quadrants.macro.QdStruct.build())
 class DescriptorGoldenParticle {
   public var id:I32;
@@ -136,6 +158,14 @@ class DescriptorGoldenSnapshot {
         kernel: Kernel.build(ctx, macro (field:Field<I32>) -> {
           field[0] = field[0] + 1;
         }, {name: "descriptor_golden_field_resource"}),
+      });
+      check({
+        path: '${GOLDEN_DIR}/nested_qdargs.qdhl.json',
+        kernel: Kernel.build(ctx, macro (state:DescriptorGoldenState, delta:Spec<Int>) -> {
+          for (i in 0...state.config.n) {
+            state.out[i] = state.config.base + delta + i;
+          }
+        }, {name: "descriptor_golden_nested_qdargs"}),
       });
       check({
         path: '${GOLDEN_DIR}/struct_tensor.qdhl.json',
