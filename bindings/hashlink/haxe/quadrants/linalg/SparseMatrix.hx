@@ -6,6 +6,7 @@ import quadrants.Native.QSparseMatrix;
 import quadrants.Tensor;
 import quadrants.TensorRuntime;
 import quadrants.Types.DType;
+import quadrants.Types.I32;
 
 class SparseMatrix<T> implements LinearOperator<T> {
   public final context:Context;
@@ -36,6 +37,48 @@ class SparseMatrix<T> implements LinearOperator<T> {
     this.dtype = dtype;
     this.storageFormat = storageFormat;
     handle = Native.sparse_matrix_create(context.nativeHandle(), rows, cols, dtype, storageFormat);
+  }
+
+  public static function fromCOO<T>(ctx:Context, rowInd:Tensor<I32>, colInd:Tensor<I32>, values:Tensor<T>, nRows:Int, nCols:Int):SparseMatrix<T> {
+    requireShape("fromCOO", nRows, nCols);
+    var valueRuntime = requireValueTensor("fromCOO values", ctx, values);
+    requireIndexTensor("fromCOO rowInd", ctx, rowInd, valueRuntime.elementCount());
+    requireIndexTensor("fromCOO colInd", ctx, colInd, valueRuntime.elementCount());
+    var result = new SparseMatrix<T>(ctx, nRows, nCols, valueRuntime.dtype, SparseStorageFormat.COO);
+    for (i in 0...valueRuntime.elementCount()) {
+      var row = rowInd.read(i);
+      var col = colInd.read(i);
+      result.checkBounds(row, col, "fromCOO");
+      result.set(row, col, values.read(i));
+    }
+    return result;
+  }
+
+  public static function fromCSR<T>(ctx:Context, rowPtr:Tensor<I32>, colInd:Tensor<I32>, values:Tensor<T>, nRows:Int, nCols:Int):SparseMatrix<T> {
+    requireShape("fromCSR", nRows, nCols);
+    var valueRuntime = requireValueTensor("fromCSR values", ctx, values);
+    requireIndexTensor("fromCSR rowPtr", ctx, rowPtr, nRows + 1);
+    requireIndexTensor("fromCSR colInd", ctx, colInd, valueRuntime.elementCount());
+    var result = new SparseMatrix<T>(ctx, nRows, nCols, valueRuntime.dtype, SparseStorageFormat.CSR);
+    var nnz = valueRuntime.elementCount();
+    var previous = 0;
+    for (row in 0...nRows) {
+      var begin = rowPtr.read(row);
+      var end = rowPtr.read(row + 1);
+      if (begin != previous || end < begin || end > nnz) {
+        throw "Quadrants SparseMatrix.fromCSR rowPtr contains an invalid range";
+      }
+      for (i in begin...end) {
+        var col = colInd.read(i);
+        result.checkBounds(row, col, "fromCSR");
+        result.set(row, col, values.read(i));
+      }
+      previous = end;
+    }
+    if (previous != nnz) {
+      throw "Quadrants SparseMatrix.fromCSR rowPtr does not end at nnz";
+    }
+    return result;
   }
 
   public function nativeHandle():QSparseMatrix {
@@ -206,6 +249,45 @@ class SparseMatrix<T> implements LinearOperator<T> {
     }
   }
 
+  public function toCOO(rowInd:Tensor<I32>, colInd:Tensor<I32>, values:Tensor<T>):Int {
+    requireIndexTensor("toCOO rowInd", context, rowInd, nnz);
+    requireIndexTensor("toCOO colInd", context, colInd, nnz);
+    requireTensorContext(values, nnz, "toCOO values");
+    var out = 0;
+    for (row in 0...rows) {
+      for (col in 0...cols) {
+        var value = getFloat(row, col);
+        if (value != 0.0) {
+          rowInd.write(out, row);
+          colInd.write(out, col);
+          values.write(out, fromFloat(value));
+          out++;
+        }
+      }
+    }
+    return out;
+  }
+
+  public function toCSR(rowPtr:Tensor<I32>, colInd:Tensor<I32>, values:Tensor<T>):Int {
+    requireIndexTensor("toCSR rowPtr", context, rowPtr, rows + 1);
+    requireIndexTensor("toCSR colInd", context, colInd, nnz);
+    requireTensorContext(values, nnz, "toCSR values");
+    var out = 0;
+    rowPtr.write(0, 0);
+    for (row in 0...rows) {
+      for (col in 0...cols) {
+        var value = getFloat(row, col);
+        if (value != 0.0) {
+          colInd.write(out, col);
+          values.write(out, fromFloat(value));
+          out++;
+        }
+      }
+      rowPtr.write(row + 1, out);
+    }
+    return out;
+  }
+
   public function mmwrite(path:String):Void {
     if (path == null || path.length == 0) {
       throw "Quadrants sparse mmwrite requires a path";
@@ -273,6 +355,12 @@ class SparseMatrix<T> implements LinearOperator<T> {
     }
   }
 
+  function checkBounds(row:Int, col:Int, operation:String):Void {
+    if (row < 0 || row >= rows || col < 0 || col >= cols) {
+      throw 'Quadrants SparseMatrix.${operation} index out of bounds';
+    }
+  }
+
   function requireCompatible(other:SparseMatrix<T>):Void {
     if (other.context != context) {
       throw "Quadrants sparse matrix belongs to a different context";
@@ -280,6 +368,46 @@ class SparseMatrix<T> implements LinearOperator<T> {
     if (other.dtype != dtype) {
       throw "Quadrants sparse matrix dtype mismatch";
     }
+  }
+
+  static function requireShape(operation:String, nRows:Int, nCols:Int):Void {
+    if (nRows <= 0 || nCols <= 0) {
+      throw 'Quadrants SparseMatrix.${operation} dimensions must be positive';
+    }
+  }
+
+  static function requireValueTensor<T>(name:String, ctx:Context, tensor:Tensor<T>):TensorRuntime {
+    if (ctx == null) {
+      throw 'Quadrants sparse matrix ${name} requires a Context';
+    }
+    if (tensor == null) {
+      throw 'Quadrants sparse matrix ${name} tensor is required';
+    }
+    var runtime:TensorRuntime = cast tensor;
+    if (runtime.context != ctx) {
+      throw 'Quadrants sparse matrix ${name} tensor belongs to a different context';
+    }
+    if (runtime.dtype != DType.F32 && runtime.dtype != DType.F64) {
+      throw 'Quadrants sparse matrix ${name} supports only F32/F64 values';
+    }
+    return runtime;
+  }
+
+  static function requireIndexTensor(name:String, ctx:Context, tensor:Tensor<I32>, minElements:Int):TensorRuntime {
+    if (tensor == null) {
+      throw 'Quadrants sparse matrix ${name} tensor is required';
+    }
+    var runtime:TensorRuntime = cast tensor;
+    if (runtime.context != ctx) {
+      throw 'Quadrants sparse matrix ${name} tensor belongs to a different context';
+    }
+    if (runtime.dtype != DType.I32) {
+      throw 'Quadrants sparse matrix ${name} tensor must be I32';
+    }
+    if (runtime.elementCount() < minElements) {
+      throw 'Quadrants sparse matrix ${name} tensor is too small';
+    }
+    return runtime;
   }
 
   function requireTensorContext(tensor:Tensor<T>, minElements:Int, name:String):TensorRuntime {

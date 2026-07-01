@@ -619,6 +619,24 @@ class V3RuntimeSemantic {
     var content = sys.io.File.getContent(sparsePath);
     if (content.indexOf("2 2 2") < 0 || content.indexOf("2 2 5") < 0) throw "sparse mmwrite failed";
 
+    var cooRows = new Tensor<I32>(ctx, [2]);
+    var cooCols = new Tensor<I32>(ctx, [2]);
+    var cooVals = new Tensor<F32>(ctx, [2]);
+    eq("sparse_to_coo_count", sparse.toCOO(cooRows, cooCols, cooVals), 2);
+    eq("sparse_to_coo_row0", cooRows.read(0), 0);
+    eq("sparse_to_coo_col1", cooCols.read(1), 1);
+    near("sparse_to_coo_val1", cooVals.read(1), 5.0);
+    var cooRoundtrip = quadrants.linalg.SparseMatrix.fromCOO(ctx, cooRows, cooCols, cooVals, 2, 2);
+    near("sparse_from_coo", cooRoundtrip.get(1, 1), 5.0);
+    var csrRowPtr = new Tensor<I32>(ctx, [3]);
+    var csrCols = new Tensor<I32>(ctx, [2]);
+    var csrVals = new Tensor<F32>(ctx, [2]);
+    eq("sparse_to_csr_count", sparse.toCSR(csrRowPtr, csrCols, csrVals), 2);
+    eq("sparse_to_csr_rowptr1", csrRowPtr.read(1), 1);
+    eq("sparse_to_csr_rowptr2", csrRowPtr.read(2), 2);
+    var csrRoundtrip = quadrants.linalg.SparseMatrix.fromCSR(ctx, csrRowPtr, csrCols, csrVals, 2, 2);
+    near("sparse_from_csr", csrRoundtrip.get(0, 0), 2.0);
+
     var mesh = new Mesh(3, 2);
     var e0 = mesh.element(MeshKinds.edge, 0);
     var e1 = mesh.element(MeshKinds.edge, 1);
@@ -681,6 +699,14 @@ class V3RuntimeSemantic {
     solver.close();
     rhs.close();
     solution.close();
+    cooRoundtrip.close();
+    csrRoundtrip.close();
+    cooRows.close();
+    cooCols.close();
+    cooVals.close();
+    csrRowPtr.close();
+    csrCols.close();
+    csrVals.close();
     sparse.close();
     dense.close();
     xv.close();
