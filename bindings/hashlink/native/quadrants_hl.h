@@ -80,6 +80,14 @@ HL_PRIM void HL_NAME(sparse_matrix_matvec_f32)(qd_context *ctx, qd_sparse_matrix
 HL_PRIM void HL_NAME(sparse_matrix_set_f64)(qd_context *ctx, qd_sparse_matrix *matrix, int row, int col, double value);
 HL_PRIM double HL_NAME(sparse_matrix_get_f64)(qd_context *ctx, qd_sparse_matrix *matrix, int row, int col);
 HL_PRIM void HL_NAME(sparse_matrix_matvec_f64)(qd_context *ctx, qd_sparse_matrix *matrix, qd_ndarray *x, qd_ndarray *y);
+HL_PRIM void HL_NAME(sparse_matrix_load_coo_f32)(qd_context *ctx, qd_sparse_matrix *matrix, qd_ndarray *row_ind, qd_ndarray *col_ind, qd_ndarray *values);
+HL_PRIM void HL_NAME(sparse_matrix_load_coo_f64)(qd_context *ctx, qd_sparse_matrix *matrix, qd_ndarray *row_ind, qd_ndarray *col_ind, qd_ndarray *values);
+HL_PRIM void HL_NAME(sparse_matrix_load_csr_f32)(qd_context *ctx, qd_sparse_matrix *matrix, qd_ndarray *row_ptr, qd_ndarray *col_ind, qd_ndarray *values);
+HL_PRIM void HL_NAME(sparse_matrix_load_csr_f64)(qd_context *ctx, qd_sparse_matrix *matrix, qd_ndarray *row_ptr, qd_ndarray *col_ind, qd_ndarray *values);
+HL_PRIM int HL_NAME(sparse_matrix_to_coo_f32)(qd_context *ctx, qd_sparse_matrix *matrix, qd_ndarray *row_ind, qd_ndarray *col_ind, qd_ndarray *values);
+HL_PRIM int HL_NAME(sparse_matrix_to_coo_f64)(qd_context *ctx, qd_sparse_matrix *matrix, qd_ndarray *row_ind, qd_ndarray *col_ind, qd_ndarray *values);
+HL_PRIM int HL_NAME(sparse_matrix_to_csr_f32)(qd_context *ctx, qd_sparse_matrix *matrix, qd_ndarray *row_ptr, qd_ndarray *col_ind, qd_ndarray *values);
+HL_PRIM int HL_NAME(sparse_matrix_to_csr_f64)(qd_context *ctx, qd_sparse_matrix *matrix, qd_ndarray *row_ptr, qd_ndarray *col_ind, qd_ndarray *values);
 HL_PRIM qd_sparse_solver *HL_NAME(sparse_solver_create)(qd_context *ctx, int dtype, vbyte *solver_type, vbyte *ordering, int allow_host_dense_fallback);
 HL_PRIM void HL_NAME(sparse_solver_close)(qd_sparse_solver *solver);
 HL_PRIM int HL_NAME(sparse_solver_compute)(qd_context *ctx, qd_sparse_solver *solver, qd_sparse_matrix *matrix);

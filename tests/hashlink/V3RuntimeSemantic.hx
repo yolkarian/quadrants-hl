@@ -862,6 +862,20 @@ class V3RuntimeSemantic {
     eq("sparse_to_csr_rowptr2", csrRowPtr.read(2), 2);
     var csrRoundtrip = quadrants.linalg.SparseMatrix.fromCSR(ctx, csrRowPtr, csrCols, csrVals, 2, 2);
     near("sparse_from_csr", csrRoundtrip.get(0, 0), 2.0);
+    var duplicateRows = new Tensor<I32>(ctx, [3]);
+    var duplicateCols = new Tensor<I32>(ctx, [3]);
+    var duplicateVals = new Tensor<F32>(ctx, [3]);
+    duplicateRows.fromArray([1, 0, 1]);
+    duplicateCols.fromArray([1, 0, 1]);
+    duplicateVals.fromArray([9.0, 2.0, 7.0]);
+    var duplicateCoo = quadrants.linalg.SparseMatrix.fromCOO(ctx, duplicateRows, duplicateCols, duplicateVals, 2, 2);
+    eq("sparse_duplicate_coo_nnz", duplicateCoo.nnz, 2);
+    near("sparse_duplicate_coo_last_wins", duplicateCoo.get(1, 1), 7.0);
+    var invalidRowPtr = new Tensor<I32>(ctx, [3]);
+    invalidRowPtr.fromArray([0, 2, 1]);
+    expectThrowsContains("sparse_invalid_csr", "invalid range", function() {
+      quadrants.linalg.SparseMatrix.fromCSR(ctx, invalidRowPtr, csrCols, csrVals, 2, 2);
+    });
 
     var mesh = new Mesh(3, 2);
     mesh.setIndexMapping(MeshElementType.Vertex, MeshIndexConversion.LocalToGlobal, [10, 20, 30]);
@@ -956,6 +970,11 @@ class V3RuntimeSemantic {
     csrRowPtr.close();
     csrCols.close();
     csrVals.close();
+    duplicateRows.close();
+    duplicateCols.close();
+    duplicateVals.close();
+    duplicateCoo.close();
+    invalidRowPtr.close();
     sparse.close();
     dense.close();
     xv.close();

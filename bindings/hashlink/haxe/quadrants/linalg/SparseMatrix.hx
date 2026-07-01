@@ -42,14 +42,16 @@ class SparseMatrix<T> implements LinearOperator<T> {
   public static function fromCOO<T>(ctx:Context, rowInd:Tensor<I32>, colInd:Tensor<I32>, values:Tensor<T>, nRows:Int, nCols:Int):SparseMatrix<T> {
     requireShape("fromCOO", nRows, nCols);
     var valueRuntime = requireValueTensor("fromCOO values", ctx, values);
-    requireIndexTensor("fromCOO rowInd", ctx, rowInd, valueRuntime.elementCount());
-    requireIndexTensor("fromCOO colInd", ctx, colInd, valueRuntime.elementCount());
+    var rowRuntime = requireIndexTensor("fromCOO rowInd", ctx, rowInd, valueRuntime.elementCount());
+    var colRuntime = requireIndexTensor("fromCOO colInd", ctx, colInd, valueRuntime.elementCount());
     var result = new SparseMatrix<T>(ctx, nRows, nCols, valueRuntime.dtype, SparseStorageFormat.COO);
-    for (i in 0...valueRuntime.elementCount()) {
-      var row = rowInd.read(i);
-      var col = colInd.read(i);
-      result.checkBounds(row, col, "fromCOO");
-      result.set(row, col, values.read(i));
+    switch (valueRuntime.dtype) {
+      case DType.F32:
+        Native.sparse_matrix_load_coo_f32(ctx.nativeHandle(), result.nativeHandle(), rowRuntime.nativeHandle(), colRuntime.nativeHandle(), valueRuntime.nativeHandle());
+      case DType.F64:
+        Native.sparse_matrix_load_coo_f64(ctx.nativeHandle(), result.nativeHandle(), rowRuntime.nativeHandle(), colRuntime.nativeHandle(), valueRuntime.nativeHandle());
+      default:
+        throw "Quadrants SparseMatrix.fromCOO supports only F32/F64 values";
     }
     return result;
   }
@@ -57,26 +59,16 @@ class SparseMatrix<T> implements LinearOperator<T> {
   public static function fromCSR<T>(ctx:Context, rowPtr:Tensor<I32>, colInd:Tensor<I32>, values:Tensor<T>, nRows:Int, nCols:Int):SparseMatrix<T> {
     requireShape("fromCSR", nRows, nCols);
     var valueRuntime = requireValueTensor("fromCSR values", ctx, values);
-    requireIndexTensor("fromCSR rowPtr", ctx, rowPtr, nRows + 1);
-    requireIndexTensor("fromCSR colInd", ctx, colInd, valueRuntime.elementCount());
+    var rowPtrRuntime = requireIndexTensor("fromCSR rowPtr", ctx, rowPtr, nRows + 1);
+    var colRuntime = requireIndexTensor("fromCSR colInd", ctx, colInd, valueRuntime.elementCount());
     var result = new SparseMatrix<T>(ctx, nRows, nCols, valueRuntime.dtype, SparseStorageFormat.CSR);
-    var nnz = valueRuntime.elementCount();
-    var previous = 0;
-    for (row in 0...nRows) {
-      var begin = rowPtr.read(row);
-      var end = rowPtr.read(row + 1);
-      if (begin != previous || end < begin || end > nnz) {
-        throw "Quadrants SparseMatrix.fromCSR rowPtr contains an invalid range";
-      }
-      for (i in begin...end) {
-        var col = colInd.read(i);
-        result.checkBounds(row, col, "fromCSR");
-        result.set(row, col, values.read(i));
-      }
-      previous = end;
-    }
-    if (previous != nnz) {
-      throw "Quadrants SparseMatrix.fromCSR rowPtr does not end at nnz";
+    switch (valueRuntime.dtype) {
+      case DType.F32:
+        Native.sparse_matrix_load_csr_f32(ctx.nativeHandle(), result.nativeHandle(), rowPtrRuntime.nativeHandle(), colRuntime.nativeHandle(), valueRuntime.nativeHandle());
+      case DType.F64:
+        Native.sparse_matrix_load_csr_f64(ctx.nativeHandle(), result.nativeHandle(), rowPtrRuntime.nativeHandle(), colRuntime.nativeHandle(), valueRuntime.nativeHandle());
+      default:
+        throw "Quadrants SparseMatrix.fromCSR supports only F32/F64 values";
     }
     return result;
   }
@@ -321,42 +313,31 @@ class SparseMatrix<T> implements LinearOperator<T> {
   }
 
   public function toCOO(rowInd:Tensor<I32>, colInd:Tensor<I32>, values:Tensor<T>):Int {
-    requireIndexTensor("toCOO rowInd", context, rowInd, nnz);
-    requireIndexTensor("toCOO colInd", context, colInd, nnz);
-    requireTensorContext(values, nnz, "toCOO values");
-    var out = 0;
-    for (row in 0...rows) {
-      for (col in 0...cols) {
-        var value = getFloat(row, col);
-        if (value != 0.0) {
-          rowInd.write(out, row);
-          colInd.write(out, col);
-          values.write(out, fromFloat(value));
-          out++;
-        }
-      }
-    }
-    return out;
+    var rowRuntime = requireIndexTensor("toCOO rowInd", context, rowInd, nnz);
+    var colRuntime = requireIndexTensor("toCOO colInd", context, colInd, nnz);
+    var valueRuntime = requireTensorContext(values, nnz, "toCOO values");
+    return switch (dtype) {
+      case DType.F32:
+        Native.sparse_matrix_to_coo_f32(context.nativeHandle(), nativeHandle(), rowRuntime.nativeHandle(), colRuntime.nativeHandle(), valueRuntime.nativeHandle());
+      case DType.F64:
+        Native.sparse_matrix_to_coo_f64(context.nativeHandle(), nativeHandle(), rowRuntime.nativeHandle(), colRuntime.nativeHandle(), valueRuntime.nativeHandle());
+      default:
+        throw "Quadrants sparse matrix toCOO supports only F32 and F64";
+    };
   }
 
   public function toCSR(rowPtr:Tensor<I32>, colInd:Tensor<I32>, values:Tensor<T>):Int {
-    requireIndexTensor("toCSR rowPtr", context, rowPtr, rows + 1);
-    requireIndexTensor("toCSR colInd", context, colInd, nnz);
-    requireTensorContext(values, nnz, "toCSR values");
-    var out = 0;
-    rowPtr.write(0, 0);
-    for (row in 0...rows) {
-      for (col in 0...cols) {
-        var value = getFloat(row, col);
-        if (value != 0.0) {
-          colInd.write(out, col);
-          values.write(out, fromFloat(value));
-          out++;
-        }
-      }
-      rowPtr.write(row + 1, out);
-    }
-    return out;
+    var rowRuntime = requireIndexTensor("toCSR rowPtr", context, rowPtr, rows + 1);
+    var colRuntime = requireIndexTensor("toCSR colInd", context, colInd, nnz);
+    var valueRuntime = requireTensorContext(values, nnz, "toCSR values");
+    return switch (dtype) {
+      case DType.F32:
+        Native.sparse_matrix_to_csr_f32(context.nativeHandle(), nativeHandle(), rowRuntime.nativeHandle(), colRuntime.nativeHandle(), valueRuntime.nativeHandle());
+      case DType.F64:
+        Native.sparse_matrix_to_csr_f64(context.nativeHandle(), nativeHandle(), rowRuntime.nativeHandle(), colRuntime.nativeHandle(), valueRuntime.nativeHandle());
+      default:
+        throw "Quadrants sparse matrix toCSR supports only F32 and F64";
+    };
   }
 
   public function mmwrite(path:String):Void {
