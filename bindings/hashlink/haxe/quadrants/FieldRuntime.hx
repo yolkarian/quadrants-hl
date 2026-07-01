@@ -53,7 +53,7 @@ class FieldRuntime implements TensorHandle {
     this.tensor = null;
     this.snodeId = snodeId;
     this.snodeTreeId = snodeTreeId;
-    this.placementSteps = [for (step in steps) {kind: step.kind, axis: step.axis, size: step.size, chunkSize: step.chunkSize}];
+    this.placementSteps = [for (step in steps) {kind: step.kind, axes: [for (axis in step.axes) axis], sizes: [for (size in step.sizes) size], chunkSize: step.chunkSize}];
     this.placementOffset = FieldsBuilder.validatePlacementOffset(this.shape, offset);
     gradField = null;
     dualField = null;
@@ -64,7 +64,7 @@ class FieldRuntime implements TensorHandle {
     if (placementSteps == null) {
       throw "Quadrants field has no placement steps";
     }
-    return [for (step in placementSteps) {kind: step.kind, axis: step.axis, size: step.size, chunkSize: step.chunkSize}];
+    return [for (step in placementSteps) {kind: step.kind, axes: [for (axis in step.axes) axis], sizes: [for (size in step.sizes) size], chunkSize: step.chunkSize}];
   }
 
   public function copyPlacementOffset():Array<Int> {

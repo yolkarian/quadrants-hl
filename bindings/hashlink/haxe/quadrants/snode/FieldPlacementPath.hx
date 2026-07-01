@@ -70,6 +70,6 @@ class FieldPlacementPath {
   }
 
   static function copySteps(input:Array<FieldPlacementStep>):Array<FieldPlacementStep> {
-    return [for (step in input) {kind: step.kind, axis: step.axis, size: step.size, chunkSize: step.chunkSize}];
+    return [for (step in input) {kind: step.kind, axes: [for (axis in step.axes) axis], sizes: [for (size in step.sizes) size], chunkSize: step.chunkSize}];
   }
 }

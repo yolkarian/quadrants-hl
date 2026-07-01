@@ -194,6 +194,11 @@ class V3RuntimeSemantic {
     }
 
     var field = new Field<I32>(ctx, [4]);
+    var orderedField = new Field<I32>(ctx);
+    new quadrants.FieldsBuilder(ctx).dense([2, 3], {order: [1, 0]}).place(cast orderedField);
+    eq("field_order_rank", orderedField.rank(), 2);
+    orderedField.writeAt([1, 2], 17);
+    eq("field_order_host", orderedField.readAt([1, 2]), 17);
     var fieldOut = new Tensor<I32>(ctx, [4]);
     var fieldKernel = Kernel.build(ctx, macro (field:Field<I32>, out:Tensor<I32>, n:Int) -> {
       for (i in 0...n) {
@@ -208,7 +213,7 @@ class V3RuntimeSemantic {
 
     var offsetField = new Field<I32>(ctx);
     var offsetOut = new Tensor<I32>(ctx, [4]);
-    new quadrants.FieldsBuilder(ctx).dense(quadrants.Axis.i, 4).offset([10]).place(cast offsetField);
+    new quadrants.FieldsBuilder(ctx).dense([4], {offset: [10]}).place(cast offsetField);
     offsetField.write(0, 41);
     eq("field_offset_host", offsetField.read(0), 41);
     var offsetKernel = Kernel.build(ctx, macro (field:Field<I32>, out:Tensor<I32>) -> {
@@ -228,6 +233,7 @@ class V3RuntimeSemantic {
 
     fieldKernel.close();
     field.close();
+    orderedField.close();
     fieldOut.close();
     add.close();
     x.close();
@@ -774,7 +780,7 @@ class V3RuntimeSemantic {
 
     var qfloatField = new Field<F32>(ctx);
     var qfloatSpec = quadrants.quant.Quant.floatF32(5, 10, QuantSignedness.Signed);
-    ctx.root.dense(quadrants.Axis.i, 1).bitStruct(32).placeQuant(qfloatField, qfloatSpec);
+    ctx.root.dense([1]).bitStruct(32).placeQuant(qfloatField, qfloatSpec);
     qfloatField.write(0, 1.5);
     near("quant_float", qfloatField.read(0), 1.5, 0.1);
 

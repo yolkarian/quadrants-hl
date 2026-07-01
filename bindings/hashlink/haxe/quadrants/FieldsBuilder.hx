@@ -4,9 +4,16 @@ import quadrants.Native.QSNodeTree;
 
 typedef FieldPlacementStep = {
   var kind:Int;
-  var axis:Int;
-  var size:Int;
+  var axes:Array<Int>;
+  var sizes:Array<Int>;
   var chunkSize:Int;
+}
+
+typedef FieldPlacementOptions = {
+  ?order:Array<Int>,
+  ?layout:Layout,
+  ?offset:Array<Int>,
+  ?chunkSize:Int,
 }
 
 class FieldsBuilder {
@@ -40,33 +47,43 @@ class FieldsBuilder {
     this.context = context;
   }
 
-  function add(kind:Int, axis:Axis, size:Int, chunkSize:Int):FieldsBuilder {
+  function add(kind:Int, dims:Array<Int>, ?options:FieldPlacementOptions, ?chunkSizeOverride:Int):FieldsBuilder {
     ensureMutable();
-    if (size <= 0) {
-      throw "Quadrants field SNode size must be positive";
-    }
+    var checkedDims = TensorStorage.validateShape(dims);
+    var chunkSize = chunkSizeOverride != null
+      ? chunkSizeOverride
+      : options != null && options.chunkSize != null ? options.chunkSize : DEFAULT_DYNAMIC_CHUNK_SIZE;
     if (chunkSize <= 0) {
-      throw "Quadrants dynamic field chunk size must be positive";
+      throw "Quadrants field placement chunk size must be positive";
     }
-    steps.push({kind: kind, axis: axis, size: size, chunkSize: chunkSize});
-    shape.push(size);
+    var order = physicalOrder(checkedDims.length, options);
+    var axisBase = shape.length;
+    var axes = [for (axis in order) axisBase + axis];
+    var sizes = [for (axis in order) checkedDims[axis]];
+    steps.push({kind: kind, axes: axes, sizes: sizes, chunkSize: chunkSize});
+    for (dim in checkedDims) {
+      shape.push(dim);
+    }
+    if (options != null && options.offset != null) {
+      placementOffset = [for (value in options.offset) value];
+    }
     return this;
   }
 
-  public function dense(axis:Axis, size:Int):FieldsBuilder {
-    return add(SNODE_DENSE, axis, size, DEFAULT_DYNAMIC_CHUNK_SIZE);
+  public function dense(dims:Array<Int>, ?options:FieldPlacementOptions):FieldsBuilder {
+    return add(SNODE_DENSE, dims, options);
   }
 
-  public function pointer(axis:Axis, size:Int):FieldsBuilder {
-    return add(SNODE_POINTER, axis, size, DEFAULT_DYNAMIC_CHUNK_SIZE);
+  public function pointer(dims:Array<Int>, ?options:FieldPlacementOptions):FieldsBuilder {
+    return add(SNODE_POINTER, dims, options);
   }
 
-  public function bitmasked(axis:Axis, size:Int):FieldsBuilder {
-    return add(SNODE_BITMASKED, axis, size, DEFAULT_DYNAMIC_CHUNK_SIZE);
+  public function bitmasked(dims:Array<Int>, ?options:FieldPlacementOptions):FieldsBuilder {
+    return add(SNODE_BITMASKED, dims, options);
   }
 
-  public function dynamicNode(axis:Axis, size:Int, chunkSize:Int = DEFAULT_DYNAMIC_CHUNK_SIZE):FieldsBuilder {
-    return add(SNODE_DYNAMIC, axis, size, chunkSize);
+  public function dynamicNode(dims:Array<Int>, ?options:FieldPlacementOptions):FieldsBuilder {
+    return add(SNODE_DYNAMIC, dims, options);
   }
 
   public function bitStruct(maxBits:Int):FieldsBuilder {
@@ -74,12 +91,12 @@ class FieldsBuilder {
     if (maxBits <= 0 || maxBits > 64) {
       throw "Quadrants bitStruct maxBits must be in 1...64";
     }
-    steps.push({kind: SNODE_BIT_STRUCT, axis: -1, size: 1, chunkSize: maxBits});
+    steps.push({kind: SNODE_BIT_STRUCT, axes: [], sizes: [], chunkSize: maxBits});
     return this;
   }
 
-  public function quantArray(axis:Axis, size:Int, maxNumBits:quadrants.quant.QuantBits):FieldsBuilder {
-    return add(SNODE_QUANT_ARRAY, axis, size, maxNumBits);
+  public function quantArray(dims:Array<Int>, maxNumBits:quadrants.quant.QuantBits, ?options:FieldPlacementOptions):FieldsBuilder {
+    return add(SNODE_QUANT_ARRAY, dims, options, maxNumBits);
   }
 
   public function offset(offset:Array<Int>):FieldsBuilder {
@@ -94,6 +111,37 @@ class FieldsBuilder {
       }
     }
     return this;
+  }
+
+  static function identityOrder(rank:Int):Array<Int> {
+    return [for (axis in 0...rank) axis];
+  }
+
+  static function physicalOrder(rank:Int, ?options:FieldPlacementOptions):Array<Int> {
+    var order = if (options != null && options.order != null) {
+      [for (axis in options.order) axis];
+    } else if (options != null && options.layout != null && options.layout.order.length > 0) {
+      [for (axis in options.layout.order) axis];
+    } else if (options != null && options.layout != null && options.layout.policy == LayoutPolicy.ColumnMajor) {
+      [for (i in 0...rank) rank - 1 - i];
+    } else {
+      identityOrder(rank);
+    }
+    validateOrder(rank, order);
+    return order;
+  }
+
+  static function validateOrder(rank:Int, order:Array<Int>):Void {
+    if (order.length != rank) {
+      throw 'Quadrants field placement order rank must match shape rank (order=${order.length}, shape=${rank})';
+    }
+    var seen = [for (_ in 0...rank) false];
+    for (axis in order) {
+      if (axis < 0 || axis >= rank || seen[axis]) {
+        throw "Quadrants field placement order must be a permutation of 0...rank";
+      }
+      seen[axis] = true;
+    }
   }
 
   public static function validatePlacementOffset(shape:Array<Int>, offset:Null<Array<Int>>):Array<Int> {
@@ -113,28 +161,39 @@ class FieldsBuilder {
   }
 
   static function copySteps(steps:Array<FieldPlacementStep>):Array<FieldPlacementStep> {
-    return [for (step in steps) {kind: step.kind, axis: step.axis, size: step.size, chunkSize: step.chunkSize}];
+    return [for (step in steps) {kind: step.kind, axes: [for (axis in step.axes) axis], sizes: [for (size in step.sizes) size], chunkSize: step.chunkSize}];
   }
 
   static function validateStepsMatchShape(shape:Array<Int>, steps:Array<FieldPlacementStep>):Void {
-    var shapeAxis = 0;
+    var seen = [for (_ in 0...shape.length) false];
     for (step in steps) {
       if (step.kind == SNODE_BIT_STRUCT) {
+        if (step.axes.length != 0 || step.sizes.length != 0) {
+          throw "Quadrants bitStruct placement step must not declare axes";
+        }
         continue;
       }
-      if (shapeAxis >= shape.length) {
-        throw "Quadrants field placement step rank must match field shape rank";
-      }
-      if (step.size != shape[shapeAxis]) {
-        throw "Quadrants field placement step size must match field shape";
+      if (step.axes.length == 0 || step.axes.length != step.sizes.length) {
+        throw "Quadrants field placement step axes/sizes rank mismatch";
       }
       if (step.chunkSize <= 0) {
-        throw "Quadrants dynamic field chunk size must be positive";
+        throw "Quadrants field placement chunk size must be positive";
       }
-      shapeAxis++;
+      for (i in 0...step.axes.length) {
+        var axis = step.axes[i];
+        if (axis < 0 || axis >= shape.length || seen[axis]) {
+          throw "Quadrants field placement axes must cover each logical shape axis exactly once";
+        }
+        if (step.sizes[i] != shape[axis]) {
+          throw "Quadrants field placement step size must match field shape";
+        }
+        seen[axis] = true;
+      }
     }
-    if (shapeAxis != shape.length) {
-      throw "Quadrants field placement step rank must match field shape rank";
+    for (axis in 0...seen.length) {
+      if (!seen[axis]) {
+        throw "Quadrants field placement axes must cover each logical shape axis exactly once";
+      }
     }
   }
 
@@ -163,8 +222,8 @@ class FieldsBuilder {
         tree,
         current,
         step.kind,
-        TensorStorage.nativeIntArray([step.axis]),
-        TensorStorage.nativeIntArray([step.size]),
+        TensorStorage.nativeIntArray(step.axes),
+        TensorStorage.nativeIntArray(step.sizes),
         step.chunkSize
       );
     }
@@ -173,10 +232,7 @@ class FieldsBuilder {
 
   public static function placeDense(context:Context, field:FieldRuntime, shape:Array<Int>):Void {
     var checkedShape = TensorStorage.validateShape(shape);
-    var denseSteps = [
-      for (axis in 0...checkedShape.length)
-        {kind: SNODE_DENSE, axis: axis, size: checkedShape[axis], chunkSize: DEFAULT_DYNAMIC_CHUNK_SIZE}
-    ];
+    var denseSteps = [{kind: SNODE_DENSE, axes: identityOrder(checkedShape.length), sizes: [for (dim in checkedShape) dim], chunkSize: DEFAULT_DYNAMIC_CHUNK_SIZE}];
     placeWithSteps(context, field, checkedShape, denseSteps);
   }
 
@@ -263,8 +319,8 @@ class FieldsBuilder {
             tree,
             parent,
             step.kind,
-            TensorStorage.nativeIntArray([step.axis]),
-            TensorStorage.nativeIntArray([step.size]),
+            TensorStorage.nativeIntArray(step.axes),
+            TensorStorage.nativeIntArray(step.sizes),
             step.chunkSize
           );
         }
