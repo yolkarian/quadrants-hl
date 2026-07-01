@@ -180,7 +180,7 @@ class QdStruct {
     return {
       name: "__qdStructSchema",
       access: [APublic, AStatic],
-      kind: FFun({args: [], ret: macro : Dynamic, expr: macro return {
+      kind: FFun({args: [], ret: macro : quadrants.StructSchema, expr: macro return {
         version: 3,
         name: $v{fullName},
         layoutPolicy: "Default",

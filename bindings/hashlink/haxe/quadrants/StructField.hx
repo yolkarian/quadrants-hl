@@ -24,11 +24,11 @@ class StructField<S> {
   public final context:Context;
   public final shape:Array<Int>;
   public final layout:LayoutPolicy;
-  public final schema:Dynamic;
+  @:noCompletion public final schema:StructSchema;
   final fields:Map<String, Dynamic> = [];
   final names:Array<String> = [];
 
-  function new(context:Context, shape:Array<Int>, layout:LayoutPolicy, schema:Dynamic) {
+  function new(context:Context, shape:Array<Int>, layout:LayoutPolicy, schema:StructSchema) {
     if (context == null) {
       throw "Quadrants StructField requires a Context";
     }
@@ -39,7 +39,7 @@ class StructField<S> {
     allocateMembers();
   }
 
-  @:noCompletion public static function __create<S>(context:Context, shape:Array<Int>, layout:LayoutPolicy, schema:Dynamic):StructField<S> {
+  @:noCompletion public static function __create<S>(context:Context, shape:Array<Int>, layout:LayoutPolicy, schema:StructSchema):StructField<S> {
     return new StructField<S>(context, shape, layout, schema);
   }
 
@@ -69,7 +69,7 @@ class StructField<S> {
     Reflect.callMethod(field, Reflect.field(field, "write"), [flatIndex, value]);
   }
 
-  public function descriptorResource():Dynamic {
+  @:noCompletion public function descriptorResource():StructResourceDescriptor {
     return {
       resourceKind: "StructField",
       layout: Std.string(layout),
@@ -90,14 +90,14 @@ class StructField<S> {
   }
 
   function allocateMembers():Void {
-    var schemaFields:Array<Dynamic> = cast Reflect.field(schema, "fields");
+    var schemaFields = schema.fields;
     if (schemaFields == null) {
       throw "Quadrants StructField schema is missing fields";
     }
     for (entry in schemaFields) {
-      var name:String = cast Reflect.field(entry, "name");
-      var dtype:String = cast Reflect.field(entry, "dtype");
-      var lanesValue:Null<Int> = cast Reflect.field(entry, "lanes");
+      var name = entry.name;
+      var dtype = entry.dtype;
+      var lanesValue:Null<Int> = entry.lanes;
       var lanes = lanesValue == null || lanesValue <= 0 ? 1 : lanesValue;
       var memberShape = shape.copy();
       if (lanes != 1) {
