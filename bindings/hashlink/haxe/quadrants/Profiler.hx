@@ -19,9 +19,21 @@ typedef KernelProfilerStats = {
   var maxMs:Float;
 }
 
+typedef ProfilerTraceEvent = {
+  var name:String;
+  var beginSeconds:Float;
+  var endSeconds:Float;
+  var durationMs:Float;
+}
+
+typedef MemoryProfilerStats = {
+  var available:Bool;
+  var reason:String;
+}
+
 class Profiler {
   final context:Context;
-  final events:Array<Dynamic> = [];
+  final events:Array<ProfilerTraceEvent> = [];
   final activeNames:Array<String> = [];
   final activeStarts:Array<Float> = [];
 
@@ -152,11 +164,11 @@ class Profiler {
     };
   }
 
-  public function traceEvents():Array<Dynamic> {
-    return [for (event in events) Reflect.copy(event)];
+  public function traceEvents():Array<ProfilerTraceEvent> {
+    return [for (event in events) {name: event.name, beginSeconds: event.beginSeconds, endSeconds: event.endSeconds, durationMs: event.durationMs}];
   }
 
-  public function memoryStats():Dynamic {
+  public function memoryStats():MemoryProfilerStats {
     if (!quadrants.profiler.ProfilerBridge.features(context).memory) {
       throw "Quadrants memory profiler capability is not available for this backend";
     }

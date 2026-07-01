@@ -5,6 +5,25 @@ import quadrants.KernelRaw;
 import quadrants.Types.AutodiffMode;
 import sys.io.File;
 
+typedef CoverageLaunchKind = {
+  var kind:String;
+  var count:Int;
+}
+
+typedef CoverageSnapshot = {
+  var key:String;
+  var kernelName:String;
+  var descriptorHash:String;
+  var descriptorLength:Int;
+  var autodiffMode:String;
+  var graphLaunchByDefault:Bool;
+  var builds:Int;
+  var launches:Int;
+  var launchKinds:Array<CoverageLaunchKind>;
+  var probeCount:Int;
+  var coveredProbes:Int;
+}
+
 private class CoverageAccumulator {
   public final key:String;
   public final kernelName:String;
@@ -37,10 +56,10 @@ private class CoverageAccumulator {
     }
   }
 
-  public function snapshot():Dynamic {
-    var kinds:Dynamic = {};
+  public function snapshot():CoverageSnapshot {
+    var kinds = new Array<CoverageLaunchKind>();
     for (kind in launchKinds.keys()) {
-      Reflect.setField(kinds, kind, launchKinds.get(kind));
+      kinds.push({kind: kind, count: launchKinds.get(kind)});
     }
     return {
       key: key,
@@ -79,8 +98,8 @@ class Coverage {
     order.resize(0);
   }
 
-  public static function snapshot():Array<Dynamic> {
-    var result:Array<Dynamic> = [];
+  public static function snapshot():Array<CoverageSnapshot> {
+    var result:Array<CoverageSnapshot> = [];
     for (key in order) {
       var record = records.get(key);
       if (record != null) {
