@@ -69,10 +69,10 @@ CUDA smoke tests are opt-in:
 
 ```bash
 QD_HASHLINK_TEST_ARCHES=cuda \
-haxe -lib quadrants -cp tests/hashlink -main Smoke -hl build/hashlink-smoke-cuda.hl
+haxe -lib quadrants -cp tests/hashlink/v3 -main Smoke -hl build/hashlink-v3-smoke-cuda.hl
 QD_HASHLINK_TEST_ARCHES=cuda \
 LD_LIBRARY_PATH="/usr/local/cuda/targets/x86_64-linux/lib:${LD_LIBRARY_PATH:-}" \
-hl build/hashlink-smoke-cuda.hl
+hl build/hashlink-v3-smoke-cuda.hl
 ```
 
 For a build-tree run without haxelib registration or package install, pass the bridge and runtime paths while compiling the `.hl` bytecode:
@@ -80,10 +80,10 @@ For a build-tree run without haxelib registration or package install, pass the b
 ```bash
 QUADRANTS_HDLL="$QD_BUILD_DIR/quadrants.hdll" \
 QUADRANTS_RUNTIME_DIR="$QD_BUILD_DIR/runtime" \
-haxe tests/hashlink/hashlink_smoke.hxml -hl build/hashlink-smoke-buildtree.hl
+haxe tests/hashlink/v3/hashlink_v3_smoke.hxml -hl build/hashlink-v3-smoke-buildtree.hl
 QD_LIB_DIR="$QD_BUILD_DIR/runtime" \
 LD_LIBRARY_PATH="$QD_BUILD_DIR:${LD_LIBRARY_PATH:-}" \
-hl build/hashlink-smoke-buildtree.hl
+hl build/hashlink-v3-smoke-buildtree.hl
 ```
 
 The same paths can also be passed as Haxe defines: `-D quadrants_hdll_path=/path/to/quadrants.hdll` and `-D quadrants_runtime_dir=/path/to/runtime`.

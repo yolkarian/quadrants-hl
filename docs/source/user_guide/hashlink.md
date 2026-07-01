@@ -98,7 +98,7 @@ cmake --build "$QD_BUILD_DIR" --target quadrants.hdll
 ctest --test-dir "$QD_BUILD_DIR" --output-on-failure
 ```
 
-The CTest suite is the v3 gate: it compiles and runs `tests/hashlink/v3/hashlink_v3_smoke.hxml`, runs descriptor golden snapshots from `tests/hashlink/descriptor/hashlink_descriptor_golden.hxml`, verifies Haxe macro compile-fail cases in `tests/hashlink/compile_fail/`, and scans public `Dynamic` boundaries.
+The CTest suite is the v3 gate: it compiles and runs `tests/hashlink/v3/hashlink_v3_smoke.hxml`, runs `tests/hashlink/hashlink_tests.hxml` as the v3 runtime semantic suite, runs descriptor golden snapshots from `tests/hashlink/descriptor/hashlink_descriptor_golden.hxml`, verifies Haxe macro compile-fail cases in `tests/hashlink/compile_fail/`, scans public `Dynamic` boundaries, and validates the haxelib package zip layout via `hashlink_package_validate`.
 
 ## Build/test helper entry points
 
