@@ -88,10 +88,11 @@ class Capabilities {
     var streamAvailable = probeStreamAvailability(context);
     var sparseFeatures = SparseBackendFeatures.probe(context);
     var profilerFeatures = ProfilerBridge.features(context);
+    var streamEvents = streamAvailable && context.supportsStreamEvents();
     streams = {
       available: streamAvailable,
-      events: streamAvailable && context.supportsStreamEvents(),
-      parallelBlocks: false,
+      events: streamEvents,
+      parallelBlocks: streamEvents,
     };
     graph = {
       launch: true,

@@ -547,7 +547,27 @@ class V3RuntimeSemantic {
     Graph.parallel(ctx, [function() inc.launchOn(Graph.autoStream(), x, control)]);
     ctx.sync();
     eq("graph_parallel", x.read(0), 7);
-    expectThrowsContains("graph_parallel_multi_capability", "capability streamParallel", function() Graph.parallel(ctx, [function() {}, function() {}]));
+    if (ctx.capabilities().streamParallel) {
+      var parallelA = new Tensor<I32>(ctx, [1]);
+      var parallelB = new Tensor<I32>(ctx, [1]);
+      var parallelControlA = new Tensor<I32>(ctx, [1]);
+      var parallelControlB = new Tensor<I32>(ctx, [1]);
+      parallelControlA.write(0, 1);
+      parallelControlB.write(0, 1);
+      Graph.parallel(ctx, [
+        function() inc.launchOn(Graph.autoStream(), parallelA, parallelControlA),
+        function() inc.launchOn(Graph.autoStream(), parallelB, parallelControlB),
+      ]);
+      ctx.sync();
+      eq("graph_parallel_multi_a", parallelA.read(0), 1);
+      eq("graph_parallel_multi_b", parallelB.read(0), 1);
+      parallelA.close();
+      parallelB.close();
+      parallelControlA.close();
+      parallelControlB.close();
+    } else {
+      expectThrowsContains("graph_parallel_multi_capability", "capability streamParallel", function() Graph.parallel(ctx, [function() {}, function() {}]));
+    }
     var sequenceMarker = 0;
     Graph.sequence(ctx, [function() sequenceMarker += 1, function() sequenceMarker += 2]);
     eq("graph_sequence", sequenceMarker, 3);

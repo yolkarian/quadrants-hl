@@ -13,7 +13,7 @@ Top-level v3 probes:
 - `structTensor`
 - `meshKernelAccess`
 - `quantKernelParam`
-- `streamParallel`
+- `streamParallel` (true only when the backend exposes event-capable native streams)
 - `nativeSparse`
 - `memoryProfiler`
 
