@@ -8,8 +8,7 @@ class QuantFixed<Storage, Compute> extends QuantStorageSpec<Compute> {
       storageDType:DType,
       computeDType:DType,
       fractionalBits:Int,
-      scale:Float,
-      offset:Float = 0.0) {
-    super(QuantKind.Fixed, bits, signed, storageDType, computeDType, fractionalBits, 0, 0, scale, offset);
+      scale:Float) {
+    super(QuantKind.Fixed, bits, signed, storageDType, computeDType, fractionalBits, 0, 0, scale);
   }
 }

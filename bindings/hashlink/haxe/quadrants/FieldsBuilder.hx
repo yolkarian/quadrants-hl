@@ -204,9 +204,6 @@ class FieldsBuilder {
         throw "Quadrants quant spec bit width exceeds quant placement maxNumBits";
       }
     }
-    if (spec.offset != 0.0) {
-      throw "Quadrants quant fixed offset placement is not supported by the HashLink bridge";
-    }
     var tree = Native.snode_tree_create(context.nativeHandle());
     var parent = Native.snode_tree_root_id(tree);
     try {

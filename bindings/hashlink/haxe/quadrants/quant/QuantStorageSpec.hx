@@ -12,7 +12,6 @@ class QuantStorageSpec<T> {
   public final exponentBits:Int;
   public final fractionBits:Int;
   public final scale:Float;
-  public final offset:Float;
 
   public function new(kind:QuantKind,
       bits:Int,
@@ -22,8 +21,7 @@ class QuantStorageSpec<T> {
       fractionalBits:Int = 0,
       exponentBits:Int = 0,
       fractionBits:Int = 0,
-      scale:Float = 1.0,
-      offset:Float = 0.0) {
+      scale:Float = 1.0) {
     if (bits <= 0 || bits > 64) {
       throw "Quadrants quant bit width must be in 1...64";
     }
@@ -48,6 +46,5 @@ class QuantStorageSpec<T> {
     this.exponentBits = exponentBits;
     this.fractionBits = fractionBits;
     this.scale = scale;
-    this.offset = offset;
   }
 }
