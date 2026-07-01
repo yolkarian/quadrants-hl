@@ -664,7 +664,6 @@ private class DescriptorBuilder {
       metadataJson = quadrants.macro.DescriptorWriter.autoMetadata(kernelName, [
         for (param in params)
           {
-            name: param.name,
             path: param.name,
             role: param.spec ? "spec" : "runtime",
             kind: param.kind,

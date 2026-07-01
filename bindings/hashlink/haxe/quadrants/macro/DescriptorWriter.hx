@@ -2,6 +2,12 @@ package quadrants.macro;
 
 #if macro
 import haxe.Json;
+import quadrants.macro.DescriptorMetadata.QdhlMetaArgEntry;
+import quadrants.macro.DescriptorMetadata.QdhlMetaResourceEntry;
+import quadrants.macro.DescriptorMetadata.QdhlParamMeta;
+import quadrants.macro.DescriptorMetadata.QdhlSpecMeta;
+import quadrants.macro.StructTableBuilder.StructTableEntry;
+import quadrants.macro.TypeTableBuilder.TypeTableEntry;
 
 private class QdhlAttributeWriter {
   public final bytes:Array<Int> = [];
@@ -31,19 +37,21 @@ private class QdhlAttributeWriter {
 class DescriptorWriter {
   public static inline var SCHEMA_VERSION:Int = 3;
 
-  public static function autoMetadata(kernelName:String, params:Array<Dynamic>):String {
+  public static function autoMetadata(kernelName:String, params:Array<QdhlParamMeta>):String {
     return metadata(kernelName, params, [], [], []);
   }
 
   public static function metadata(kernelName:String,
-      params:Array<Dynamic>,
-      templates:Array<Dynamic>,
-      structs:Array<Dynamic>,
+      params:Array<QdhlParamMeta>,
+      templates:Array<QdhlSpecMeta>,
+      structs:Array<StructTableEntry>,
       requirements:Array<String>):String {
     var typeIds = new Map<String, Int>();
-    var types:Array<Dynamic> = [];
-    var args:Array<Dynamic> = [];
-    var resources:Array<Dynamic> = [];
+    var types:Array<TypeTableEntry> = [];
+    var args:Array<QdhlMetaArgEntry> = [];
+    var resources:Array<QdhlMetaResourceEntry> = [];
+    var specTable:Array<QdhlSpecMeta> = templates == null ? [] : templates.copy();
+    var structTable:Array<StructTableEntry> = structs == null ? [] : structs.copy();
     var capabilities:Array<String> = requirements == null ? [] : requirements.copy();
 
     function ensureCapability(name:String):Void {
@@ -113,17 +121,11 @@ class DescriptorWriter {
 
     for (index in 0...params.length) {
       var param = params[index];
-      var kind:Int = Reflect.field(param, "kind");
-      var dtype:Int = Reflect.field(param, "dtype");
-      var rank:Int = Reflect.field(param, "rank");
-      var path:String = Reflect.field(param, "path");
-      if (path == null) {
-        path = Reflect.field(param, "name");
-      }
-      var role:String = Reflect.field(param, "role");
-      if (role == null) {
-        role = "runtime";
-      }
+      var kind = param.kind;
+      var dtype = param.dtype;
+      var rank = param.rank;
+      var path = param.path;
+      var role = param.role == null ? "runtime" : param.role;
       var typeId = typeIdOf(kind, dtype, rank, role);
       args.push({
         index: index,
@@ -137,7 +139,7 @@ class DescriptorWriter {
         access: "ReadWrite",
       });
       if (role == "spec" || role == "template") {
-        templates.push({path: path, type: dtypeName(dtype), value: "launch"});
+        specTable.push({path: path, type: dtypeName(dtype), value: "launch"});
         ensureCapability("template_constants");
       }
       if (kind != 0) {
@@ -169,9 +171,9 @@ class DescriptorWriter {
       args: args,
       resourceTable: resources,
       resources: resources,
-      structTable: structs == null ? [] : structs,
-      specTable: templates,
-      templates: templates,
+      structTable: structTable,
+      specTable: specTable,
+      templates: specTable,
       capabilityRequirements: capabilities,
       capabilities: capabilities,
       debugInfo: {}

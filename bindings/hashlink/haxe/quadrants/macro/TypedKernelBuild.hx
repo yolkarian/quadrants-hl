@@ -5,6 +5,7 @@ import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.Type;
 import haxe.macro.TypeTools;
+import quadrants.macro.DescriptorMetadata.QdhlParamMeta;
 
 class TypedKernelBuild {
   public static function build(ctxExpr:Expr, fnExpr:Expr, ?optionsExpr:Expr):Expr {
@@ -187,7 +188,7 @@ class TypedKernelBuild {
     };
   }
 
-  static function metadataArg(arg:FunctionArg, pos:Position):Dynamic {
+  static function metadataArg(arg:FunctionArg, pos:Position):QdhlParamMeta {
     var role = isSpecComplexType(arg.type) ? "spec" : "runtime";
     return {
       path: arg.name,
