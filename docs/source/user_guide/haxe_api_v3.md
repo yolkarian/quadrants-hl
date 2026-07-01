@@ -45,7 +45,9 @@ y.copyFrom(x);
 final bytes = x.readBytes();
 x.writeBytes(bytes);
 final capsule = x.toDLPack();
+y.importDLPack(capsule);
 final ptr = x.devicePointer();
+y.importExternalPointer(ptr);
 ```
 
 `shape` and `dtype` are typed properties; `rank()`, `numel()`, and `shapeCopy()` provide stable method-style queries. Field parameters are direct SNode resources; v3 does not mirror fields through tensors on launch. Field placement supports core SNode domain offsets through the builder path:

@@ -168,6 +168,28 @@ class V3RuntimeSemantic {
     eq("tensor_bytes_roundtrip", y.read(0), x.read(0));
     if (x.supportsDLPack() != ctx.capabilities().interop.dlpack) throw "DLPack capability query mismatch";
     if (x.supportsExternalPointerImport() != ctx.capabilities().interop.externalPointerImport) throw "external pointer capability query mismatch";
+    if (x.supportsExternalPointerImport()) {
+      var pointerImported = new Tensor<I32>(ctx, [4]);
+      pointerImported.importExternalPointer(x.devicePointer());
+      eq("external_pointer_import_read", pointerImported.read(1), 2);
+      pointerImported.write(1, 22);
+      eq("external_pointer_import_alias", x.read(1), 22);
+      pointerImported.close();
+    }
+    if (x.supportsDLPack()) {
+      var dlpack = x.toDLPack();
+      eq("dlpack_ndim", dlpack.ndim(), 1);
+      if (dlpack.shape(0) != 4) throw "dlpack_shape";
+      if (dlpack.stride(0) != 1) throw "dlpack_stride";
+      eq("dlpack_dtype_bits", dlpack.dtypeBits(), 32);
+      eq("dlpack_dtype_lanes", dlpack.dtypeLanes(), 1);
+      var dlpackImported = new Tensor<I32>(ctx, [4]);
+      dlpackImported.importDLPack(dlpack);
+      eq("dlpack_import_read", dlpackImported.read(1), 22);
+      dlpackImported.write(2, 33);
+      eq("dlpack_import_alias", x.read(2), 33);
+      dlpackImported.close();
+    }
 
     var field = new Field<I32>(ctx, [4]);
     var fieldOut = new Tensor<I32>(ctx, [4]);
