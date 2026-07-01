@@ -48,7 +48,13 @@ final capsule = x.toDLPack();
 final ptr = x.devicePointer();
 ```
 
-`shape` and `dtype` are typed properties; `rank()`, `numel()`, and `shapeCopy()` provide stable method-style queries. Field parameters are direct SNode resources; v3 does not mirror fields through tensors on launch. Autodiff `grad`/`dual` storage is available only for real floating dtypes (`F16`/`F32`/`F64`); integer and boolean tensors/fields raise explicit no-grad errors.
+`shape` and `dtype` are typed properties; `rank()`, `numel()`, and `shapeCopy()` provide stable method-style queries. Field parameters are direct SNode resources; v3 does not mirror fields through tensors on launch. Field placement supports core SNode domain offsets through the builder path:
+
+```haxe
+ctx.root.dense(Axis.i, 4).offset([10]).place(f);
+```
+
+Host `Field.read/write(flatIndex, ...)` remains zero-based over the declared shape; kernel indexing uses Quadrants logical indices, so an offset field placed at `[10]` is accessed as `f[10] ... f[13]` inside kernels. Autodiff `grad`/`dual` storage is available only for real floating dtypes (`F16`/`F32`/`F64`); integer and boolean tensors/fields raise explicit no-grad errors.
 
 Device-wide algorithms are available through one flat facade:
 

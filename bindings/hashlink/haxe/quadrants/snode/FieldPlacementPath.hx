@@ -11,20 +11,26 @@ class FieldPlacementPath {
   public final shape:Array<Int>;
   public final rank:Int;
   final steps:Array<FieldPlacementStep>;
+  final offset:Array<Int>;
 
-  public function new(context:Context, shape:Array<Int>, steps:Array<FieldPlacementStep>) {
+  public function new(context:Context, shape:Array<Int>, steps:Array<FieldPlacementStep>, ?offset:Array<Int>) {
     this.context = context;
     this.shape = [for (dim in shape) dim];
     this.rank = shape.length;
     this.steps = copySteps(steps);
+    this.offset = FieldsBuilder.validatePlacementOffset(this.shape, offset);
   }
 
   public function placementSteps():Array<FieldPlacementStep> {
     return copySteps(steps);
   }
 
+  public function placementOffset():Array<Int> {
+    return copyOffset(offset);
+  }
+
   public function place(field:FieldRuntime):FieldRuntime {
-    FieldsBuilder.placeWithSteps(context, field, shape.copy(), copySteps(steps));
+    FieldsBuilder.placeWithSteps(context, field, shape.copy(), copySteps(steps), copyOffset(offset));
     return field;
   }
 
@@ -34,7 +40,7 @@ class FieldPlacementPath {
   }
 
   public function placeQuant<T>(field:Field<T>, spec:quadrants.quant.QuantStorageSpec<T>):Field<T> {
-    FieldsBuilder.placeQuantWithSteps(context, field, shape.copy(), copySteps(steps), spec);
+    FieldsBuilder.placeQuantWithSteps(context, field, shape.copy(), copySteps(steps), spec, copyOffset(offset));
     return field;
   }
 
@@ -56,7 +62,11 @@ class FieldPlacementPath {
   }
 
   public function toString():String {
-    return 'FieldPlacementPath(rank=${rank}, shape=[${shape.join(",")}])';
+    return 'FieldPlacementPath(rank=${rank}, shape=[${shape.join(",")}], offset=[${offset.join(",")}])';
+  }
+
+  static function copyOffset(input:Array<Int>):Array<Int> {
+    return [for (value in input) value];
   }
 
   static function copySteps(input:Array<FieldPlacementStep>):Array<FieldPlacementStep> {

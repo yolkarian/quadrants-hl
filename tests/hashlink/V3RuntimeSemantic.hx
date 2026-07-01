@@ -181,6 +181,27 @@ class V3RuntimeSemantic {
     ctx.sync();
     eq("field_param_3", field.read(3), 6);
     eq("field_param_out3", fieldOut.read(3), 7);
+
+    var offsetField = new Field<I32>(ctx);
+    var offsetOut = new Tensor<I32>(ctx, [4]);
+    new quadrants.FieldsBuilder(ctx).dense(quadrants.Axis.i, 4).offset([10]).place(cast offsetField);
+    offsetField.write(0, 41);
+    eq("field_offset_host", offsetField.read(0), 41);
+    var offsetKernel = Kernel.build(ctx, macro (field:Field<I32>, out:Tensor<I32>) -> {
+      for (i in 0...4) {
+        field[i + 10] = i + 20;
+        out[i] = field[i + 10];
+      }
+    }, {name: "v3_runtime_field_offset"});
+    offsetKernel.launch(offsetField, offsetOut);
+    ctx.sync();
+    eq("field_offset_kernel_0", offsetOut.read(0), 20);
+    eq("field_offset_kernel_3", offsetOut.read(3), 23);
+    eq("field_offset_host_after_kernel", offsetField.read(3), 23);
+    offsetKernel.close();
+    offsetField.close();
+    offsetOut.close();
+
     fieldKernel.close();
     field.close();
     fieldOut.close();

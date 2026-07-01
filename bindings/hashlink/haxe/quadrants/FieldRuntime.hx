@@ -19,6 +19,7 @@ class FieldRuntime implements TensorHandle {
   public var closed:Bool = false;
   final tensorFactory:TensorFactory;
   var placementSteps:Array<FieldPlacementStep> = null;
+  var placementOffset:Array<Int> = null;
 
   public function new(context:Context, dtype:DType, tensorFactory:TensorFactory, ?shape:Array<Int>) {
     this.context = context;
@@ -46,13 +47,14 @@ class FieldRuntime implements TensorHandle {
     FieldsBuilder.placeDense(context, this, shape);
   }
 
-  public function placeSNode(shape:Array<Int>, snodeId:Int, snodeTreeId:Int, steps:Array<FieldPlacementStep>):Void {
+  public function placeSNode(shape:Array<Int>, snodeId:Int, snodeTreeId:Int, steps:Array<FieldPlacementStep>, ?offset:Array<Int>):Void {
     ensurePlaceable();
     this.shape = TensorStorage.validateShape(shape);
     this.tensor = null;
     this.snodeId = snodeId;
     this.snodeTreeId = snodeTreeId;
     this.placementSteps = [for (step in steps) {kind: step.kind, axis: step.axis, size: step.size, chunkSize: step.chunkSize}];
+    this.placementOffset = FieldsBuilder.validatePlacementOffset(this.shape, offset);
     gradField = null;
     dualField = null;
     ownsTensor = false;
@@ -65,8 +67,15 @@ class FieldRuntime implements TensorHandle {
     return [for (step in placementSteps) {kind: step.kind, axis: step.axis, size: step.size, chunkSize: step.chunkSize}];
   }
 
+  public function copyPlacementOffset():Array<Int> {
+    if (placementOffset == null) {
+      throw "Quadrants field has no placement offset";
+    }
+    return [for (value in placementOffset) value];
+  }
+
   public function placeCloneOf(source:FieldRuntime):Void {
-    FieldsBuilder.placeWithSteps(context, this, quadrants.TensorStorage.copyIntArray(source.shape), source.copyPlacementSteps());
+    FieldsBuilder.placeWithSteps(context, this, quadrants.TensorStorage.copyIntArray(source.shape), source.copyPlacementSteps(), source.copyPlacementOffset());
   }
 
   public function setTensor(source:TensorHandle, owns:Bool):Void {
@@ -85,6 +94,7 @@ class FieldRuntime implements TensorHandle {
     snodeId = -1;
     snodeTreeId = -1;
     placementSteps = null;
+    placementOffset = null;
   }
 
   public function copyFromTensor(source:TensorHandle):Void {
@@ -154,7 +164,13 @@ class FieldRuntime implements TensorHandle {
     if (shape == null) {
       throw "Quadrants field has not been placed";
     }
-    return TensorStorage.nativeIntArray(TensorStorage.indicesFromFlat(shape, flatIndex));
+    var indices = TensorStorage.indicesFromFlat(shape, flatIndex);
+    if (placementOffset != null) {
+      for (i in 0...indices.length) {
+        indices[i] += placementOffset[i];
+      }
+    }
+    return TensorStorage.nativeIntArray(indices);
   }
 
   function ensureTensorMirror():TensorHandle {

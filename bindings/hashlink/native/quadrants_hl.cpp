@@ -3778,6 +3778,22 @@ HL_PRIM int HL_NAME(snode_tree_place)(qd_snode_tree *tree, int parent_snode_id, 
   });
 }
 
+HL_PRIM int HL_NAME(snode_tree_place_with_offset)(qd_snode_tree *tree,
+                                                   int parent_snode_id,
+                                                   int dtype,
+                                                   varray *offsets,
+                                                   vbyte *name) {
+  return guard([&]() -> int {
+    qd_snode_tree &tree_ref = require_snode_tree(tree);
+    SNode &parent = require_pending_snode(tree_ref, parent_snode_id);
+    QdContextState &state = *tree_ref.state;
+    const std::string field_name = name == nullptr ? std::string() : std::string(reinterpret_cast<const char *>(name));
+    Expr field = Expr::make<FieldExpression>(dtype_from_bridge_id(dtype), state.program->get_next_global_id(field_name));
+    parent.place(field, ints_from_hl_array(offsets, "SNode index offset"), -1);
+    return field.snode()->id;
+  });
+}
+
 HL_PRIM int HL_NAME(snode_tree_place_quant)(qd_snode_tree *tree,
                                             int parent_snode_id,
                                             int compute_dtype,
@@ -3804,6 +3820,37 @@ HL_PRIM int HL_NAME(snode_tree_place_quant)(qd_snode_tree *tree,
     Expr field = Expr::make<FieldExpression>(quant_type, state.program->get_next_global_id(field_name));
     const int bit_struct_member_id = quant_kind == 3 ? 1 : 0;
     parent.place(field, {}, parent.type == SNodeType::bit_struct ? bit_struct_member_id : -1);
+    return field.snode()->id;
+  });
+}
+
+HL_PRIM int HL_NAME(snode_tree_place_quant_with_offset)(qd_snode_tree *tree,
+                                                         int parent_snode_id,
+                                                         int compute_dtype,
+                                                         int quant_kind,
+                                                         int bits,
+                                                         int is_signed,
+                                                         int fractional_bits,
+                                                         int exponent_bits,
+                                                         int fraction_bits,
+                                                         double scale,
+                                                         varray *offsets,
+                                                         vbyte *name) {
+  return guard([&]() -> int {
+    qd_snode_tree &tree_ref = require_snode_tree(tree);
+    SNode &parent = require_pending_snode(tree_ref, parent_snode_id);
+    if (parent.type != SNodeType::quant_array && parent.type != SNodeType::bit_struct) {
+      throw std::runtime_error("Quadrants quant placement requires a quant_array or bit_struct SNode parent");
+    }
+    if (parent.type == SNodeType::quant_array && quant_kind == 3) {
+      throw std::runtime_error("Quadrants quant float placement requires a bit_struct SNode parent");
+    }
+    QdContextState &state = *tree_ref.state;
+    const std::string field_name = name == nullptr ? std::string() : std::string(reinterpret_cast<const char *>(name));
+    Type *quant_type = quant_type_from_bridge(quant_kind, bits, is_signed, compute_dtype, fractional_bits, exponent_bits, fraction_bits, scale);
+    Expr field = Expr::make<FieldExpression>(quant_type, state.program->get_next_global_id(field_name));
+    const int bit_struct_member_id = quant_kind == 3 ? 1 : 0;
+    parent.place(field, ints_from_hl_array(offsets, "SNode index offset"), parent.type == SNodeType::bit_struct ? bit_struct_member_id : -1);
     return field.snode()->id;
   });
 }
@@ -4360,7 +4407,9 @@ DEFINE_PRIM(_I32, snode_tree_root_id, _QD_SNODE_TREE);
 DEFINE_PRIM(_I32, snode_tree_child, _QD_SNODE_TREE _I32 _I32 _ARR _ARR _I32);
 DEFINE_PRIM(_I32, snode_tree_bit_struct_quant_child, _QD_SNODE_TREE _I32 _I32 _I32 _I32 _I32 _I32 _I32 _I32 _F64 _I32);
 DEFINE_PRIM(_I32, snode_tree_place, _QD_SNODE_TREE _I32 _I32 _BYTES);
+DEFINE_PRIM(_I32, snode_tree_place_with_offset, _QD_SNODE_TREE _I32 _I32 _ARR _BYTES);
 DEFINE_PRIM(_I32, snode_tree_place_quant, _QD_SNODE_TREE _I32 _I32 _I32 _I32 _I32 _I32 _I32 _I32 _F64 _BYTES);
+DEFINE_PRIM(_I32, snode_tree_place_quant_with_offset, _QD_SNODE_TREE _I32 _I32 _I32 _I32 _I32 _I32 _I32 _I32 _F64 _ARR _BYTES);
 DEFINE_PRIM(_I32, snode_tree_commit, _QD_CONTEXT _QD_SNODE_TREE);
 DEFINE_PRIM(_VOID, snode_tree_close, _QD_SNODE_TREE);
 DEFINE_PRIM(_I32, snode_read_i8, _QD_CONTEXT _I32 _ARR);

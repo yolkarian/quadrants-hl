@@ -719,6 +719,11 @@ class Native {
     throw "Quadrants HashLink native bridge is not loaded";
   }
 
+  @:hlNative("quadrants", "snode_tree_place_with_offset")
+  public static function snode_tree_place_with_offset(tree:QSNodeTree, parentSNodeId:Int, dtype:Int, offsets:hl.NativeArray<Int>, name:hl.Bytes):Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
   @:hlNative("quadrants", "snode_tree_place_quant")
   public static function snode_tree_place_quant(tree:QSNodeTree,
       parentSNodeId:Int,
@@ -730,6 +735,22 @@ class Native {
       exponentBits:Int,
       fractionBits:Int,
       scale:Float,
+      name:hl.Bytes):Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "snode_tree_place_quant_with_offset")
+  public static function snode_tree_place_quant_with_offset(tree:QSNodeTree,
+      parentSNodeId:Int,
+      computeDType:Int,
+      quantKind:Int,
+      bits:Int,
+      signed:Int,
+      fractionalBits:Int,
+      exponentBits:Int,
+      fractionBits:Int,
+      scale:Float,
+      offsets:hl.NativeArray<Int>,
       name:hl.Bytes):Int {
     throw "Quadrants HashLink native bridge is not loaded";
   }

@@ -21,6 +21,7 @@ class FieldsBuilder {
   final context:Context;
   var steps:Array<FieldPlacementStep> = [];
   var shape:Array<Int> = [];
+  var placementOffset:Null<Array<Int>> = null;
   var finalized:Bool = false;
 
   function ensureMutable():Void {
@@ -79,6 +80,36 @@ class FieldsBuilder {
 
   public function quantArray(axis:Axis, size:Int, maxNumBits:quadrants.quant.QuantBits):FieldsBuilder {
     return add(SNODE_QUANT_ARRAY, axis, size, maxNumBits);
+  }
+
+  public function offset(offset:Array<Int>):FieldsBuilder {
+    ensureMutable();
+    if (offset == null) {
+      throw "Quadrants field placement offset is required";
+    }
+    placementOffset = [for (value in offset) value];
+    for (value in placementOffset) {
+      if (value < 0) {
+        throw "Quadrants field placement offset values must be non-negative";
+      }
+    }
+    return this;
+  }
+
+  public static function validatePlacementOffset(shape:Array<Int>, offset:Null<Array<Int>>):Array<Int> {
+    if (offset == null || offset.length == 0) {
+      return [];
+    }
+    if (offset.length != shape.length) {
+      throw 'Quadrants field placement offset rank must match field shape rank (offset=${offset.length}, shape=${shape.length})';
+    }
+    var result = [for (value in offset) value];
+    for (value in result) {
+      if (value < 0) {
+        throw "Quadrants field placement offset values must be non-negative";
+      }
+    }
+    return result;
   }
 
   static function copySteps(steps:Array<FieldPlacementStep>):Array<FieldPlacementStep> {
@@ -149,11 +180,12 @@ class FieldsBuilder {
     placeWithSteps(context, field, checkedShape, denseSteps);
   }
 
-  public static function placeWithSteps(context:Context, field:FieldRuntime, shape:Array<Int>, steps:Array<FieldPlacementStep>):Void {
+  public static function placeWithSteps(context:Context, field:FieldRuntime, shape:Array<Int>, steps:Array<FieldPlacementStep>, ?offset:Array<Int>):Void {
     field.ensurePlaceable();
     var checkedShape = TensorStorage.validateShape(shape);
     var checkedSteps = copySteps(steps);
     validateStepsMatchShape(checkedShape, checkedSteps);
+    var checkedOffset = validatePlacementOffset(checkedShape, offset);
     if (hasQuantArrayStep(checkedSteps)) {
       throw "Quadrants quantArray placement requires placeQuant(field, quantSpec)";
     }
@@ -167,9 +199,11 @@ class FieldsBuilder {
     try {
       parent = placeStructuralSteps(tree, parent, checkedSteps);
       var name = @:privateAccess "".toUtf8();
-      var snodeId = Native.snode_tree_place(tree, parent, field.dtype, name);
+      var snodeId = checkedOffset.length == 0
+        ? Native.snode_tree_place(tree, parent, field.dtype, name)
+        : Native.snode_tree_place_with_offset(tree, parent, field.dtype, TensorStorage.nativeIntArray(checkedOffset), name);
       var treeId = Native.snode_tree_commit(context.nativeHandle(), tree);
-      field.placeSNode(quadrants.TensorStorage.copyIntArray(checkedShape), snodeId, treeId, checkedSteps);
+      field.placeSNode(quadrants.TensorStorage.copyIntArray(checkedShape), snodeId, treeId, checkedSteps, checkedOffset);
     } catch (e:Dynamic) {
       Native.snode_tree_close(tree);
       throw e;
@@ -181,7 +215,8 @@ class FieldsBuilder {
       field:Field<T>,
       shape:Array<Int>,
       steps:Array<FieldPlacementStep>,
-      spec:quadrants.quant.QuantStorageSpec<T>):Void {
+      spec:quadrants.quant.QuantStorageSpec<T>,
+      ?offset:Array<Int>):Void {
     if (spec == null) {
       throw "Quadrants quant field placement requires a quant storage spec";
     }
@@ -196,6 +231,7 @@ class FieldsBuilder {
     var checkedShape = TensorStorage.validateShape(shape);
     var checkedSteps = copySteps(steps);
     validateStepsMatchShape(checkedShape, checkedSteps);
+    var checkedOffset = validatePlacementOffset(checkedShape, offset);
     if (!hasQuantArrayStep(checkedSteps) && !hasBitStructStep(checkedSteps)) {
       throw "Quadrants placeQuant requires a quantArray or bitStruct placement step";
     }
@@ -234,21 +270,36 @@ class FieldsBuilder {
         }
       }
       var name = @:privateAccess "".toUtf8();
-      var snodeId = Native.snode_tree_place_quant(
-        tree,
-        parent,
-        runtime.dtype,
-        spec.kind,
-        spec.bits,
-        spec.signed ? 1 : 0,
-        spec.fractionalBits,
-        spec.exponentBits,
-        spec.fractionBits,
-        spec.scale,
-        name
-      );
+      var snodeId = checkedOffset.length == 0
+        ? Native.snode_tree_place_quant(
+          tree,
+          parent,
+          runtime.dtype,
+          spec.kind,
+          spec.bits,
+          spec.signed ? 1 : 0,
+          spec.fractionalBits,
+          spec.exponentBits,
+          spec.fractionBits,
+          spec.scale,
+          name
+        )
+        : Native.snode_tree_place_quant_with_offset(
+          tree,
+          parent,
+          runtime.dtype,
+          spec.kind,
+          spec.bits,
+          spec.signed ? 1 : 0,
+          spec.fractionalBits,
+          spec.exponentBits,
+          spec.fractionBits,
+          spec.scale,
+          TensorStorage.nativeIntArray(checkedOffset),
+          name
+        );
       var treeId = Native.snode_tree_commit(context.nativeHandle(), tree);
-      runtime.placeSNode(quadrants.TensorStorage.copyIntArray(checkedShape), snodeId, treeId, checkedSteps);
+      runtime.placeSNode(quadrants.TensorStorage.copyIntArray(checkedShape), snodeId, treeId, checkedSteps, checkedOffset);
     } catch (e:Dynamic) {
       Native.snode_tree_close(tree);
       throw e;
@@ -258,7 +309,7 @@ class FieldsBuilder {
 
   public function path():quadrants.snode.FieldPlacementPath {
     ensureHasSteps();
-    return new quadrants.snode.FieldPlacementPath(context, quadrants.TensorStorage.copyIntArray(shape), copySteps(steps));
+    return new quadrants.snode.FieldPlacementPath(context, quadrants.TensorStorage.copyIntArray(shape), copySteps(steps), placementOffset);
   }
 
   public function finalize():quadrants.snode.FieldPlacementPath {
@@ -281,6 +332,7 @@ class FieldsBuilder {
   public function destroy():Void {
     steps = [];
     shape = [];
+    placementOffset = null;
     finalized = false;
   }
 }
