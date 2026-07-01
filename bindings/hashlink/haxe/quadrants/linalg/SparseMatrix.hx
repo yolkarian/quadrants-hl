@@ -81,6 +81,77 @@ class SparseMatrix<T> implements LinearOperator<T> {
     return result;
   }
 
+  public static function mmread<T>(ctx:Context,
+      path:String,
+      dtype:DType = DType.F32,
+      storageFormat:SparseStorageFormat = SparseStorageFormat.CSR):SparseMatrix<T> {
+    if (path == null || path.length == 0) {
+      throw "Quadrants sparse mmread requires a path";
+    }
+    if (dtype != DType.F32 && dtype != DType.F64) {
+      throw "Quadrants sparse mmread supports only F32 and F64";
+    }
+    var lines = sys.io.File.getContent(path).split("\n");
+    var headerSeen = false;
+    var result:SparseMatrix<T> = null;
+    var expectedEntries = -1;
+    var actualEntries = 0;
+    for (line in lines) {
+      var trimmed = StringTools.trim(line);
+      if (trimmed.length == 0) {
+        continue;
+      }
+      if (!headerSeen) {
+        var header = splitWords(trimmed);
+        if (header.length < 5 || header[0] != "%%MatrixMarket") {
+          throw "Quadrants sparse mmread requires a MatrixMarket coordinate header";
+        }
+        var object = header[1].toLowerCase();
+        var format = header[2].toLowerCase();
+        var field = header[3].toLowerCase();
+        var symmetry = header[4].toLowerCase();
+        if (object != "matrix" || format != "coordinate" || (field != "real" && field != "integer") || symmetry != "general") {
+          throw "Quadrants sparse mmread supports only MatrixMarket matrix coordinate real/integer general";
+        }
+        headerSeen = true;
+        continue;
+      }
+      if (StringTools.startsWith(trimmed, "%")) {
+        continue;
+      }
+      var parts = splitWords(trimmed);
+      if (result == null) {
+        if (parts.length != 3) {
+          throw "Quadrants sparse mmread size line must contain rows, cols, and entries";
+        }
+        var nRows = parsePositiveInt(parts[0], "rows");
+        var nCols = parsePositiveInt(parts[1], "cols");
+        expectedEntries = parseNonNegativeInt(parts[2], "entries");
+        result = new SparseMatrix<T>(ctx, nRows, nCols, dtype, storageFormat);
+        continue;
+      }
+      if (parts.length != 3) {
+        throw "Quadrants sparse mmread entry line must contain row, col, and value";
+      }
+      var row = parsePositiveInt(parts[0], "row") - 1;
+      var col = parsePositiveInt(parts[1], "col") - 1;
+      var value = Std.parseFloat(parts[2]);
+      if (Math.isNaN(value)) {
+        throw "Quadrants sparse mmread entry value is not a number";
+      }
+      result.checkBounds(row, col, "mmread");
+      result.setFloat(row, col, value);
+      actualEntries++;
+    }
+    if (!headerSeen || result == null) {
+      throw "Quadrants sparse mmread file is incomplete";
+    }
+    if (actualEntries != expectedEntries) {
+      throw "Quadrants sparse mmread entry count mismatch";
+    }
+    return result;
+  }
+
   public function nativeHandle():QSparseMatrix {
     if (closed) {
       throw "Quadrants sparse matrix is closed";
@@ -374,6 +445,43 @@ class SparseMatrix<T> implements LinearOperator<T> {
     if (nRows <= 0 || nCols <= 0) {
       throw 'Quadrants SparseMatrix.${operation} dimensions must be positive';
     }
+  }
+
+  static function splitWords(line:String):Array<String> {
+    var result = new Array<String>();
+    var current = new StringBuf();
+    var trimmed = StringTools.trim(line);
+    for (i in 0...trimmed.length) {
+      var ch = trimmed.charAt(i);
+      if (ch == " " || ch == "\t" || ch == "\r") {
+        if (current.length > 0) {
+          result.push(current.toString());
+          current = new StringBuf();
+        }
+      } else {
+        current.add(ch);
+      }
+    }
+    if (current.length > 0) {
+      result.push(current.toString());
+    }
+    return result;
+  }
+
+  static function parsePositiveInt(value:String, name:String):Int {
+    var parsed = Std.parseInt(value);
+    if (parsed == null || parsed <= 0) {
+      throw 'Quadrants sparse mmread ${name} must be positive';
+    }
+    return parsed;
+  }
+
+  static function parseNonNegativeInt(value:String, name:String):Int {
+    var parsed = Std.parseInt(value);
+    if (parsed == null || parsed < 0) {
+      throw 'Quadrants sparse mmread ${name} must be non-negative';
+    }
+    return parsed;
   }
 
   static function requireValueTensor<T>(name:String, ctx:Context, tensor:Tensor<T>):TensorRuntime {

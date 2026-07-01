@@ -74,10 +74,11 @@ Per-thread linalg entrypoints live under `quadrants.funcs.Linalg` with explicit 
 Sparse, mesh, and quant resources use typed constructors plus descriptor/capability validation:
 
 ```haxe
-final A = quadrants.linalg.SparseMatrix.fromCOO(ctx, rows, cols, values, nRows, nCols);
+final A = quadrants.linalg.SparseMatrix.fromCOO(ctx, rowInd, colInd, values, nRows, nCols);
 final nnz = A.toCSR(rowPtrOut, colIndOut, valuesOut);
 A.buildFromTensor(dense, {eps: 1e-6});
 A.mmwrite("A.mtx");
+final B = quadrants.linalg.SparseMatrix.mmread(ctx, "A.mtx", DType.F32);
 final mesh = new Mesh(vertexCount, edgeCount);
 final qi8 = Quant.intI32({bits: 8, signed: true});
 ```

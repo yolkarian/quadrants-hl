@@ -669,6 +669,9 @@ class V3RuntimeSemantic {
     sparse.mmwrite(sparsePath);
     var content = sys.io.File.getContent(sparsePath);
     if (content.indexOf("2 2 2") < 0 || content.indexOf("2 2 5") < 0) throw "sparse mmwrite failed";
+    var mmRoundtrip = quadrants.linalg.SparseMatrix.mmread(ctx, sparsePath, DType.F32);
+    eq("sparse_mmread_nnz", mmRoundtrip.nnz, 2);
+    near("sparse_mmread_value", mmRoundtrip.get(1, 1), 5.0);
 
     var cooRows = new Tensor<I32>(ctx, [2]);
     var cooCols = new Tensor<I32>(ctx, [2]);
@@ -757,6 +760,7 @@ class V3RuntimeSemantic {
     solution.close();
     cooRoundtrip.close();
     csrRoundtrip.close();
+    mmRoundtrip.close();
     cooRows.close();
     cooCols.close();
     cooVals.close();
