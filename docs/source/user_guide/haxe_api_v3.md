@@ -70,7 +70,7 @@ Algorithms.radixSort(ctx, keys, tmpKeys, scratch, {beginBit: 0, endBit: 32});
 scratch.clear();
 ```
 
-Host per-thread linalg entrypoints live under `quadrants.funcs.Linalg` with explicit sizes (`svd2`, `svd3`, `solve2`, `solve3`, ...). Kernel-side helper coverage starts with `quadrants.funcs.DeviceLinalg` `@:qdFunc` scalar solve2/solve3 component helpers; pass scalar lanes directly or via `matrix.kernelGet(row, col)` inside kernels.
+Host per-thread linalg entrypoints live under `quadrants.funcs.Linalg` with explicit sizes (`svd2`, `svd3`, `solve2`, `solve3`, ...). Kernel-side helper coverage starts with `quadrants.funcs.DeviceLinalg` `@:qdFunc` scalar solve2/solve3 and 2D eig/symEig/svd/polar component helpers; pass scalar lanes directly or via `matrix.kernelGet(row, col)` inside kernels.
 
 Sparse, mesh, and quant resources use typed constructors plus descriptor/capability validation:
 

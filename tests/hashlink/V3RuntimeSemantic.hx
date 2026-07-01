@@ -637,7 +637,7 @@ class V3RuntimeSemantic {
     var spd = Linalg.makeSpd(Matrix.ofArray(2, 2, [1.0, 2.0, 2.0, -1.0]));
     if (spd.get(0, 0) <= 0.0) throw "makeSpd failed";
 
-    var deviceLinalgOut = new Tensor<F32>(ctx, [5]);
+    var deviceLinalgOut = new Tensor<F32>(ctx, [13]);
     var deviceLinalgKernel = Kernel.build(ctx, macro (out:Tensor<F32>) -> {
       var a2 = Matrix.ofArray(2, 2, [2.0, 0.0, 0.0, 4.0]);
       var b2 = Matrix.ofArray(2, 1, [6.0, 8.0]);
@@ -648,12 +648,28 @@ class V3RuntimeSemantic {
       out[2] = DeviceLinalg.solve3X(a3.kernelGet(0, 0), a3.kernelGet(0, 1), a3.kernelGet(0, 2), a3.kernelGet(1, 0), a3.kernelGet(1, 1), a3.kernelGet(1, 2), a3.kernelGet(2, 0), a3.kernelGet(2, 1), a3.kernelGet(2, 2), b3.kernelGet(0, 0), b3.kernelGet(1, 0), b3.kernelGet(2, 0));
       out[3] = DeviceLinalg.solve3Y(a3.kernelGet(0, 0), a3.kernelGet(0, 1), a3.kernelGet(0, 2), a3.kernelGet(1, 0), a3.kernelGet(1, 1), a3.kernelGet(1, 2), a3.kernelGet(2, 0), a3.kernelGet(2, 1), a3.kernelGet(2, 2), b3.kernelGet(0, 0), b3.kernelGet(1, 0), b3.kernelGet(2, 0));
       out[4] = DeviceLinalg.solve3Z(a3.kernelGet(0, 0), a3.kernelGet(0, 1), a3.kernelGet(0, 2), a3.kernelGet(1, 0), a3.kernelGet(1, 1), a3.kernelGet(1, 2), a3.kernelGet(2, 0), a3.kernelGet(2, 1), a3.kernelGet(2, 2), b3.kernelGet(0, 0), b3.kernelGet(1, 0), b3.kernelGet(2, 0));
+      out[5] = DeviceLinalg.symEig2Large(2.0, 0.0, 4.0);
+      out[6] = DeviceLinalg.symEig2Small(2.0, 0.0, 4.0);
+      out[7] = DeviceLinalg.eig2Large(2.0, 0.0, 0.0, 4.0);
+      out[8] = DeviceLinalg.eig2Small(2.0, 0.0, 0.0, 4.0);
+      out[9] = DeviceLinalg.svd2Sigma0(3.0, 0.0, 0.0, 2.0);
+      out[10] = DeviceLinalg.svd2Sigma1(3.0, 0.0, 0.0, 2.0);
+      out[11] = DeviceLinalg.polar2R00(1.0, 0.0, 0.0, 2.0);
+      out[12] = DeviceLinalg.polar2R11(1.0, 0.0, 0.0, 2.0);
     }, {name: "v3_runtime_device_linalg", helpers: [DeviceLinalg]});
     deviceLinalgKernel.launch(deviceLinalgOut);
     ctx.sync();
     near("device_linalg_solve2_0", deviceLinalgOut.read(0), 3.0);
     near("device_linalg_solve2_1", deviceLinalgOut.read(1), 2.0);
     near("device_linalg_solve3_2", deviceLinalgOut.read(4), solveGolden[2]);
+    near("device_linalg_sym_eig2_large", deviceLinalgOut.read(5), 4.0);
+    near("device_linalg_sym_eig2_small", deviceLinalgOut.read(6), 2.0);
+    near("device_linalg_eig2_large", deviceLinalgOut.read(7), 4.0);
+    near("device_linalg_eig2_small", deviceLinalgOut.read(8), 2.0);
+    near("device_linalg_svd2_sigma0", deviceLinalgOut.read(9), 3.0);
+    near("device_linalg_svd2_sigma1", deviceLinalgOut.read(10), 2.0);
+    near("device_linalg_polar2_r00", deviceLinalgOut.read(11), 1.0);
+    near("device_linalg_polar2_r11", deviceLinalgOut.read(12), 1.0);
 
     deviceLinalgKernel.close();
     deviceLinalgOut.close();

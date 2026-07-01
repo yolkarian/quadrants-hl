@@ -2,6 +2,62 @@ package quadrants.funcs;
 
 class DeviceLinalg {
   @:qdFunc
+  public static function symEig2Large(a00:Float, a01:Float, a11:Float):Float {
+    return 0.5 * (a00 + a11) + Math.sqrt(0.25 * (a00 - a11) * (a00 - a11) + a01 * a01);
+  }
+
+  @:qdFunc
+  public static function symEig2Small(a00:Float, a01:Float, a11:Float):Float {
+    return 0.5 * (a00 + a11) - Math.sqrt(0.25 * (a00 - a11) * (a00 - a11) + a01 * a01);
+  }
+
+  @:qdFunc
+  public static function eig2Large(a00:Float, a01:Float, a10:Float, a11:Float):Float {
+    return 0.5 * ((a00 + a11) + Math.sqrt((a00 + a11) * (a00 + a11) - 4.0 * (a00 * a11 - a01 * a10)));
+  }
+
+  @:qdFunc
+  public static function eig2Small(a00:Float, a01:Float, a10:Float, a11:Float):Float {
+    return 0.5 * ((a00 + a11) - Math.sqrt((a00 + a11) * (a00 + a11) - 4.0 * (a00 * a11 - a01 * a10)));
+  }
+
+  @:qdFunc
+  public static function svd2Sigma0(a00:Float, a01:Float, a10:Float, a11:Float):Float {
+    var c00 = a00 * a00 + a10 * a10;
+    var c01 = a00 * a01 + a10 * a11;
+    var c11 = a01 * a01 + a11 * a11;
+    return Math.sqrt(Math.max(0.0, symEig2Large(c00, c01, c11)));
+  }
+
+  @:qdFunc
+  public static function svd2Sigma1(a00:Float, a01:Float, a10:Float, a11:Float):Float {
+    var c00 = a00 * a00 + a10 * a10;
+    var c01 = a00 * a01 + a10 * a11;
+    var c11 = a01 * a01 + a11 * a11;
+    return Math.sqrt(Math.max(0.0, symEig2Small(c00, c01, c11)));
+  }
+
+  @:qdFunc
+  public static function polar2R00(a00:Float, a01:Float, a10:Float, a11:Float):Float {
+    return (a00 + a11) / Math.sqrt((a00 + a11) * (a00 + a11) + (a10 - a01) * (a10 - a01));
+  }
+
+  @:qdFunc
+  public static function polar2R01(a00:Float, a01:Float, a10:Float, a11:Float):Float {
+    return (a01 - a10) / Math.sqrt((a00 + a11) * (a00 + a11) + (a10 - a01) * (a10 - a01));
+  }
+
+  @:qdFunc
+  public static function polar2R10(a00:Float, a01:Float, a10:Float, a11:Float):Float {
+    return (a10 - a01) / Math.sqrt((a00 + a11) * (a00 + a11) + (a10 - a01) * (a10 - a01));
+  }
+
+  @:qdFunc
+  public static function polar2R11(a00:Float, a01:Float, a10:Float, a11:Float):Float {
+    return (a00 + a11) / Math.sqrt((a00 + a11) * (a00 + a11) + (a10 - a01) * (a10 - a01));
+  }
+
+  @:qdFunc
   public static function solve2X(a00:Float, a01:Float, a10:Float, a11:Float, b0:Float, b1:Float):Float {
     return (a11 * b0 - a01 * b1) / (a00 * a11 - a01 * a10);
   }
