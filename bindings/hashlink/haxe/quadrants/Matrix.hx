@@ -72,6 +72,10 @@ class Matrix<T> {
     return values[flatIndex(row, col)];
   }
 
+  public function kernelGet(row:Int, col:Int):T {
+    return get(row, col);
+  }
+
   public inline function set(row:Int, col:Int, value:T):T {
     values[flatIndex(row, col)] = value;
     return value;

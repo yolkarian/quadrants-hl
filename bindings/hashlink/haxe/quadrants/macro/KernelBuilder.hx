@@ -2625,6 +2625,18 @@ private class DescriptorBuilder {
 
   function encodeMatrixScalarCall(callee:Expr, args:Array<Expr>, writer:ByteWriter, pos:Position):Bool {
     switch (strip(callee).expr) {
+      case EField(base, "get") | EField(base, "kernelGet"):
+        var name = directMatrixName(base);
+        if (name == null || args.length != 2) return false;
+        var row = constantIndex(args[0], args[0].pos);
+        var col = constantIndex(args[1], args[1].pos);
+        var matrix = lookupMatrix(name);
+        if (row < 0 || row >= matrix.rows || col < 0 || col >= matrix.cols) {
+          Context.error('Quadrants matrix ${name}.get index is out of range', pos);
+        }
+        writer.u8(EXPR_LOCAL_LOAD);
+        writer.u32(matrix.localIds[row * matrix.cols + col]);
+        return true;
       case EField(base, "trace"):
         var name = directMatrixName(base);
         if (name == null || args.length != 0) return false;
@@ -2663,6 +2675,9 @@ private class DescriptorBuilder {
 
   function matrixScalarCallDType(callee:Expr, args:Array<Expr>):Null<Int> {
     return switch (strip(callee).expr) {
+      case EField(base, "get") | EField(base, "kernelGet"):
+        var name = directMatrixName(base);
+        if (name == null || args.length != 2) null else lookupMatrix(name).dtype;
       case EField(base, "trace") | EField(base, "determinant") | EField(base, "frobeniusSquared") | EField(base, "frobeniusNorm") | EField(base, "frobenius"):
         var name = directMatrixName(base);
         if (name == null || args.length != 0) null else {

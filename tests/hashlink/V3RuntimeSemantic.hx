@@ -20,6 +20,7 @@ import quadrants.Vector;
 import quadrants.ad.CustomGradient;
 import quadrants.ad.FwdMode;
 import quadrants.algorithms.Scratch;
+import quadrants.funcs.DeviceLinalg;
 import quadrants.funcs.Linalg;
 import quadrants.linalg.SparseSolver;
 import quadrants.linalg.SparseSolverType;
@@ -630,6 +631,26 @@ class V3RuntimeSemantic {
     var spd = Linalg.makeSpd(Matrix.ofArray(2, 2, [1.0, 2.0, 2.0, -1.0]));
     if (spd.get(0, 0) <= 0.0) throw "makeSpd failed";
 
+    var deviceLinalgOut = new Tensor<F32>(ctx, [5]);
+    var deviceLinalgKernel = Kernel.build(ctx, macro (out:Tensor<F32>) -> {
+      var a2 = Matrix.ofArray(2, 2, [2.0, 0.0, 0.0, 4.0]);
+      var b2 = Matrix.ofArray(2, 1, [6.0, 8.0]);
+      out[0] = DeviceLinalg.solve2X(a2.kernelGet(0, 0), a2.kernelGet(0, 1), a2.kernelGet(1, 0), a2.kernelGet(1, 1), b2.kernelGet(0, 0), b2.kernelGet(1, 0));
+      out[1] = DeviceLinalg.solve2Y(a2.kernelGet(0, 0), a2.kernelGet(0, 1), a2.kernelGet(1, 0), a2.kernelGet(1, 1), b2.kernelGet(0, 0), b2.kernelGet(1, 0));
+      var a3 = Matrix.ofArray(3, 3, [2.0, 0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 0.0, 5.0]);
+      var b3 = Matrix.ofArray(3, 1, [6.0, 8.0, 20.0]);
+      out[2] = DeviceLinalg.solve3X(a3.kernelGet(0, 0), a3.kernelGet(0, 1), a3.kernelGet(0, 2), a3.kernelGet(1, 0), a3.kernelGet(1, 1), a3.kernelGet(1, 2), a3.kernelGet(2, 0), a3.kernelGet(2, 1), a3.kernelGet(2, 2), b3.kernelGet(0, 0), b3.kernelGet(1, 0), b3.kernelGet(2, 0));
+      out[3] = DeviceLinalg.solve3Y(a3.kernelGet(0, 0), a3.kernelGet(0, 1), a3.kernelGet(0, 2), a3.kernelGet(1, 0), a3.kernelGet(1, 1), a3.kernelGet(1, 2), a3.kernelGet(2, 0), a3.kernelGet(2, 1), a3.kernelGet(2, 2), b3.kernelGet(0, 0), b3.kernelGet(1, 0), b3.kernelGet(2, 0));
+      out[4] = DeviceLinalg.solve3Z(a3.kernelGet(0, 0), a3.kernelGet(0, 1), a3.kernelGet(0, 2), a3.kernelGet(1, 0), a3.kernelGet(1, 1), a3.kernelGet(1, 2), a3.kernelGet(2, 0), a3.kernelGet(2, 1), a3.kernelGet(2, 2), b3.kernelGet(0, 0), b3.kernelGet(1, 0), b3.kernelGet(2, 0));
+    }, {name: "v3_runtime_device_linalg", helpers: [DeviceLinalg]});
+    deviceLinalgKernel.launch(deviceLinalgOut);
+    ctx.sync();
+    near("device_linalg_solve2_0", deviceLinalgOut.read(0), 3.0);
+    near("device_linalg_solve2_1", deviceLinalgOut.read(1), 2.0);
+    near("device_linalg_solve3_2", deviceLinalgOut.read(4), solveGolden[2]);
+
+    deviceLinalgKernel.close();
+    deviceLinalgOut.close();
     input.close();
     out.close();
     flags.close();
