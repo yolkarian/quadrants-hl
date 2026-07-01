@@ -29,6 +29,9 @@ typedef ProfilerTraceEvent = {
 typedef MemoryProfilerStats = {
   var available:Bool;
   var reason:String;
+  var allocatedBytes:haxe.Int64;
+  var snodeBytes:haxe.Int64;
+  var ndarrayBytes:haxe.Int64;
 }
 
 class Profiler {
@@ -173,7 +176,13 @@ class Profiler {
       throw "Quadrants memory profiler capability is not available for this backend";
     }
     var status = quadrants.profiler.MemoryProfiler.probe(context);
-    return {available: status.isAvailable(), reason: status.reason};
+    return {
+      available: status.isAvailable(),
+      reason: status.reason,
+      allocatedBytes: status.allocatedBytes,
+      snodeBytes: status.snodeBytes,
+      ndarrayBytes: status.ndarrayBytes,
+    };
   }
 
   public function printMemory():Void {

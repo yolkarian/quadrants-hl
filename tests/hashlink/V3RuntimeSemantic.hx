@@ -1,3 +1,4 @@
+import haxe.Int64;
 import quadrants.Algorithms;
 import quadrants.Context;
 import quadrants.Diagnostics;
@@ -968,6 +969,8 @@ class V3RuntimeSemantic {
     if (ctx.profiler().traceEvents().length == 0) throw "profiler trace events failed";
     var memoryStats = ctx.profiler().memoryStats();
     if (!memoryStats.available) throw "memory profiler stats unavailable";
+    if (Int64.compare(memoryStats.ndarrayBytes, Int64.make(0, 0)) <= 0) throw "memory profiler ndarray bytes missing";
+    if (Int64.compare(memoryStats.allocatedBytes, memoryStats.ndarrayBytes) < 0) throw "memory profiler allocated bytes inconsistent";
     var health:Dynamic = Diagnostics.health(ctx);
     if (health == null) throw "diagnostics health failed";
     var version = ctx.capabilities().version;

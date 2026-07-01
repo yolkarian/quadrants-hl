@@ -60,6 +60,9 @@ HL_PRIM double HL_NAME(profiler_query_avg)(qd_context *ctx, vbyte *kernel_name);
 HL_PRIM int HL_NAME(profiler_is_enabled)(qd_context *ctx);
 HL_PRIM int HL_NAME(profiler_scoped_available)(qd_context *ctx);
 HL_PRIM int HL_NAME(profiler_memory_available)(qd_context *ctx);
+HL_PRIM int64 HL_NAME(profiler_memory_allocated_bytes)(qd_context *ctx);
+HL_PRIM int64 HL_NAME(profiler_memory_snode_bytes)(qd_context *ctx);
+HL_PRIM int64 HL_NAME(profiler_memory_ndarray_bytes)(qd_context *ctx);
 HL_PRIM int HL_NAME(profiler_kernel_available)(qd_context *ctx);
 
 HL_PRIM int HL_NAME(sparse_backend_kind)(qd_context *ctx);

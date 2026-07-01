@@ -30,6 +30,9 @@ Profiler.withScope(ctx, "step", () -> step.launch(...));
 final stats = ctx.profiler().kernel("step");
 if (ctx.capabilities().memoryProfiler) {
   final memory = ctx.profiler().memoryStats();
+  trace(memory.allocatedBytes);
+  trace(memory.snodeBytes);
+  trace(memory.ndarrayBytes);
   ctx.profiler().printMemory();
 }
 ```

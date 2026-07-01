@@ -67,6 +67,8 @@ struct QdContextState {
   Arch arch;
   std::atomic<int> refs{1};
   bool closed{false};
+  std::atomic<std::int64_t> memory_ndarray_bytes{0};
+  std::atomic<std::int64_t> memory_snode_bytes{0};
   std::unordered_map<int, int> field_adjoint_snodes;
   std::unordered_map<int, int> field_dual_snodes;
 };
@@ -404,6 +406,7 @@ struct qd_ndarray {
   qd_ndarray *grad_handle{nullptr};
   qd_ndarray *dual_handle{nullptr};
   bool managed_by_program{true};
+  std::int64_t accounted_bytes{0};
   DLManagedTensor *imported_dlpack{nullptr};
   bool released{false};
 };
@@ -523,6 +526,10 @@ void release_event_handle(qd_event *event) noexcept {
 void release_ndarray_handle(qd_ndarray *array) noexcept {
   if (array == nullptr || array->released) {
     return;
+  }
+  if (array->state != nullptr && array->accounted_bytes > 0) {
+    array->state->memory_ndarray_bytes.fetch_sub(array->accounted_bytes, std::memory_order_relaxed);
+    array->accounted_bytes = 0;
   }
   array->grad_handle = nullptr;
   array->dual_handle = nullptr;
@@ -672,6 +679,38 @@ void finalize_sparse_solver(qd_sparse_solver *solver) {
   solver->~qd_sparse_solver();
 }
 
+std::int64_t checked_memory_counter_bytes(std::size_t bytes) {
+  if (bytes > static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max())) {
+    throw std::runtime_error("Quadrants memory profiler byte counter overflow");
+  }
+  return static_cast<std::int64_t>(bytes);
+}
+
+std::int64_t ndarray_allocation_bytes(const Ndarray *array) {
+  if (array == nullptr) {
+    return 0;
+  }
+  const std::size_t elements = array->get_nelement();
+  const std::size_t element_size = array->get_element_size();
+  if (elements > std::numeric_limits<std::size_t>::max() / element_size) {
+    throw std::runtime_error("Quadrants ndarray byte size overflow");
+  }
+  return checked_memory_counter_bytes(elements * element_size);
+}
+
+std::int64_t snode_tree_static_bytes(const SNode *root) {
+  if (root == nullptr) {
+    return 0;
+  }
+  return checked_memory_counter_bytes(root->cell_size_bytes);
+}
+
+void require_memory_profiler_available(const QdContextState &state) {
+  if (!quadrants::arch_uses_llvm(state.arch)) {
+    throw std::runtime_error("Quadrants memory profiler is available only on LLVM-backed backends");
+  }
+}
+
 qd_ndarray *make_ndarray_handle(QdContextState &state,
                                Ndarray *array,
                                bool managed_by_program,
@@ -682,6 +721,10 @@ qd_ndarray *make_ndarray_handle(QdContextState &state,
   handle->state = &state;
   handle->array = array;
   handle->managed_by_program = managed_by_program;
+  handle->accounted_bytes = managed_by_program ? ndarray_allocation_bytes(array) : 0;
+  if (handle->accounted_bytes > 0) {
+    state.memory_ndarray_bytes.fetch_add(handle->accounted_bytes, std::memory_order_relaxed);
+  }
   handle->imported_dlpack = imported_dlpack;
   retain_state(&state);
   return handle;
@@ -2742,10 +2785,33 @@ HL_PRIM int HL_NAME(profiler_memory_available)(qd_context *ctx) {
 HL_PRIM void HL_NAME(profiler_memory_print)(qd_context *ctx) {
   guard([&]() {
     QdContextState &state = require_context(ctx);
-    if (!quadrants::arch_uses_llvm(state.arch)) {
-      throw std::runtime_error("Quadrants memory profiler is available only on LLVM-backed backends");
-    }
+    require_memory_profiler_available(state);
     state.program->print_memory_profiler_info();
+  });
+}
+
+HL_PRIM int64 HL_NAME(profiler_memory_allocated_bytes)(qd_context *ctx) {
+  return guard([&]() -> int64 {
+    QdContextState &state = require_context(ctx);
+    require_memory_profiler_available(state);
+    return state.memory_snode_bytes.load(std::memory_order_relaxed) +
+           state.memory_ndarray_bytes.load(std::memory_order_relaxed);
+  });
+}
+
+HL_PRIM int64 HL_NAME(profiler_memory_snode_bytes)(qd_context *ctx) {
+  return guard([&]() -> int64 {
+    QdContextState &state = require_context(ctx);
+    require_memory_profiler_available(state);
+    return state.memory_snode_bytes.load(std::memory_order_relaxed);
+  });
+}
+
+HL_PRIM int64 HL_NAME(profiler_memory_ndarray_bytes)(qd_context *ctx) {
+  return guard([&]() -> int64 {
+    QdContextState &state = require_context(ctx);
+    require_memory_profiler_available(state);
+    return state.memory_ndarray_bytes.load(std::memory_order_relaxed);
   });
 }
 
@@ -3890,6 +3956,7 @@ HL_PRIM int HL_NAME(snode_tree_commit)(qd_context *ctx, qd_snode_tree *tree) {
       throw std::runtime_error("Quadrants SNode tree has already been committed");
     }
     auto *materialized = state.program->add_snode_tree(std::move(tree_ref.root), false);
+    state.memory_snode_bytes.fetch_add(snode_tree_static_bytes(materialized->root()), std::memory_order_relaxed);
     tree_ref.committed = true;
     return materialized->id();
   });
@@ -4330,6 +4397,9 @@ DEFINE_PRIM(_I32, profiler_is_enabled, _QD_CONTEXT);
 DEFINE_PRIM(_I32, profiler_scoped_available, _QD_CONTEXT);
 DEFINE_PRIM(_I32, profiler_memory_available, _QD_CONTEXT);
 DEFINE_PRIM(_VOID, profiler_memory_print, _QD_CONTEXT);
+DEFINE_PRIM(_I64, profiler_memory_allocated_bytes, _QD_CONTEXT);
+DEFINE_PRIM(_I64, profiler_memory_snode_bytes, _QD_CONTEXT);
+DEFINE_PRIM(_I64, profiler_memory_ndarray_bytes, _QD_CONTEXT);
 DEFINE_PRIM(_I32, profiler_kernel_available, _QD_CONTEXT);
 DEFINE_PRIM(_I32, profiler_set_toolkit, _QD_CONTEXT _BYTES);
 DEFINE_PRIM(_I32, profiler_set_metrics, _QD_CONTEXT _ARR);
