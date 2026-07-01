@@ -9,6 +9,7 @@ import quadrants.Mat3;
 import quadrants.Matrix;
 import quadrants.Mesh;
 import quadrants.Mesh.MeshElementType;
+import quadrants.Mesh.MeshIndexConversion;
 import quadrants.Profiler;
 import quadrants.Spec;
 import quadrants.StructField;
@@ -736,6 +737,7 @@ class V3RuntimeSemantic {
     near("sparse_from_csr", csrRoundtrip.get(0, 0), 2.0);
 
     var mesh = new Mesh(3, 2);
+    mesh.setIndexMapping(MeshElementType.Vertex, MeshIndexConversion.LocalToGlobal, [10, 20, 30]);
     var e0 = mesh.element(MeshKinds.edge, 0);
     var e1 = mesh.element(MeshKinds.edge, 1);
     var v0 = mesh.element(MeshKinds.vertex, 0);
@@ -750,26 +752,33 @@ class V3RuntimeSemantic {
     mass.write(v1, 6);
     mass.write(v2, 7);
     var edgeSum = new Tensor<I32>(ctx, [2]);
-    var meshKernel = Kernel.build(ctx, macro (relation:MeshRelation<Edge, Vertex>, mass:MeshAttribute<Vertex, I32>, edgeSum:Tensor<I32>) -> {
+    var meshGlobal = new Tensor<I32>(ctx, [2]);
+    var meshKernel = Kernel.build(ctx, macro (relation:MeshRelation<Edge, Vertex>, mass:MeshAttribute<Vertex, I32>, edgeSum:Tensor<I32>, meshGlobal:Tensor<I32>) -> {
       for (e in 0...2) {
         var sum = 0;
         for (j in 0...relation.size(e)) sum = sum + mass.read(relation.get(e, j));
         edgeSum[e] = sum;
       }
+      meshGlobal[0] = relation.targetLocalToGlobal(relation.get(0, 1));
+      meshGlobal[1] = relation.targetIndexLocalToGlobal(2);
     }, {name: "v3_runtime_mesh"});
-    meshKernel.launch(relation, mass, edgeSum);
+    meshKernel.launch(relation, mass, edgeSum, meshGlobal);
     ctx.sync();
     var meshGolden = goldenArray("mesh", "edgeSums");
     eq("mesh_edge0", edgeSum.read(0), Std.int(meshGolden[0]));
     eq("mesh_edge1", edgeSum.read(1), Std.int(meshGolden[1]));
+    eq("mesh_target_l2g", meshGlobal.read(0), 20);
+    eq("mesh_target_index_l2g", meshGlobal.read(1), 30);
     var meshPath = "build/v3_runtime_mesh.json";
     mesh.save(meshPath);
     var loadedMesh = Mesh.load(ctx, meshPath);
     eq("mesh_load_count", loadedMesh.count(MeshElementType.Vertex), 3);
     eq("mesh_load_relation", loadedMesh.relationAccess(MeshElementType.Edge, 1, MeshElementType.Vertex, 1), 2);
+    eq("mesh_load_mapping", loadedMesh.convertIndex(MeshElementType.Vertex, MeshIndexConversion.LocalToGlobal, 2), 30);
     var reorderedMesh = mesh.reorder(MeshElementType.Vertex, [2, 0, 1]);
     eq("mesh_reorder_target0", reorderedMesh.relationAccess(MeshElementType.Edge, 0, MeshElementType.Vertex, 0), 1);
     eq("mesh_reorder_target1", reorderedMesh.relationAccess(MeshElementType.Edge, 1, MeshElementType.Vertex, 1), 0);
+    eq("mesh_reorder_mapping", reorderedMesh.convertIndex(MeshElementType.Vertex, MeshIndexConversion.LocalToReordered, 0), 1);
 
     var qspec = quadrants.quant.Quant.fixedF32(QuantBits.Bits8, QuantSignedness.Signed, 4);
     var qvalues = new QuantizedF32Tensor(ctx, [2], qspec);
@@ -806,6 +815,7 @@ class V3RuntimeSemantic {
     qout.close();
     meshKernel.close();
     edgeSum.close();
+    meshGlobal.close();
     massField.close();
     solver.close();
     rhs.close();

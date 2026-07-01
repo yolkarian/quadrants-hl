@@ -17,16 +17,30 @@ enum abstract MeshElementType(Int) from Int to Int {
   var Cell = 3;
 }
 
+enum abstract MeshIndexConversion(Int) from Int to Int {
+  var LocalToGlobal = 0;
+  var LocalToReordered = 1;
+  var GlobalToReordered = 2;
+}
+
 private typedef MeshNativeOffsets = {
   var context:Context;
   var owned:Array<Field<I32>>;
   var total:Array<Field<I32>>;
 }
 
+private typedef MeshNativeIndexMappings = {
+  var context:Context;
+  var fields:Array<Field<I32>>;
+}
+
 class Mesh {
   final counts:Array<Int>;
   final relations:Array<Array<Array<Int>>>;
+  final indexMappings:Array<Null<Array<Int>>>;
   var nativeOffsets:Array<MeshNativeOffsets> = [];
+  var nativeIndexMappings:Array<MeshNativeIndexMappings> = [];
+  var indexMappingVersion:Int = 0;
 
 
   public static function load(context:Context, path:String):Mesh {
@@ -50,6 +64,18 @@ class Mesh {
       parseNonNegativeInt(rawCounts[2], "faces"),
       parseNonNegativeInt(rawCounts[3], "cells")
     );
+    var rawMappings:Array<Dynamic> = cast Reflect.field(raw, "indexMappings");
+    if (rawMappings != null) {
+      for (entry in rawMappings) {
+        var type:MeshElementType = cast parseElementType(Reflect.field(entry, "type"), "indexMapping.type");
+        var conversion:MeshIndexConversion = cast parseConversion(Reflect.field(entry, "conversion"));
+        var rawValues:Array<Dynamic> = cast Reflect.field(entry, "values");
+        if (rawValues == null) {
+          throw "Quadrants Mesh.load index mapping values must be an array";
+        }
+        mesh.setIndexMapping(type, conversion, [for (value in rawValues) parseNonNegativeInt(value, "index mapping value")]);
+      }
+    }
     var rawRelations:Array<Dynamic> = cast Reflect.field(raw, "relations");
     if (rawRelations == null) {
       return mesh;
@@ -86,6 +112,7 @@ class Mesh {
     }
     counts = [vertices, edges, faces, cells];
     relations = [for (_ in 0...16) null];
+    indexMappings = [for (_ in 0...12) null];
   }
 
   public function count(type:MeshElementType):Int {
@@ -131,6 +158,10 @@ class Mesh {
 
   inline function relationId(from:MeshElementType, to:MeshElementType):Int {
     return from * 4 + to;
+  }
+
+  inline function mappingId(type:MeshElementType, conversion:MeshIndexConversion):Int {
+    return type * 3 + conversion;
   }
 
   function checkElement(type:MeshElementType, index:Int):Void {
@@ -180,10 +211,20 @@ class Mesh {
         }
       }
     }
+    var serializedMappings = new Array<{type:Int, conversion:Int, values:Array<Int>}>();
+    for (type in 0...4) {
+      for (conversion in 0...3) {
+        var mapping = indexMappings[mappingId(cast type, cast conversion)];
+        if (mapping != null) {
+          serializedMappings.push({type: type, conversion: conversion, values: [for (value in mapping) value]});
+        }
+      }
+    }
     sys.io.File.saveContent(path, haxe.Json.stringify({
       format: "quadrants-hl.mesh.v1",
       counts: [for (value in counts) value],
-      relations: serializedRelations
+      relations: serializedRelations,
+      indexMappings: serializedMappings
     }));
   }
 
@@ -204,6 +245,11 @@ class Mesh {
         result.relations[relationId(cast from, cast to)] = rows;
       }
     }
+    for (i in 0...indexMappings.length) {
+      var mapping = indexMappings[i];
+      if (mapping != null) result.indexMappings[i] = [for (value in mapping) value];
+    }
+    result.setIndexMapping(type, MeshIndexConversion.LocalToReordered, oldToNew);
     return result;
   }
 
@@ -219,6 +265,56 @@ class Mesh {
       throw "Quadrants mesh neighbor index out of bounds";
     }
     return values[neighborIndex];
+  }
+
+  public function setIndexMapping(type:MeshElementType, conversion:MeshIndexConversion, values:Array<Int>):Void {
+    if (values == null || values.length != count(type)) {
+      throw "Quadrants mesh index mapping length must match the mesh domain";
+    }
+    for (value in values) {
+      if (value < 0) {
+        throw "Quadrants mesh index mapping values must be non-negative";
+      }
+    }
+    indexMappings[mappingId(type, conversion)] = [for (value in values) value];
+    indexMappingVersion++;
+    for (entry in nativeIndexMappings) {
+      for (field in entry.fields) {
+        if (field != null) field.close();
+      }
+    }
+    nativeIndexMappings = [];
+  }
+
+  public function convertIndex(type:MeshElementType, conversion:MeshIndexConversion, index:Int):Int {
+    checkElement(type, index);
+    var mapping = indexMappings[mappingId(type, conversion)];
+    return mapping == null ? index : mapping[index];
+  }
+
+  @:noCompletion public function __qdIndexMappingVersion():Int {
+    return indexMappingVersion;
+  }
+
+  @:noCompletion public function __qdIndexMappingSNodeIds(ctx:Context):hl.NativeArray<Int> {
+    for (entry in nativeIndexMappings) {
+      if (entry.context == ctx) {
+        return TensorStorage.nativeIntArray([for (field in entry.fields) field == null ? -1 : (cast field : FieldRuntime).snodeId]);
+      }
+    }
+    var fields = new Array<Field<I32>>();
+    for (i in 0...indexMappings.length) {
+      var mapping = indexMappings[i];
+      if (mapping == null) {
+        fields.push(null);
+      } else {
+        var field = new Field<I32>(ctx, [mapping.length]);
+        for (j in 0...mapping.length) field.write(j, mapping[j]);
+        fields.push(field);
+      }
+    }
+    nativeIndexMappings.push({context: ctx, fields: fields});
+    return TensorStorage.nativeIntArray([for (field in fields) field == null ? -1 : (cast field : FieldRuntime).snodeId]);
   }
 
 
@@ -276,6 +372,14 @@ class Mesh {
     var parsed = parseNonNegativeInt(value, name);
     if (parsed >= 4) {
       throw 'Quadrants Mesh.load ${name} is not a valid element type';
+    }
+    return parsed;
+  }
+
+  static function parseConversion(value:Dynamic):Int {
+    var parsed = parseNonNegativeInt(value, "indexMapping.conversion");
+    if (parsed >= 3) {
+      throw "Quadrants Mesh.load indexMapping.conversion is not a valid conversion type";
     }
     return parsed;
   }

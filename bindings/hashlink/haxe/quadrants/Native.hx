@@ -351,6 +351,7 @@ class Native {
       counts:hl.NativeArray<Int>,
       ownedOffsets:hl.NativeArray<Int>,
       totalOffsets:hl.NativeArray<Int>,
+      indexMappings:hl.NativeArray<Int>,
       valueSNodeId:Int,
       offsetSNodeId:Int,
       patchOffsetSNodeId:Int,

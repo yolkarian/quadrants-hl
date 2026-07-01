@@ -177,6 +177,7 @@ ExprOpcode parse_expr_opcode(std::uint8_t value) {
     case ExprOpcode::snode_is_active:
     case ExprOpcode::mesh_relation_size:
     case ExprOpcode::mesh_relation_get:
+    case ExprOpcode::mesh_index_convert:
       return static_cast<ExprOpcode>(value);
   }
   throw std::runtime_error("HashLink kernel descriptor uses an unsupported expression opcode");

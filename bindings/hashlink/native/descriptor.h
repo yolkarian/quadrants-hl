@@ -137,6 +137,7 @@ enum class ExprOpcode : std::uint8_t {
   snode_is_active = 94,
   mesh_relation_size = 95,
   mesh_relation_get = 96,
+  mesh_index_convert = 97,
 };
 
 enum class StmtOpcode : std::uint8_t {
@@ -283,6 +284,7 @@ struct MeshRelationSpecialization {
   std::array<std::uint32_t, 4> counts{};
   std::array<int, 4> owned_offset_snode_ids{{-1, -1, -1, -1}};
   std::array<int, 4> total_offset_snode_ids{{-1, -1, -1, -1}};
+  std::array<int, 12> index_mapping_snode_ids{{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
   int value_snode_id{-1};
   int offset_snode_id{-1};
   int patch_offset_snode_id{-1};

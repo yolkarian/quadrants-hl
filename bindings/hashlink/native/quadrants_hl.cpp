@@ -2168,6 +2168,11 @@ void append_mesh_relation_key_part(std::string &key,
     key += std::to_string(relation.fixed ? 1 : 0);
     key.push_back('/');
     key += std::to_string(relation.fixed_degree);
+    key.push_back('/');
+    for (int id : relation.index_mapping_snode_ids) {
+      key += std::to_string(id);
+      key.push_back(';');
+    }
     key.push_back(',');
   }
 }
@@ -3029,6 +3034,7 @@ HL_PRIM qd_mesh_relation *HL_NAME(mesh_relation_create)(qd_context *ctx,
                                                          varray *counts,
                                                          varray *owned_offsets,
                                                          varray *total_offsets,
+                                                         varray *index_mappings,
                                                          int value_snode_id,
                                                          int offset_snode_id,
                                                          int patch_offset_snode_id,
@@ -3039,8 +3045,12 @@ HL_PRIM qd_mesh_relation *HL_NAME(mesh_relation_create)(qd_context *ctx,
     auto count_values = ints_from_hl_array(counts, "mesh relation counts");
     auto owned_values = ints_from_hl_array(owned_offsets, "mesh relation owned offsets");
     auto total_values = ints_from_hl_array(total_offsets, "mesh relation total offsets");
+    auto mapping_values = ints_from_hl_array(index_mappings, "mesh relation index mappings");
     if (count_values.size() != 4 || owned_values.size() != 4 || total_values.size() != 4) {
       throw std::runtime_error("Quadrants mesh relation metadata arrays must have four entries");
+    }
+    if (mapping_values.size() != 12) {
+      throw std::runtime_error("Quadrants mesh relation index mapping metadata must have twelve entries");
     }
     if (from_type < 0 || from_type > 3 || to_type < 0 || to_type > 3) {
       throw std::runtime_error("Quadrants mesh relation element type is out of range");
@@ -3062,6 +3072,7 @@ HL_PRIM qd_mesh_relation *HL_NAME(mesh_relation_create)(qd_context *ctx,
     require_i32_snode(patch_offset_snode_id, "patch offset");
     for (int id : owned_values) require_i32_snode(id, "owned offset");
     for (int id : total_values) require_i32_snode(id, "total offset");
+    for (int id : mapping_values) require_i32_snode(id, "index mapping");
 
     quadrants::hashlink::MeshRelationSpecialization metadata;
     metadata.present = true;
@@ -3076,6 +3087,9 @@ HL_PRIM qd_mesh_relation *HL_NAME(mesh_relation_create)(qd_context *ctx,
       metadata.counts[i] = static_cast<std::uint32_t>(count_values[i]);
       metadata.owned_offset_snode_ids[i] = owned_values[i];
       metadata.total_offset_snode_ids[i] = total_values[i];
+    }
+    for (std::size_t i = 0; i < 12; ++i) {
+      metadata.index_mapping_snode_ids[i] = mapping_values[i];
     }
     metadata.value_snode_id = value_snode_id;
     metadata.offset_snode_id = offset_snode_id;
@@ -4344,7 +4358,7 @@ DEFINE_PRIM(_VOID, sparse_solver_solve_f64, _QD_CONTEXT _QD_SPARSE_SOLVER _QD_SP
 DEFINE_PRIM(_I32, sparse_cg_solve_f32, _QD_CONTEXT _QD_SPARSE_MATRIX _QD_NDARRAY _QD_NDARRAY _I32 _F64);
 DEFINE_PRIM(_I32, sparse_cg_solve_f64, _QD_CONTEXT _QD_SPARSE_MATRIX _QD_NDARRAY _QD_NDARRAY _I32 _F64);
 
-DEFINE_PRIM(_QD_MESH_RELATION, mesh_relation_create, _QD_CONTEXT _I32 _I32 _ARR _ARR _ARR _I32 _I32 _I32 _I32 _I32);
+DEFINE_PRIM(_QD_MESH_RELATION, mesh_relation_create, _QD_CONTEXT _I32 _I32 _ARR _ARR _ARR _ARR _I32 _I32 _I32 _I32 _I32);
 DEFINE_PRIM(_VOID, mesh_relation_close, _QD_MESH_RELATION);
 
 DEFINE_PRIM(_QD_NDARRAY, ndarray_create, _QD_CONTEXT _I32 _ARR);

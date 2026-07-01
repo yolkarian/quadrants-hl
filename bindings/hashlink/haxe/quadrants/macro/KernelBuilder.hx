@@ -278,6 +278,7 @@ private class DescriptorBuilder {
   static inline var EXPR_SNODE_IS_ACTIVE = 94;
   static inline var EXPR_MESH_RELATION_SIZE = 95;
   static inline var EXPR_MESH_RELATION_GET = 96;
+  static inline var EXPR_MESH_INDEX_CONVERT = 97;
   static inline var STMT_LOCAL_ALLOC = 1;
   static inline var STMT_STORE_INDEX = 2;
   static inline var STMT_RANGE_FOR = 3;
@@ -3493,8 +3494,31 @@ private class DescriptorBuilder {
     };
   }
 
+  function meshRelationIndexConversion(method:String):Null<Int> {
+    return switch (method) {
+      case "sourceLocalToGlobal" | "targetLocalToGlobal" | "sourceIndexLocalToGlobal" | "targetIndexLocalToGlobal": 0;
+      case "sourceLocalToReordered" | "targetLocalToReordered" | "sourceIndexLocalToReordered" | "targetIndexLocalToReordered": 1;
+      case "sourceGlobalToReordered" | "targetGlobalToReordered": 2;
+      default: null;
+    };
+  }
+
+  function meshRelationIndexSelector(method:String):Int {
+    return StringTools.startsWith(method, "target") ? 1 : 0;
+  }
+
   function meshRelationCallDType(callee:Expr, args:Array<Expr>, pos:Position):Null<Int> {
     return switch (strip(callee).expr) {
+      case EField(base, method) if (meshRelationIndexConversion(method) != null):
+        switch (stripNoCasts(base).expr) {
+          case EConst(CIdent(name)) if (meshRelationSizeParamIds.exists(name)):
+            if (args.length != 1) {
+              Context.error('Quadrants MeshRelation.${method}(index) expects one integer argument in kernels', pos);
+            }
+            DTYPE_I32;
+          default:
+            null;
+        }
       case EField(base, "get"):
         switch (stripNoCasts(base).expr) {
           case EConst(CIdent(name)) if (meshRelationSizeParamIds.exists(name)):
@@ -3522,6 +3546,21 @@ private class DescriptorBuilder {
 
   function encodeMeshRelationExpressionCall(callee:Expr, args:Array<Expr>, writer:ByteWriter, pos:Position):Bool {
     return switch (strip(callee).expr) {
+      case EField(base, method) if (meshRelationIndexConversion(method) != null):
+        switch (stripNoCasts(base).expr) {
+          case EConst(CIdent(name)) if (meshRelationSizeParamIds.exists(name)):
+            if (args.length != 1) {
+              Context.error('Quadrants MeshRelation.${method}(index) expects one integer argument in kernels', pos);
+            }
+            writer.u8(EXPR_MESH_INDEX_CONVERT);
+            writer.u32(paramIds.get(name));
+            writer.u8(meshRelationIndexSelector(method));
+            writer.u8(meshRelationIndexConversion(method));
+            encodeExpression(args[0], writer);
+            true;
+          default:
+            false;
+        }
       case EField(base, "get"):
         switch (stripNoCasts(base).expr) {
           case EConst(CIdent(name)) if (meshRelationSizeParamIds.exists(name)):

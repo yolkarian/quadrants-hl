@@ -15,6 +15,7 @@ typedef MeshRelationNativeEntry = {
   var valueCount:Int;
   var fixed:Bool;
   var fixedDegree:Int;
+  var mappingVersion:Int;
   var handle:QMeshRelation;
 }
 
@@ -51,6 +52,46 @@ class MeshRelation<From, To> {
   public function get(source:MeshElement<From>, neighborIndex:Int):MeshElement<To> {
     requireSource(source);
     return new MeshElement(mesh, to, mesh.relationAccess(from.type, source.index, to.type, neighborIndex));
+  }
+
+  public function sourceLocalToGlobal(element:MeshElement<From>):Int {
+    return mesh.convertIndex(from.type, quadrants.Mesh.MeshIndexConversion.LocalToGlobal, requireSource(element).index);
+  }
+
+  public function targetLocalToGlobal(element:MeshElement<To>):Int {
+    return mesh.convertIndex(to.type, quadrants.Mesh.MeshIndexConversion.LocalToGlobal, requireTarget(element).index);
+  }
+
+  public function sourceIndexLocalToGlobal(index:Int):Int {
+    return mesh.convertIndex(from.type, quadrants.Mesh.MeshIndexConversion.LocalToGlobal, index);
+  }
+
+  public function targetIndexLocalToGlobal(index:Int):Int {
+    return mesh.convertIndex(to.type, quadrants.Mesh.MeshIndexConversion.LocalToGlobal, index);
+  }
+
+  public function sourceLocalToReordered(element:MeshElement<From>):Int {
+    return mesh.convertIndex(from.type, quadrants.Mesh.MeshIndexConversion.LocalToReordered, requireSource(element).index);
+  }
+
+  public function targetLocalToReordered(element:MeshElement<To>):Int {
+    return mesh.convertIndex(to.type, quadrants.Mesh.MeshIndexConversion.LocalToReordered, requireTarget(element).index);
+  }
+
+  public function sourceIndexLocalToReordered(index:Int):Int {
+    return mesh.convertIndex(from.type, quadrants.Mesh.MeshIndexConversion.LocalToReordered, index);
+  }
+
+  public function targetIndexLocalToReordered(index:Int):Int {
+    return mesh.convertIndex(to.type, quadrants.Mesh.MeshIndexConversion.LocalToReordered, index);
+  }
+
+  public function sourceGlobalToReordered(index:Int):Int {
+    return mesh.convertIndex(from.type, quadrants.Mesh.MeshIndexConversion.GlobalToReordered, index);
+  }
+
+  public function targetGlobalToReordered(index:Int):Int {
+    return mesh.convertIndex(to.type, quadrants.Mesh.MeshIndexConversion.GlobalToReordered, index);
   }
 
   @:noCompletion public function __qdNativeRelation(ctx:Context):QMeshRelation {
@@ -91,8 +132,9 @@ class MeshRelation<From, To> {
       for (i in 0...sourceCount) valueCount += mesh.relationSize(from.type, i, to.type);
     }
     if (valueCount <= 0) valueCount = 1;
+    var mappingVersion = mesh.__qdIndexMappingVersion();
     for (entry in nativeEntries) {
-      if (entry.context == ctx && !dirty && entry.valueCount == valueCount && entry.fixed == fixed && entry.fixedDegree == degree) {
+      if (entry.context == ctx && !dirty && entry.valueCount == valueCount && entry.fixed == fixed && entry.fixedDegree == degree && entry.mappingVersion == mappingVersion) {
         return entry;
       }
     }
@@ -135,13 +177,14 @@ class MeshRelation<From, To> {
       mesh.__qdNativeCounts(),
       mesh.__qdOwnedOffsetSNodeIds(ctx),
       mesh.__qdTotalOffsetSNodeIds(ctx),
+      mesh.__qdIndexMappingSNodeIds(ctx),
       valueRuntime.snodeId,
       offsetRuntime.snodeId,
       patchRuntime.snodeId,
       fixed ? 1 : 0,
       degree
     );
-    var created = {context: ctx, valueField: valueField, offsetField: offsetField, patchOffsetField: patchOffsetField, valueCount: valueCount, fixed: fixed, fixedDegree: degree, handle: handle};
+    var created = {context: ctx, valueField: valueField, offsetField: offsetField, patchOffsetField: patchOffsetField, valueCount: valueCount, fixed: fixed, fixedDegree: degree, mappingVersion: mappingVersion, handle: handle};
     nativeEntries.push(created);
     dirty = false;
     return created;

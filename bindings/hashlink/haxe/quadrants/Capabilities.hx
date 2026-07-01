@@ -112,7 +112,7 @@ class Capabilities {
       hostHandles: true,
       kernelRelations: true,
       kernelAttributes: true,
-      indexConversion: false,
+      indexConversion: true,
     };
     quant = {
       quantArrayPlacement: true,

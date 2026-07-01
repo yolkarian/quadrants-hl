@@ -331,6 +331,15 @@ std::unique_ptr<ExpressionDescriptor> parse_expression(DescriptorReader &reader,
       expr->lhs = parse_expression(reader, descriptor, depth + 1);
       expr->rhs = parse_expression(reader, descriptor, depth + 1);
       break;
+    case ExprOpcode::mesh_index_convert:
+      expr->index = reader.read_u32();
+      if (expr->index >= descriptor.parameters.size()) {
+        throw std::runtime_error("HashLink kernel descriptor references an invalid mesh relation parameter");
+      }
+      expr->axis = reader.read_u8();
+      expr->range_low = reader.read_u8();
+      expr->operand = parse_expression(reader, descriptor, depth + 1);
+      break;
     case ExprOpcode::shape_axis:
       expr->target = parse_expression(reader, descriptor, depth + 1);
       expr->axis = reader.read_u32();
@@ -731,6 +740,21 @@ class LoweringContext {
     return cast_to(snode_load_i32(relation.value_snode_id, flat_index, "__qd_mesh_relation_value"), lang::PrimitiveType::i32);
   }
 
+  lang::Expr lower_mesh_index_convert(const ExpressionDescriptor &expr) {
+    const auto &relation = mesh_relation_for(expr.index);
+    if (expr.axis > 1 || expr.range_low < 0 || expr.range_low > 2) {
+      throw std::runtime_error("HashLink mesh index conversion descriptor is invalid");
+    }
+    const int element_type = expr.axis == 0 ? relation.from_type : relation.to_type;
+    const int mapping_index = element_type * 3 + expr.range_low;
+    auto source = cast_to(lower_expression(*expr.operand), lang::PrimitiveType::i32);
+    const int mapping_snode_id = relation.index_mapping_snode_ids[static_cast<std::size_t>(mapping_index)];
+    if (mapping_snode_id < 0) {
+      return source;
+    }
+    return cast_to(snode_load_i32(mapping_snode_id, source, "__qd_mesh_index_mapping"), lang::PrimitiveType::i32);
+  }
+
   void ensure_local_allocated(std::uint32_t local_id) {
     const auto &local = local_descriptors_->at(local_id);
     if (local.shared_size != 0 || !local.allocate || local_allocated_.at(local_id)) {
@@ -938,6 +962,8 @@ class LoweringContext {
         return lower_mesh_relation_size(expr);
       case ExprOpcode::mesh_relation_get:
         return lower_mesh_relation_get(expr);
+      case ExprOpcode::mesh_index_convert:
+        return lower_mesh_index_convert(expr);
       case ExprOpcode::atomic_add:
       case ExprOpcode::atomic_sub:
       case ExprOpcode::atomic_min:
