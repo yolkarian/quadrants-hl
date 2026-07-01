@@ -64,5 +64,5 @@ other.wait(e);
 
 k.launchGraph(args...);
 k.launchGraphWhile(controlI32Tensor, args...); // host-controlled typed loop
-// k.launchGraphDoWhile(...) requires capability graph.nativeDoWhile.
+k.launchGraphDoWhile(controlI32Tensor, args...); // control tensor must also be one of args
 ```

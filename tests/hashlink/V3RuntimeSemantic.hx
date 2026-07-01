@@ -483,10 +483,14 @@ class V3RuntimeSemantic {
     ctx.sync();
     eq("graph_while_x", x.read(0), 4);
     eq("graph_while_control", control.read(0), 0);
-    expectThrowsContains("graph_dowhile_capability", "capability graph.nativeDoWhile", function() inc.launchGraphDoWhile(control, x, control));
+    control.write(0, 2);
+    inc.launchGraphDoWhile(control, x, control);
+    ctx.sync();
+    eq("graph_dowhile_x", x.read(0), 6);
+    eq("graph_dowhile_control", control.read(0), 0);
     Graph.parallel(ctx, [function() inc.launchOn(Graph.autoStream(), x, control)]);
     ctx.sync();
-    eq("graph_parallel", x.read(0), 5);
+    eq("graph_parallel", x.read(0), 7);
     expectThrowsContains("ad_stream_restriction", "Tape launch on explicit streams", function() inc.launchTapeOn(stream, new Tape(), x, control));
     if (ctx.capabilities().streams.events) {
       control.write(0, 1);
@@ -497,7 +501,7 @@ class V3RuntimeSemantic {
       other.wait(event);
       other.sync();
       ctx.sync();
-      eq("stream_event_ordering", x.read(0), 6);
+      eq("stream_event_ordering", x.read(0), 8);
       event.close();
       other.close();
     } else {

@@ -56,13 +56,8 @@ class QKernel4<A, B, C, D, R> implements QKernel {
   }
 
   public function launchGraphDoWhile(control:quadrants.Tensor<quadrants.Types.I32>, a0:A, a1:B, a2:C, a3:D):R {
-    if (control == null) {
-      throw "Quadrants graph do-while launch requires an I32 control Tensor";
-    }
-    if (!control.context.capabilities().graph.nativeDoWhile) {
-      throw "Quadrants graph do-while launch requires capability graph.nativeDoWhile";
-    }
-    throw "Quadrants graph do-while native launch is not implemented for this backend";
+    var values:Array<Dynamic> = [a0, a1, a2, a3];
+    return QKernelGraph.launchGraphDoWhile(rawKernel, control, values);
   }
 
   public function launchTape(tape:quadrants.Tape, a0:A, a1:B, a2:C, a3:D):R {
