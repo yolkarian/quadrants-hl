@@ -682,6 +682,11 @@ class V3RuntimeSemantic {
     near("quant_read0", qout.read(0), quantGolden[0]);
     near("quant_read1", qout.read(1), quantGolden[1]);
     eq("quant_raw0", qvalues.readRaw(0), goldenInt("quant", "raw0"));
+    eq("quant_raw1", qvalues.readRaw(1), goldenInt("quant", "raw1"));
+    qvalues.write(1, 999.0);
+    eq("quant_saturate_max", qvalues.readRaw(1), goldenInt("quant", "saturateMax"));
+    qvalues.write(1, -999.0);
+    eq("quant_saturate_min", qvalues.readRaw(1), goldenInt("quant", "saturateMin"));
 
     var qfloatField = new Field<F32>(ctx);
     var qfloatSpec = quadrants.quant.Quant.floatF32(5, 10, QuantSignedness.Signed);

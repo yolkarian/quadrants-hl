@@ -24,6 +24,9 @@
   },
   "quant": {
     "outputs": [2.25, -2],
-    "raw0": 36
+    "raw0": 36,
+    "raw1": -32,
+    "saturateMax": 127,
+    "saturateMin": -128
   }
 }
