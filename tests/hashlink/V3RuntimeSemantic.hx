@@ -523,6 +523,10 @@ class V3RuntimeSemantic {
       x[0] = x[0] + 1;
       control[0] = control[0] - 1;
     }, {name: "v3_runtime_stream_graph"});
+    var eventOrdered = new Tensor<I32>(ctx, [1]);
+    var copyAfterEvent = Kernel.build(ctx, macro (x:Tensor<I32>, out:Tensor<I32>) -> {
+      out[0] = x[0] + 100;
+    }, {name: "v3_runtime_stream_event_order"});
     var stream = ctx.createStream();
     inc.launchOn(stream, x, control);
     stream.sync();
@@ -555,15 +559,19 @@ class V3RuntimeSemantic {
       event.record(stream);
       var other = ctx.createStream();
       other.wait(event);
+      copyAfterEvent.launchOn(other, x, eventOrdered);
       other.sync();
       ctx.sync();
       eq("stream_event_ordering", x.read(0), 8);
+      eq("stream_event_dependent_read", eventOrdered.read(0), 108);
       event.close();
       other.close();
     } else {
       expectThrowsContains("stream_event_capability", "stream events require", function() ctx.createEvent());
     }
     stream.close();
+    copyAfterEvent.close();
+    eventOrdered.close();
     inc.close();
     x.close();
     control.close();
