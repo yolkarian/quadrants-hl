@@ -512,6 +512,10 @@ class V3RuntimeSemantic {
     Graph.parallel(ctx, [function() inc.launchOn(Graph.autoStream(), x, control)]);
     ctx.sync();
     eq("graph_parallel", x.read(0), 7);
+    expectThrowsContains("graph_parallel_multi_capability", "capability streamParallel", function() Graph.parallel(ctx, [function() {}, function() {}]));
+    var sequenceMarker = 0;
+    Graph.sequence(ctx, [function() sequenceMarker += 1, function() sequenceMarker += 2]);
+    eq("graph_sequence", sequenceMarker, 3);
     expectThrowsContains("ad_stream_restriction", "Tape launch on explicit streams", function() inc.launchTapeOn(stream, new Tape(), x, control));
     if (ctx.capabilities().streams.events) {
       control.write(0, 1);

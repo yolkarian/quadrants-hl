@@ -66,3 +66,5 @@ k.launchGraph(args...);
 k.launchGraphWhile(controlI32Tensor, args...); // host-controlled typed loop
 k.launchGraphDoWhile(controlI32Tensor, args...); // control tensor must also be one of args
 ```
+
+`Graph.parallel(ctx, blocks)` accepts a single block everywhere. Multiple blocks require `ctx.capabilities().streamParallel`; unsupported backends throw instead of pretending to run in parallel. Use `Graph.sequence(ctx, blocks)` when explicit sequential composition is intended.

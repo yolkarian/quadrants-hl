@@ -17,6 +17,9 @@ class Graph {
     if (blocks == null) {
       throw "Quadrants Graph.parallel requires blocks";
     }
+    if (blocks.length > 1 && !context.capabilities().streamParallel) {
+      throw "Quadrants Graph.parallel requires capability streamParallel for multiple blocks; use Graph.sequence for explicit sequential execution";
+    }
     var streams = new Array<Stream>();
     try {
       for (block in blocks) {
@@ -41,6 +44,21 @@ class Graph {
     }
     for (stream in streams) {
       stream.close();
+    }
+  }
+
+  public static function sequence(context:Context, blocks:Array<Void->Void>):Void {
+    if (context == null) {
+      throw "Quadrants Graph.sequence requires a Context";
+    }
+    if (blocks == null) {
+      throw "Quadrants Graph.sequence requires blocks";
+    }
+    for (block in blocks) {
+      if (block == null) {
+        throw "Quadrants Graph.sequence blocks cannot contain null";
+      }
+      block();
     }
   }
 }
