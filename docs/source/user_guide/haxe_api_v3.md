@@ -80,9 +80,12 @@ A.buildFromTensor(dense, {eps: 1e-6});
 A.mmwrite("A.mtx");
 final B = quadrants.linalg.SparseMatrix.mmread(ctx, "A.mtx", DType.F32);
 final mesh = new Mesh(vertexCount, edgeCount);
+mesh.save("mesh.qdmesh.json");
+final loaded = Mesh.load(ctx, "mesh.qdmesh.json");
+final reordered = mesh.reorder(quadrants.Mesh.MeshElementType.Vertex, newToOldVertexOrder);
 final qi8 = Quant.intI32({bits: 8, signed: true});
 ```
 
-Mesh relation/attribute kernel parameters use canonical mesh resource descriptors: relations lower through native topology handles backed by SNode relation resources, and attributes lower to field-backed mesh resources. Kernels can call `relation.size(i)`, `relation.get(i, j)`, `attribute.read(i)`, and `attribute.write(i, value)`. `QuantizedF32Tensor` kernel parameters support `read(i)` dequantization and `write(i, value)` quantization through descriptor-expanded raw storage and quantization constants. `bitStruct(...).placeQuant(...)` supports quant-float placement. Unsupported native sparse/mesh/quant paths throw capability or validation errors instead of silently falling back.
+Mesh relation/attribute kernel parameters use canonical mesh resource descriptors: relations lower through native topology handles backed by SNode relation resources, and attributes lower to field-backed mesh resources. Kernels can call `relation.size(i)`, `relation.get(i, j)`, `attribute.read(i)`, and `attribute.write(i, value)`. `Mesh.save/load` uses the HashLink JSON mesh schema, and `Mesh.reorder` updates the host relation container; native mesh index-conversion remains capability-gated. `QuantizedF32Tensor` kernel parameters support `read(i)` dequantization and `write(i, value)` quantization through descriptor-expanded raw storage and quantization constants. `bitStruct(...).placeQuant(...)` supports quant-float placement. Unsupported native sparse/mesh/quant paths throw capability or validation errors instead of silently falling back.
 
 `Kernel.build(ctx, macro (...)->{...})` is the v3 kernel entrypoint. Give every parameter an explicit type. Use `Spec<T>` for specialization-only constants; generated typed launchers separate those values from runtime kernel arguments and native caches specialized kernels by the SpecTable values. `Kernel` is now a macro facade; low-level raw handles are internal bridge implementation details rather than a documented user API.

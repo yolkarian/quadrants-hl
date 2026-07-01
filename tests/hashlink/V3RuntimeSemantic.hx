@@ -8,6 +8,7 @@ import quadrants.LayoutPolicy;
 import quadrants.Mat3;
 import quadrants.Matrix;
 import quadrants.Mesh;
+import quadrants.Mesh.MeshElementType;
 import quadrants.Profiler;
 import quadrants.Spec;
 import quadrants.StructField;
@@ -718,6 +719,14 @@ class V3RuntimeSemantic {
     var meshGolden = goldenArray("mesh", "edgeSums");
     eq("mesh_edge0", edgeSum.read(0), Std.int(meshGolden[0]));
     eq("mesh_edge1", edgeSum.read(1), Std.int(meshGolden[1]));
+    var meshPath = "build/v3_runtime_mesh.json";
+    mesh.save(meshPath);
+    var loadedMesh = Mesh.load(ctx, meshPath);
+    eq("mesh_load_count", loadedMesh.count(MeshElementType.Vertex), 3);
+    eq("mesh_load_relation", loadedMesh.relationAccess(MeshElementType.Edge, 1, MeshElementType.Vertex, 1), 2);
+    var reorderedMesh = mesh.reorder(MeshElementType.Vertex, [2, 0, 1]);
+    eq("mesh_reorder_target0", reorderedMesh.relationAccess(MeshElementType.Edge, 0, MeshElementType.Vertex, 0), 1);
+    eq("mesh_reorder_target1", reorderedMesh.relationAccess(MeshElementType.Edge, 1, MeshElementType.Vertex, 1), 0);
 
     var qspec = quadrants.quant.Quant.fixedF32(QuantBits.Bits8, QuantSignedness.Signed, 4);
     var qvalues = new QuantizedF32Tensor(ctx, [2], qspec);

@@ -36,7 +36,44 @@ class Mesh {
     if (path == null || path.length == 0) {
       throw "Quadrants Mesh.load requires a path";
     }
-    throw "Quadrants Mesh.load binary loader is backend/resource specific and is not enabled in this build";
+    var raw:Dynamic = haxe.Json.parse(sys.io.File.getContent(path));
+    if (Reflect.field(raw, "format") != "quadrants-hl.mesh.v1") {
+      throw "Quadrants Mesh.load requires a quadrants-hl.mesh.v1 JSON file";
+    }
+    var rawCounts:Array<Dynamic> = cast Reflect.field(raw, "counts");
+    if (rawCounts == null || rawCounts.length != 4) {
+      throw "Quadrants Mesh.load counts must contain four element counts";
+    }
+    var mesh = new Mesh(
+      parseNonNegativeInt(rawCounts[0], "vertices"),
+      parseNonNegativeInt(rawCounts[1], "edges"),
+      parseNonNegativeInt(rawCounts[2], "faces"),
+      parseNonNegativeInt(rawCounts[3], "cells")
+    );
+    var rawRelations:Array<Dynamic> = cast Reflect.field(raw, "relations");
+    if (rawRelations == null) {
+      return mesh;
+    }
+    for (entry in rawRelations) {
+      var from:MeshElementType = cast parseElementType(Reflect.field(entry, "from"), "relation.from");
+      var to:MeshElementType = cast parseElementType(Reflect.field(entry, "to"), "relation.to");
+      var rows:Array<Dynamic> = cast Reflect.field(entry, "targets");
+      if (rows == null || rows.length != mesh.count(from)) {
+        throw "Quadrants Mesh.load relation row count mismatch";
+      }
+      for (row in 0...rows.length) {
+        var rawTargets:Array<Dynamic> = cast rows[row];
+        if (rawTargets == null) {
+          throw "Quadrants Mesh.load relation row must be an array";
+        }
+        var targets = new Array<Int>();
+        for (target in rawTargets) {
+          targets.push(parseNonNegativeInt(target, "relation target"));
+        }
+        mesh.setRelation(from, row, to, targets);
+      }
+    }
+    return mesh;
   }
 
   public static inline function forVertices(count:Int):Iterator<Int> return 0...count;
@@ -126,6 +163,50 @@ class Mesh {
     return relation == null ? [] : [for (target in relation[fromIndex]) target];
   }
 
+  public function save(path:String):Void {
+    if (path == null || path.length == 0) {
+      throw "Quadrants Mesh.save requires a path";
+    }
+    var serializedRelations = new Array<{from:Int, to:Int, targets:Array<Array<Int>>}>();
+    for (from in 0...4) {
+      for (to in 0...4) {
+        var relation = relations[relationId(cast from, cast to)];
+        if (relation != null) {
+          serializedRelations.push({
+            from: from,
+            to: to,
+            targets: [for (row in relation) [for (target in row) target]]
+          });
+        }
+      }
+    }
+    sys.io.File.saveContent(path, haxe.Json.stringify({
+      format: "quadrants-hl.mesh.v1",
+      counts: [for (value in counts) value],
+      relations: serializedRelations
+    }));
+  }
+
+  public function reorder(type:MeshElementType, newToOld:Array<Int>):Mesh {
+    var oldToNew = validateReorder(type, newToOld);
+    var result = new Mesh(counts[0], counts[1], counts[2], counts[3]);
+    for (from in 0...4) {
+      for (to in 0...4) {
+        var relation = relations[relationId(cast from, cast to)];
+        if (relation == null) {
+          continue;
+        }
+        var rows = new Array<Array<Int>>();
+        for (newSource in 0...counts[from]) {
+          var oldSource = from == type ? newToOld[newSource] : newSource;
+          rows.push([for (target in relation[oldSource]) to == type ? oldToNew[target] : target]);
+        }
+        result.relations[relationId(cast from, cast to)] = rows;
+      }
+    }
+    return result;
+  }
+
   public function relationSize(from:MeshElementType, fromIndex:Int, to:MeshElementType):Int {
     checkElement(from, fromIndex);
     var relation = relations[relationId(from, to)];
@@ -165,4 +246,37 @@ class Mesh {
   public function edges():Iterator<Int> return 0...counts[MeshElementType.Edge];
   public function faces():Iterator<Int> return 0...counts[MeshElementType.Face];
   public function cells():Iterator<Int> return 0...counts[MeshElementType.Cell];
+
+  function validateReorder(type:MeshElementType, newToOld:Array<Int>):Array<Int> {
+    if (newToOld == null || newToOld.length != count(type)) {
+      throw "Quadrants Mesh.reorder mapping length must match the mesh domain";
+    }
+    var oldToNew = [for (_ in 0...count(type)) -1];
+    for (newIndex in 0...newToOld.length) {
+      var oldIndex = newToOld[newIndex];
+      checkElement(type, oldIndex);
+      if (oldToNew[oldIndex] >= 0) {
+        throw "Quadrants Mesh.reorder mapping contains a duplicate source index";
+      }
+      oldToNew[oldIndex] = newIndex;
+    }
+    return oldToNew;
+  }
+
+  static function parseNonNegativeInt(value:Dynamic, name:String):Int {
+    var parsed:Float = value;
+    var asInt = Std.int(parsed);
+    if (Math.isNaN(parsed) || parsed < 0 || parsed != asInt) {
+      throw 'Quadrants Mesh.load ${name} must be a non-negative integer';
+    }
+    return asInt;
+  }
+
+  static function parseElementType(value:Dynamic, name:String):Int {
+    var parsed = parseNonNegativeInt(value, name);
+    if (parsed >= 4) {
+      throw 'Quadrants Mesh.load ${name} is not a valid element type';
+    }
+    return parsed;
+  }
 }
