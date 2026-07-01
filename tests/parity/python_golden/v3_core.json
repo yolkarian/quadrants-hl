@@ -1,0 +1,29 @@
+{
+  "algorithms": {
+    "reduceAdd": 14,
+    "reduceMin": 1,
+    "exclusiveScanAdd": [0, 3, 4, 8, 9],
+    "select": [3, 4, 5],
+    "radixSort": [0, 1, 2, 3, 4],
+    "radixSortPairKeys": [1, 1, 2, 2, 3],
+    "radixSortPairValues": [10, 11, 20, 21, 30],
+    "reduceByKeyKeys": [1, 2],
+    "reduceByKeyValues": [7, 18]
+  },
+  "linalg": {
+    "solve3": [3, 2, 4],
+    "symEig3": [3, 2, 1],
+    "svd3": [4, 3, 2]
+  },
+  "sparse": {
+    "matvec": [6, 20],
+    "solve": [3, 4]
+  },
+  "mesh": {
+    "edgeSums": [11, 13]
+  },
+  "quant": {
+    "outputs": [2.25, -2],
+    "raw0": 36
+  }
+}

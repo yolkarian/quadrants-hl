@@ -18,6 +18,8 @@ final f = new Field<I32>(ctx, [n]);
 
 Main public resource families are `Tensor<T>`, `Field<T>`, `StructTensor<S>`, and `StructField<S>`. Rank, layout, and backend capability are validated by descriptors/runtime rather than encoded as extra type parameters.
 
+Host containers use `@:build(quadrants.macro.QdArgs.build())`. Resource members flatten to runtime resource arguments; primitive/enum members, including nested QdArgs primitive members, lower to real `Spec<T>` specialization parameters in the descriptor and launch cache key. Runtime scalar values should be explicit kernel parameters.
+
 Device POD structs use one build macro:
 
 ```haxe
@@ -46,7 +48,7 @@ final capsule = x.toDLPack();
 final ptr = x.devicePointer();
 ```
 
-`shape` and `dtype` are typed properties; `rank()`, `numel()`, and `shapeCopy()` provide stable method-style queries. Field parameters are direct SNode resources; v3 does not mirror fields through tensors on launch.
+`shape` and `dtype` are typed properties; `rank()`, `numel()`, and `shapeCopy()` provide stable method-style queries. Field parameters are direct SNode resources; v3 does not mirror fields through tensors on launch. Autodiff `grad`/`dual` storage is available only for real floating dtypes (`F16`/`F32`/`F64`); integer and boolean tensors/fields raise explicit no-grad errors.
 
 Device-wide algorithms are available through one flat facade:
 

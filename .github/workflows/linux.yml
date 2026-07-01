@@ -1,6 +1,9 @@
 name: HashLink Linux
 
 on:
+  push:
+    branches:
+      - haxe-binding-v3
   pull_request:
     types: [opened, reopened, synchronize]
   workflow_dispatch:
@@ -107,7 +110,7 @@ jobs:
       - name: Haxe/haxelib smoke test
         run: |
           haxelib dev quadrants "$PWD/build/hashlink-install/share/quadrants/hashlink"
-          haxe -lib quadrants -cp tests/hashlink -main Smoke -hl build/hashlink-installed-smoke.hl
+          haxe -lib quadrants -cp tests/hashlink/v3 -main Smoke -hl build/hashlink-installed-smoke.hl
           QD_LIB_DIR="$PWD/build/hashlink-install/share/quadrants/hashlink/runtime" \
           LD_LIBRARY_PATH="$PWD/build/hashlink-install/share/quadrants/hashlink:$QD_HASHLINK_ROOT:${LD_LIBRARY_PATH:-}" \
           hl build/hashlink-installed-smoke.hl

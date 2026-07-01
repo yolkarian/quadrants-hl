@@ -189,6 +189,18 @@ if(QD_BUILD_HASHLINK_TESTS)
       -DRUN_HL=ON
       -P ${PROJECT_SOURCE_DIR}/cmake/RunHashLinkTest.cmake)
 
+  add_test(NAME hashlink_v3_runtime_semantic
+    COMMAND ${CMAKE_COMMAND}
+      -DREPO_ROOT=${PROJECT_SOURCE_DIR}
+      -DHAXE_EXECUTABLE=${QD_HAXE_EXECUTABLE}
+      -DHL_EXECUTABLE=${QD_HL_EXECUTABLE}
+      -DQUADRANTS_HDLL=$<TARGET_FILE:quadrants.hdll>
+      -DQUADRANTS_RUNTIME_DIR=${QD_RUNTIME_BUILD_DIR}
+      -DHXML_FILE=${PROJECT_SOURCE_DIR}/tests/hashlink/hashlink_tests.hxml
+      -DOUTPUT_HL=${CMAKE_BINARY_DIR}/hashlink-v3-runtime-semantic.hl
+      -DRUN_HL=ON
+      -P ${PROJECT_SOURCE_DIR}/cmake/RunHashLinkTest.cmake)
+
   add_test(NAME hashlink_descriptor_golden
     COMMAND ${CMAKE_COMMAND}
       -DREPO_ROOT=${PROJECT_SOURCE_DIR}
@@ -216,6 +228,14 @@ if(QD_BUILD_HASHLINK_TESTS)
         ${PROJECT_SOURCE_DIR}/tools/check_public_dynamic.sh
         ${PROJECT_SOURCE_DIR}/bindings/hashlink/haxe/quadrants
         ${PROJECT_SOURCE_DIR}/tools/public_dynamic_allowlist.txt)
+
+    add_test(NAME hashlink_package_validate
+      COMMAND ${QD_BASH_EXECUTABLE}
+        ${PROJECT_SOURCE_DIR}/scripts/package_hashlink_haxelib.sh
+        --build-dir ${CMAKE_BINARY_DIR}
+        --hdll $<TARGET_FILE:quadrants.hdll>
+        --runtime-dir ${QD_RUNTIME_BUILD_DIR}
+        --out ${CMAKE_BINARY_DIR}/quadrants-haxelib-validate.zip)
   else()
     message(WARNING "bash was not found; hashlink_public_dynamic_scan test is disabled")
   endif()

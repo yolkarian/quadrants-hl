@@ -1,63 +1,6 @@
 class Main {
   static function main():Void {
-    TestBindingApi.run();
-    TestDescriptorSnapshot.run();
-    descriptor.DescriptorGoldenSnapshot.run();
-    TestKernelRawRuntime.run();
-    TestContextCapabilitiesRuntime.run();
-    TestTypedKernelRuntime.run();
-    TestFlattenRuntime.run();
-    TestDescriptorRuntime.run();
-    TestReturn.run();
-    TestField.run();
-    TestSimtApi.run();
-    TestTapeApi.run();
-    TestOfflineCacheRuntime.run();
-    TestInteropImportRuntime.run();
-    TestTemplateRuntime.run();
-    TestStructRuntime.run();
-    TestStreamEventRuntime.run();
-    TestRuntimeFacade.run();
-
-    TestArchApi.run();
-    TestBasics.run();
-    TestFor.run();
-    TestIf.run();
-    TestWhile.run();
-    TestLoops.run();
-    TestCompare.run();
-    TestTypes.run();
-    TestLocalReassignment.run();
-    TestCast.run();
-    TestUnaryOps.run();
-    TestMathModule.run();
-    TestNativeFunctions.run();
-    TestSpecialOpsRuntime.run();
-    TestMatrix.run();
-    TestAtomic.run();
-    TestFunction.run();
-    TestQdFunc.run();
-    TestKernelHelperRegistry.run();
-    TestNdrange.run();
-    TestGraphRuntime.run();
-    TestAutodiffRuntime.run();
-    TestSharedSimtRuntime.run();
-    TestSimtHelpers.run();
-    TestKernelFeatureRuntime.run();
-    TestProfilerRuntime.run();
-    TestAlgorithmsRuntime.run();
-    TestPerfDispatcherRuntime.run();
-    TestAdCoverageDiagnosticsRuntime.run();
-    TestPackedCompoundRuntime.run();
-    TestBuilderControlDslRuntime.run();
-    TestSparseProfilerBridgeRuntime.run();
-    TestSparseParityRuntime.run();
-    TestCompoundParityRuntime.run();
-    TestTypedDeepParityRuntime.run();
-    TestPerThreadLinalgRuntime.run();
-    TestReleaseReadinessRuntime.run();
-
-    TestRuntimeSupport.closeSharedContexts();
-    Sys.println("hashlink tests ok");
+    V3RuntimeSemantic.run();
+    Sys.println("hashlink v3 runtime semantic ok");
   }
 }

@@ -1,27 +1,14 @@
 # Intentional public Dynamic boundaries.
+# Native ABI and internal kernel replay remain heterogeneous by design.
 bindings/hashlink/haxe/quadrants/Capabilities.hx:
 bindings/hashlink/haxe/quadrants/CudaGlInterop.hx:
 bindings/hashlink/haxe/quadrants/KernelRaw.hx:
 bindings/hashlink/haxe/quadrants/Native.hx:
-bindings/hashlink/haxe/quadrants/Profiler.hx:
-bindings/hashlink/haxe/quadrants/Struct.hx:
-bindings/hashlink/haxe/quadrants/StructField.hx:
-bindings/hashlink/haxe/quadrants/StructTensor.hx:
 bindings/hashlink/haxe/quadrants/ad/Grad.hx:
 bindings/hashlink/haxe/quadrants/ad/GradCheck.hx:
 bindings/hashlink/haxe/quadrants/compat/Diagnostics.hx:
-bindings/hashlink/haxe/quadrants/flatten/Flattened.hx:
 bindings/hashlink/haxe/quadrants/flatten/SpecKey.hx:
-bindings/hashlink/haxe/quadrants/flatten/Template.hx:
-bindings/hashlink/haxe/quadrants/coverage/Coverage.hx:
-bindings/hashlink/haxe/quadrants/macro/ArgTableBuilder.hx:
-bindings/hashlink/haxe/quadrants/macro/DescriptorWriter.hx:
-bindings/hashlink/haxe/quadrants/macro/ResourceTableBuilder.hx:
-bindings/hashlink/haxe/quadrants/macro/StructTableBuilder.hx:
-bindings/hashlink/haxe/quadrants/macro/TypeTableBuilder.hx:
 bindings/hashlink/haxe/quadrants/kernel/ArgBuffer.hx:
 bindings/hashlink/haxe/quadrants/kernel/ArgEncoding.hx:
 bindings/hashlink/haxe/quadrants/kernel/ReturnDecoder.hx:
 bindings/hashlink/haxe/quadrants/simt/Helpers.hx:
-bindings/hashlink/haxe/quadrants/snode/FieldPlacementPath.hx:
-bindings/hashlink/haxe/quadrants/snode/FieldTree.hx:

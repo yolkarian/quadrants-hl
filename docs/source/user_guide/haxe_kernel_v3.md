@@ -33,7 +33,7 @@ class Sim {
 }
 ```
 
-AD uses explicit typed launches. Generated `QKernelN` wrappers expose `launchTape(tape, ...)`, `grad()`, `forwardGrad()`, and `validationKernel()`:
+AD uses explicit typed launches. Generated `QKernelN` wrappers expose `launchTape(tape, ...)`, `grad()`, `forwardGrad()`, and `validationKernel()`. Only real floating tensor/field dtypes (`F16`/`F32`/`F64`) can allocate `grad`/`dual` storage; integer and boolean resources raise an explicit no-grad error.
 
 ```haxe
 Tape.withLoss(ctx, loss, tape -> {
@@ -47,6 +47,8 @@ final custom = CustomGradient.register(forward, {
   validation: validation
 });
 ```
+
+`CustomGradient.register` installs the replacement for subsequent typed `forward.launchTape(tape, ...)` calls with the same forward kernel descriptor. `launchTapeOn(stream, tape, ...)` is intentionally unsupported and raises an explicit error; keep Tape recording on the default stream and use `launchOn` outside Tape scopes. Reverse/validation AD currently rejects dynamic `while` loops on unsupported backends rather than falling through to a native failure.
 
 Struct, mesh, and quant resource parameters are typed. Scalar-member `StructTensor<S>` values can be load-copy-stored, mesh relation/attribute params expose `size/get/read/write`, and `QuantizedF32Tensor` exposes kernel `read/write` with explicit quantization metadata.
 
