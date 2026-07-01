@@ -18,6 +18,7 @@ class MemoryProfiler {
     if (!status.isAvailable()) {
       return status;
     }
-    return new MemoryProfilerStatus(ProfilerAvailability.Unavailable, "Quadrants HashLink memory profiler print binding is unavailable");
+    Native.profiler_memory_print(context.nativeHandle());
+    return status;
   }
 }

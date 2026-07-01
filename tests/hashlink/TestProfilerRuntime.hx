@@ -83,7 +83,7 @@ class TestProfilerRuntime {
       expectTrue("extension_external_pointer", ctx.isExtensionEnabled(Extension.ExternalPointerImport));
       if (ctx.isExtensionEnabled(Extension.Cuda)) throw "extension_cuda_unexpected_on_cpu";
       if (ctx.isExtensionEnabled(Extension.CudaGlInterop)) throw "extension_cuda_gl_unexpected_on_cpu";
-      if (ctx.isExtensionEnabled(Extension.MemoryProfiler)) throw "extension_memory_profiler_unexpected";
+      expectTrue("extension_memory_profiler", ctx.isExtensionEnabled(Extension.MemoryProfiler));
       ctx.close();
     } catch (e:Dynamic) {
       ctx.close();
@@ -91,16 +91,14 @@ class TestProfilerRuntime {
     }
   }
 
-  static function testMemoryProfilerUnavailable():Void {
+  static function testMemoryProfilerAvailable():Void {
     TestRuntimeSupport.closeSharedContexts();
     var ctx = new Context(Arch.Cpu, true);
     try {
       var probe = quadrants.profiler.MemoryProfiler.probe(ctx);
-      if (probe.availability != ProfilerAvailability.Unavailable) throw "memory_profiler_probe_available";
-      expectTrue("memory_profiler_probe_reason", probe.reason.length > 0);
-      var printProbe = quadrants.profiler.MemoryProfiler.printInfo(ctx);
-      if (printProbe.availability != ProfilerAvailability.Unavailable) throw "memory_profiler_print_available";
-      expectTrue("memory_profiler_print_reason", printProbe.reason.length > 0);
+      if (probe.availability != ProfilerAvailability.Available) throw "memory_profiler_probe_unavailable";
+      var stats = ctx.profiler().memoryStats();
+      expectTrue("memory_profiler_stats_available", stats.available);
       ctx.close();
     } catch (e:Dynamic) {
       ctx.close();
@@ -111,6 +109,6 @@ class TestProfilerRuntime {
   public static function run():Void {
     testProfilerRecordClear();
     testContextOptionsAndExtensions();
-    testMemoryProfilerUnavailable();
+    testMemoryProfilerAvailable();
   }
 }

@@ -2729,8 +2729,18 @@ HL_PRIM int HL_NAME(profiler_scoped_available)(qd_context *ctx) {
 
 HL_PRIM int HL_NAME(profiler_memory_available)(qd_context *ctx) {
   return guard([&]() -> int {
-    require_context(ctx);
-    return 0;
+    QdContextState &state = require_context(ctx);
+    return quadrants::arch_uses_llvm(state.arch) ? 1 : 0;
+  });
+}
+
+HL_PRIM void HL_NAME(profiler_memory_print)(qd_context *ctx) {
+  guard([&]() {
+    QdContextState &state = require_context(ctx);
+    if (!quadrants::arch_uses_llvm(state.arch)) {
+      throw std::runtime_error("Quadrants memory profiler is available only on LLVM-backed backends");
+    }
+    state.program->print_memory_profiler_info();
   });
 }
 
@@ -4305,6 +4315,7 @@ DEFINE_PRIM(_F64, profiler_query_avg, _QD_CONTEXT _BYTES);
 DEFINE_PRIM(_I32, profiler_is_enabled, _QD_CONTEXT);
 DEFINE_PRIM(_I32, profiler_scoped_available, _QD_CONTEXT);
 DEFINE_PRIM(_I32, profiler_memory_available, _QD_CONTEXT);
+DEFINE_PRIM(_VOID, profiler_memory_print, _QD_CONTEXT);
 DEFINE_PRIM(_I32, profiler_kernel_available, _QD_CONTEXT);
 DEFINE_PRIM(_I32, profiler_set_toolkit, _QD_CONTEXT _BYTES);
 DEFINE_PRIM(_I32, profiler_set_metrics, _QD_CONTEXT _ARR);

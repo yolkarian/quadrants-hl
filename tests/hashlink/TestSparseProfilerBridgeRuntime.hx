@@ -77,7 +77,7 @@ class TestSparseProfilerBridgeRuntime {
       expectTrue("profiler_enabled", features.enabled);
       expectTrue("profiler_scoped", features.scoped);
       expectTrue("profiler_kernel", features.kernel);
-      if (features.memory) throw "profiler_memory_unexpected";
+      expectTrue("profiler_memory", features.memory);
       ScopedProfiler.run(ctx, "manual_scope", function() {
         var total = 0;
         for (i in 0...8) total += i;

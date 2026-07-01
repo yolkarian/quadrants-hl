@@ -209,6 +209,11 @@ class Native {
     throw "Quadrants HashLink native bridge is not loaded";
   }
 
+  @:hlNative("quadrants", "profiler_memory_print")
+  public static function profiler_memory_print(ctx:QContext):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
   @:hlNative("quadrants", "profiler_kernel_available")
   public static function profiler_kernel_available(ctx:QContext):Int {
     throw "Quadrants HashLink native bridge is not loaded";

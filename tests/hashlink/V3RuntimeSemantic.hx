@@ -752,6 +752,8 @@ class V3RuntimeSemantic {
     if (!caps.fieldResourceParam || !caps.structTensor || !caps.quantKernelParam) throw "capability dump failed";
     Profiler.withScope(ctx, "v3_runtime_scope", function() ctx.sync());
     if (ctx.profiler().traceEvents().length == 0) throw "profiler trace events failed";
+    var memoryStats = ctx.profiler().memoryStats();
+    if (!memoryStats.available) throw "memory profiler stats unavailable";
     var health:Dynamic = Diagnostics.health(ctx);
     if (health == null) throw "diagnostics health failed";
     var version = ctx.capabilities().version;
