@@ -28,7 +28,7 @@ Notes:
 - `Arch.Cuda` also needs `runtime_cuda.bc`, `slim_libdevice.10.bc`, CUDA driver libraries, and a native build configured with `QD_WITH_CUDA=ON`.
 - `Arch.Amdgpu` needs the AMDGPU runtime bitcode and ROCm device libraries installed by the HashLink component.
 - `Arch.Vulkan` and `Arch.Metal` do not use LLVM runtime bitcode, but they do need the corresponding native backend compiled into `quadrants.hdll`.
-- Optional device smoke tests are selected with `QD_HASHLINK_TEST_ARCHES=cpu,cuda,vulkan,metal,amdgpu` or `QD_HASHLINK_TEST_ARCHES=all`.
+- When the native build enables `QD_WITH_CUDA` or `QD_WITH_AMDGPU`, CTest also registers `hashlink_v3_cuda_backend_semantic` / `hashlink_v3_amdgpu_backend_semantic`. These optional backend-depth tests run stream-event ordering and multi-stream `Graph.parallel` stress cases when a device is present, and report a structured skip when the backend cannot create a runtime context.
 
 ## HashLink library loading
 

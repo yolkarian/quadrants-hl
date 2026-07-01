@@ -201,6 +201,36 @@ if(QD_BUILD_HASHLINK_TESTS)
       -DRUN_HL=ON
       -P ${PROJECT_SOURCE_DIR}/cmake/RunHashLinkTest.cmake)
 
+  if(QD_WITH_CUDA)
+    add_test(NAME hashlink_v3_cuda_backend_semantic
+      COMMAND ${CMAKE_COMMAND} -E env QD_HASHLINK_TEST_ARCH=cuda
+        ${CMAKE_COMMAND}
+        -DREPO_ROOT=${PROJECT_SOURCE_DIR}
+        -DHAXE_EXECUTABLE=${QD_HAXE_EXECUTABLE}
+        -DHL_EXECUTABLE=${QD_HL_EXECUTABLE}
+        -DQUADRANTS_HDLL=$<TARGET_FILE:quadrants.hdll>
+        -DQUADRANTS_RUNTIME_DIR=${QD_RUNTIME_BUILD_DIR}
+        -DHXML_FILE=${PROJECT_SOURCE_DIR}/tests/hashlink/backend/hashlink_backend_semantic.hxml
+        -DOUTPUT_HL=${CMAKE_BINARY_DIR}/hashlink-v3-cuda-backend-semantic.hl
+        -DRUN_HL=ON
+        -P ${PROJECT_SOURCE_DIR}/cmake/RunHashLinkTest.cmake)
+  endif()
+
+  if(QD_WITH_AMDGPU)
+    add_test(NAME hashlink_v3_amdgpu_backend_semantic
+      COMMAND ${CMAKE_COMMAND} -E env QD_HASHLINK_TEST_ARCH=amdgpu
+        ${CMAKE_COMMAND}
+        -DREPO_ROOT=${PROJECT_SOURCE_DIR}
+        -DHAXE_EXECUTABLE=${QD_HAXE_EXECUTABLE}
+        -DHL_EXECUTABLE=${QD_HL_EXECUTABLE}
+        -DQUADRANTS_HDLL=$<TARGET_FILE:quadrants.hdll>
+        -DQUADRANTS_RUNTIME_DIR=${QD_RUNTIME_BUILD_DIR}
+        -DHXML_FILE=${PROJECT_SOURCE_DIR}/tests/hashlink/backend/hashlink_backend_semantic.hxml
+        -DOUTPUT_HL=${CMAKE_BINARY_DIR}/hashlink-v3-amdgpu-backend-semantic.hl
+        -DRUN_HL=ON
+        -P ${PROJECT_SOURCE_DIR}/cmake/RunHashLinkTest.cmake)
+  endif()
+
   add_test(NAME hashlink_descriptor_golden
     COMMAND ${CMAKE_COMMAND}
       -DREPO_ROOT=${PROJECT_SOURCE_DIR}
