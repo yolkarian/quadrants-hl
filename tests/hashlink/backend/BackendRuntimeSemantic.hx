@@ -58,10 +58,10 @@ class BackendRuntimeSemantic {
     var out = new Tensor<I32>(ctx, [1]);
     var add = Kernel.build(ctx, macro (x:Tensor<I32>) -> {
       x[0] = x[0] + 1;
-    }, {name: 'backend_${backend}_add'});
+    }, {name: "backend_semantic_add"});
     var copy = Kernel.build(ctx, macro (x:Tensor<I32>, y:Tensor<I32>) -> {
       y[0] = x[0] + 100;
-    }, {name: 'backend_${backend}_copy_after_event'});
+    }, {name: "backend_semantic_copy_after_event"});
 
     var streamA = ctx.createStream();
     var streamB = ctx.createStream();

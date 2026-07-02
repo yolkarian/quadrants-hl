@@ -12,11 +12,15 @@ namespace {
 
 namespace oc = offline_cache;
 
-inline void gen_old_version(oc::Version &ver) {
-  auto &[major, minor, patch] = ver;
-  major = std::max(QD_VERSION_MAJOR - 1, 0);
-  minor = std::max(QD_VERSION_MINOR - 1, 0);
-  patch = std::max(QD_VERSION_PATCH - 1, 0);
+inline void gen_mismatched_version(oc::Version &ver) {
+  ver[0] = QD_VERSION_MAJOR;
+  ver[1] = QD_VERSION_MINOR;
+  ver[2] = QD_VERSION_PATCH;
+  if (ver[2] > 0) {
+    --ver[2];
+  } else {
+    ++ver[2];
+  }
 }
 
 template <typename MetadataType>
@@ -32,7 +36,7 @@ MetadataType gen_metadata(const oc::Version &ver) {
 template <typename MetadataType>
 MetadataType gen_old_metadata() {
   oc::Version old_ver{};
-  gen_old_version(old_ver);
+  gen_mismatched_version(old_ver);
   return gen_metadata<MetadataType>(old_ver);
 }
 
