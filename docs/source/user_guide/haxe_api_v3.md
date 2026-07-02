@@ -70,7 +70,7 @@ Algorithms.radixSort(ctx, keys, tmpKeys, scratch, {beginBit: 0, endBit: 32});
 scratch.clear();
 ```
 
-Host per-thread linalg entrypoints live under `quadrants.funcs.Linalg` with explicit sizes (`svd2`, `svd3`, `solve2`, `solve3`, ...). Kernel-side helper coverage lives in `quadrants.funcs.DeviceLinalg` `@:qdFunc` scalar helpers: solve2/solve3, 2D eig/symEig/svd/polar components, and 3D selector helpers (`symEig3Value(..., which)`, `svd3Sigma(..., which)`, `polar3R(..., component)`, `makeSpd3(..., component)`). Pass scalar lanes directly or via `matrix.kernelGet(row, col)` inside kernels.
+Host per-thread linalg entrypoints live under `quadrants.funcs.Linalg` with explicit sizes (`svd2`, `svd3`, `solve2`, `solve3`, ...). Kernel-side helper coverage lives in `quadrants.funcs.DeviceLinalg` `@:qdFunc` scalar helpers: solve2/solve3, 2D eig/symEig/svd/polar components, and 3D selector helpers (`symEig3Value(..., which)`, `svd3Sigma(..., which)`, `polar3R(..., component)`, `makeSpd3(..., component)`). For kernel-local aggregate values, include both `quadrants.funcs.DeviceLinalg` and `quadrants.funcs.LinalgDevice` in the helper list; `LinalgDevice` assembles the scalar helpers into `Vector<Float>`/`Matrix<Float>` returns for `solve2`, `eig2Values`, `polar2Rotation`, and `makeSpd2`. Pass scalar lanes directly or via `matrix.kernelGet(row, col)` inside kernels.
 
 Sparse, mesh, and quant resources use typed constructors plus descriptor/capability validation:
 

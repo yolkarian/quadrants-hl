@@ -50,6 +50,19 @@ final custom = CustomGradient.register(forward, {
 
 `CustomGradient.register` installs the replacement for subsequent typed `forward.launchTape(tape, ...)` calls with the same forward kernel descriptor. `launchTapeOn(stream, tape, ...)` is intentionally unsupported and raises an explicit error; keep Tape recording on the default stream and use `launchOn` outside Tape scopes. Reverse/validation AD currently rejects dynamic `while` loops on unsupported backends rather than falling through to a native failure.
 
+Kernel-local linalg can use scalar component helpers or the aggregate facade:
+
+```haxe
+final k = Kernel.build(ctx, macro (out:Tensor<F32>) -> {
+  var a:Matrix<Float> = Matrix.ofArray(2, 2, [2.0, 0.0, 0.0, 4.0]);
+  var b:Vector<Float> = Vector.ofArray([6.0, 8.0]);
+  var x = LinalgDevice.solve2(a, b);
+  var r = LinalgDevice.polar2Rotation(a);
+  out[0] = x[0];
+  out[1] = r.kernelGet(0, 0);
+}, {helpers: [DeviceLinalg, LinalgDevice]});
+```
+
 Struct, mesh, and quant resource parameters are typed. Scalar-member `StructTensor<S>` values can be load-copy-stored, mesh relation/attribute params expose `size/get/read/write`, and `QuantizedF32Tensor` exposes kernel `read/write` with explicit quantization metadata.
 
 Streams and graph control are explicit and typed:

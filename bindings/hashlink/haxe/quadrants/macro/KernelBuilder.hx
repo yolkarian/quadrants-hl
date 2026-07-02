@@ -642,12 +642,12 @@ private class DescriptorBuilder {
       var info = functions.get(name);
       functionsSection.u32(intern(name));
       functionsSection.u8(1);
-      functionsSection.u8(info.ret == null ? DTYPE_I32 : dtypeFromComplexType(info.ret, info.pos));
+      functionsSection.u8(qdFunctionMetadataReturnDType(info));
       functionsSection.u8(0);
       functionsSection.u8(0);
       functionsSection.u32(info.args.length);
       for (arg in info.args) {
-        var typeInfo = parameterTypeInfo(arg.type, arg.value == null ? info.pos : arg.value.pos);
+        var typeInfo = qdFunctionMetadataArgTypeInfo(arg.type, arg.value == null ? info.pos : arg.value.pos);
         functionsSection.u8(typeInfo.kind == PARAM_UNKNOWN ? PARAM_SCALAR : typeInfo.kind);
         functionsSection.u8(typeInfo.dtype);
         functionsSection.u8(0);
@@ -1908,13 +1908,21 @@ private class DescriptorBuilder {
       localIds.push(declareLocal(uniqueLocalName('__qd_mat_${name}_${i}'), pos, true, init.dtype));
     }
     currentMatrixScope()[name] = {localIds: localIds, rows: init.rows, cols: init.cols, dtype: init.dtype};
+    var count = localIds.length;
     for (i in 0...localIds.length) {
+      var valueExpr = init.values[i];
+      var inlineCall = inlineFunctionCall(valueExpr);
+      if (inlineCall != null) {
+        var result = emitInlineFunctionToTemp(inlineCall.info, inlineCall.args, writer, valueExpr.pos);
+        count += result.count;
+        valueExpr = localLoadExpr(result.localId);
+      }
       writer.u8(STMT_ASSIGN);
       writer.u8(EXPR_LOCAL_LOAD);
       writer.u32(localIds[i]);
-      encodeExpressionWithExpectedDType(init.values[i], init.dtype, writer);
+      encodeExpressionWithExpectedDType(valueExpr, init.dtype, writer);
     }
-    return localIds.length;
+    return count;
   }
 
   function matrixInitializer(expression:Expr):Null<MatrixInitInfo> {
@@ -1925,7 +1933,10 @@ private class DescriptorBuilder {
         if (inlineCall != null) {
           beginInlineFunctionScope(inlineCall.info, inlineCall.args, expr.pos);
           var returned = inlineFunctionReturnExpressionOrNull(inlineCall.info);
-          var init = returned == null ? null : matrixInitializer(returned);
+          var init = returned == null ? null : matrixInitializer(strip(returned));
+          if (init != null) {
+            init = {values: [for (value in init.values) substituteInlineArgs(value)], rows: init.rows, cols: init.cols, dtype: init.dtype};
+          }
           finishInlineFunctionCall();
           if (init != null) return init;
         }
@@ -2157,7 +2168,7 @@ private class DescriptorBuilder {
   }
 
   function directMatrixName(expression:Expr):Null<String> {
-    var expr = stripNoCasts(expression);
+    var expr = strip(expression);
     return switch (expr.expr) {
       case EConst(CIdent(name)):
         if (lookupMatrix(name) != null) {
@@ -2340,13 +2351,21 @@ private class DescriptorBuilder {
       localIds.push(declareLocal(uniqueLocalName('__qd_vec_${name}_${i}'), pos, true, init.dtype));
     }
     currentVectorScope()[name] = {localIds: localIds, dtype: init.dtype};
+    var count = localIds.length;
     for (i in 0...localIds.length) {
+      var valueExpr = init.values[i];
+      var inlineCall = inlineFunctionCall(valueExpr);
+      if (inlineCall != null) {
+        var result = emitInlineFunctionToTemp(inlineCall.info, inlineCall.args, writer, valueExpr.pos);
+        count += result.count;
+        valueExpr = localLoadExpr(result.localId);
+      }
       writer.u8(STMT_ASSIGN);
       writer.u8(EXPR_LOCAL_LOAD);
       writer.u32(localIds[i]);
-      encodeExpressionWithExpectedDType(init.values[i], init.dtype, writer);
+      encodeExpressionWithExpectedDType(valueExpr, init.dtype, writer);
     }
-    return localIds.length;
+    return count;
   }
 
   function vectorInitializer(expression:Expr):Null<VectorInitInfo> {
@@ -2357,7 +2376,10 @@ private class DescriptorBuilder {
         if (inlineCall != null) {
           beginInlineFunctionScope(inlineCall.info, inlineCall.args, expr.pos);
           var returned = inlineFunctionReturnExpressionOrNull(inlineCall.info);
-          var init = returned == null ? null : vectorInitializer(returned);
+          var init = returned == null ? null : vectorInitializer(strip(returned));
+          if (init != null) {
+            init = {values: [for (value in init.values) substituteInlineArgs(value)], dtype: init.dtype};
+          }
           finishInlineFunctionCall();
           if (init != null) return init;
         }
@@ -2375,9 +2397,34 @@ private class DescriptorBuilder {
         }
         var dtype = promoteDType(lhsVector.dtype, rhsVector.dtype);
         return {values: [for (i in 0...lhsVector.localIds.length) binaryExpr(op, vectorComponentExpr(lhsName, i, expr.pos), vectorComponentExpr(rhsName, i, expr.pos), expr.pos)], dtype: dtype};
+      case EBlock(expressions):
+        var values = vectorValuesFromLoweredConstructorBlock(expressions);
+        if (values == null) return null;
+        return {values: values, dtype: inferVectorValuesDType(values)};
       default:
         return null;
     }
+  }
+
+  function vectorValuesFromLoweredConstructorBlock(expressions:Array<Expr>):Null<Array<Expr>> {
+    for (expression in expressions) {
+      switch (strip(expression).expr) {
+        case EVars(vars):
+          for (variable in vars) {
+            if (variable.name == "values" && variable.expr != null) {
+              switch (stripNoCasts(variable.expr).expr) {
+                case EArrayDecl(values):
+                  if (values.length > 0 && values.length <= 4) {
+                    return [for (value in values) substituteInlineArgs(value)];
+                  }
+                default:
+              }
+            }
+          }
+        default:
+      }
+    }
+    return null;
   }
 
   function vectorConstructorInitializer(callee:Expr, args:Array<Expr>, pos:Position):Null<VectorInitInfo> {
@@ -2544,7 +2591,7 @@ private class DescriptorBuilder {
   }
 
   function directVectorName(expression:Expr):Null<String> {
-    var expr = stripNoCasts(expression);
+    var expr = strip(expression);
     return switch (expr.expr) {
       case EConst(CIdent(name)):
         if (lookupVector(name) != null) {
@@ -2553,6 +2600,8 @@ private class DescriptorBuilder {
           var inlineArg = lookupInlineArg(name);
           inlineArg == null || directIdentifier(inlineArg) == name ? null : directVectorName(inlineArg);
         }
+      case EField(base, "values"):
+        directVectorName(base);
       default: null;
     };
   }
@@ -4005,13 +4054,40 @@ private class DescriptorBuilder {
   }
 
   function inlineFunctionCall(expression:Expr):Null<{info:QdFunctionInfo, args:Array<Expr>}> {
-    var expr = stripNoCasts(expression);
+    var expr = strip(expression);
     return switch (expr.expr) {
       case ECall(callee, args):
         var info = functions.get(callName(callee, expr.pos));
         info == null ? null : {info: info, args: args};
       default:
         null;
+    };
+  }
+
+  function qdFunctionMetadataArgTypeInfo(type:Null<ComplexType>, pos:Position):{kind:Int, dtype:Int, needsGrad:Bool, spec:Bool} {
+    if (isKernelLocalAggregateType(type)) {
+      return {kind: PARAM_SCALAR, dtype: DTYPE_I32, needsGrad: false, spec: false};
+    }
+    return parameterTypeInfo(type, pos);
+  }
+
+  function isKernelLocalAggregateType(type:Null<ComplexType>):Bool {
+    return switch (type) {
+      case TPath(path):
+        (path.name == "Vector" || path.name == "Matrix") && (path.pack.length == 0 || path.pack.join(".") == "quadrants");
+      default:
+        false;
+    };
+  }
+
+  function qdFunctionMetadataReturnDType(info:QdFunctionInfo):Int {
+    return switch (info.ret) {
+      case null:
+        DTYPE_I32;
+      case TPath(path) if ((path.name == "Vector" || path.name == "Matrix") && (path.pack.length == 0 || path.pack.join(".") == "quadrants")):
+        DTYPE_I32;
+      default:
+        dtypeFromComplexType(info.ret, info.pos);
     };
   }
 
@@ -4098,7 +4174,7 @@ private class DescriptorBuilder {
       case EUnop(op, postfix, operand):
         return {expr: EUnop(op, postfix, substituteInlineArgs(operand)), pos: expr.pos};
       case ECall(callee, args):
-        return {expr: ECall(callee, [for (arg in args) substituteInlineArgs(arg)]), pos: expr.pos};
+        return {expr: ECall(substituteInlineArgs(callee), [for (arg in args) substituteInlineArgs(arg)]), pos: expr.pos};
       case EField(base, field):
         return {expr: EField(substituteInlineArgs(base), field), pos: expr.pos};
       case ECast(inner, type):
@@ -4579,8 +4655,13 @@ private class DescriptorBuilder {
             } else {
               var inlineFunction = functions.get(name);
               if (inlineFunction != null) {
-                var result = beginInlineFunctionCall(inlineFunction, args, expr.pos);
-                var dtype = inferExpressionDType(result);
+                beginInlineFunctionScope(inlineFunction, args, expr.pos);
+                var returned = inlineFunctionReturnExpressionOrNull(inlineFunction);
+                var dtype = if (returned == null) {
+                  inlineFunction.ret == null ? DTYPE_I32 : dtypeFromComplexType(inlineFunction.ret, expr.pos);
+                } else {
+                  inferExpressionDType(returned);
+                }
                 finishInlineFunctionCall();
                 dtype;
               } else if (args.length > 0) {

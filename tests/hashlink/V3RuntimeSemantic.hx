@@ -23,6 +23,7 @@ import quadrants.ad.FwdMode;
 import quadrants.algorithms.Scratch;
 import quadrants.funcs.DeviceLinalg;
 import quadrants.funcs.Linalg;
+import quadrants.funcs.LinalgDevice;
 import quadrants.linalg.SparseSolver;
 import quadrants.linalg.SparseSolverType;
 import quadrants.mesh.Edge;
@@ -666,7 +667,7 @@ class V3RuntimeSemantic {
     var spd = Linalg.makeSpd(Matrix.ofArray(2, 2, [1.0, 2.0, 2.0, -1.0]));
     if (spd.get(0, 0) <= 0.0) throw "makeSpd failed";
 
-    var deviceLinalgOut = new Tensor<F32>(ctx, [25]);
+    var deviceLinalgOut = new Tensor<F32>(ctx, [32]);
     var deviceLinalgKernel = Kernel.build(ctx, macro (out:Tensor<F32>) -> {
       var a2 = Matrix.ofArray(2, 2, [2.0, 0.0, 0.0, 4.0]);
       var b2 = Matrix.ofArray(2, 1, [6.0, 8.0]);
@@ -697,7 +698,21 @@ class V3RuntimeSemantic {
       out[22] = DeviceLinalg.makeSpd3(-1.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 3.0, 0);
       out[23] = DeviceLinalg.makeSpd3(-1.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 3.0, 4);
       out[24] = DeviceLinalg.makeSpd3(-1.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 3.0, 8);
-    }, {name: "v3_runtime_device_linalg", helpers: [DeviceLinalg]});
+      var af2:Matrix<Float> = Matrix.ofArray(2, 2, [2.0, 0.0, 0.0, 4.0]);
+      var bv2:Vector<Float> = Vector.ofArray([6.0, 8.0]);
+      var x2 = LinalgDevice.solve2(af2, bv2);
+      out[25] = x2[0];
+      out[26] = x2[1];
+      var eig2Values = LinalgDevice.eig2Values(af2);
+      out[27] = eig2Values[0];
+      out[28] = eig2Values[1];
+      var pr2 = LinalgDevice.polar2Rotation(af2);
+      out[29] = pr2.kernelGet(0, 0);
+      out[30] = pr2.kernelGet(1, 1);
+      var spd2Input:Matrix<Float> = Matrix.ofArray(2, 2, [1.0, 2.0, 2.0, -1.0]);
+      var spd2 = LinalgDevice.makeSpd2(spd2Input);
+      out[31] = spd2.kernelGet(0, 0);
+    }, {name: "v3_runtime_device_linalg", helpers: [DeviceLinalg, LinalgDevice]});
     deviceLinalgKernel.launch(deviceLinalgOut);
     ctx.sync();
     near("device_linalg_solve2_0", deviceLinalgOut.read(0), 3.0);
@@ -723,6 +738,13 @@ class V3RuntimeSemantic {
     if ((deviceLinalgOut.read(22) : Float) <= 0.0 || (deviceLinalgOut.read(23) : Float) <= 0.0 || (deviceLinalgOut.read(24) : Float) <= 0.0) {
       throw "device_linalg_make_spd3 failed";
     }
+    near("device_linalg_facade_solve2_x", deviceLinalgOut.read(25), 3.0);
+    near("device_linalg_facade_solve2_y", deviceLinalgOut.read(26), 2.0);
+    near("device_linalg_facade_eig2_0", deviceLinalgOut.read(27), 4.0);
+    near("device_linalg_facade_eig2_1", deviceLinalgOut.read(28), 2.0);
+    near("device_linalg_facade_polar2_r00", deviceLinalgOut.read(29), 1.0);
+    near("device_linalg_facade_polar2_r11", deviceLinalgOut.read(30), 1.0);
+    if ((deviceLinalgOut.read(31) : Float) <= 0.0) throw "device_linalg_facade_make_spd2 failed";
 
     deviceLinalgKernel.close();
     deviceLinalgOut.close();
