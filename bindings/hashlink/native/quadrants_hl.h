@@ -112,6 +112,11 @@ HL_PRIM qd_mesh_relation *HL_NAME(mesh_relation_create)(qd_context *ctx,
 HL_PRIM void HL_NAME(mesh_relation_close)(qd_mesh_relation *relation);
 
 HL_PRIM qd_ndarray *HL_NAME(ndarray_create)(qd_context *ctx, int dtype, varray *shape);
+HL_PRIM qd_ndarray *HL_NAME(ndarray_load_npy)(qd_context *ctx, vbyte *path);
+HL_PRIM int HL_NAME(ndarray_dtype)(qd_context *ctx, qd_ndarray *arr);
+HL_PRIM int HL_NAME(ndarray_rank)(qd_context *ctx, qd_ndarray *arr);
+HL_PRIM int HL_NAME(ndarray_shape_dim)(qd_context *ctx, qd_ndarray *arr, int axis);
+HL_PRIM void HL_NAME(ndarray_save_npy)(qd_context *ctx, qd_ndarray *arr, vbyte *path);
 HL_PRIM qd_ndarray *HL_NAME(ndarray_import_dlpack)(qd_context *ctx, int dtype, int64 handle);
 HL_PRIM qd_ndarray *HL_NAME(ndarray_import_external_pointer)(qd_context *ctx, int64 pointer, int dtype, varray *shape);
 HL_PRIM int HL_NAME(cuda_gl_interop_available)(qd_context *ctx);

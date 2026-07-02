@@ -122,6 +122,14 @@ class TensorRuntime implements TensorHandle {
     Native.ndarray_write_bytes(context.nativeHandle(), nativeHandle(), dtype, flatStart, actualCount, bytes, byteOffset);
   }
 
+  public function saveNpy(path:String):Void {
+    if (path == null) {
+      throw "Quadrants tensor saveNpy requires a path";
+    }
+    var nativePath = @:privateAccess path.toUtf8();
+    Native.ndarray_save_npy(context.nativeHandle(), nativeHandle(), nativePath);
+  }
+
   public function flatIndex(indices:Array<Int>):Int {
     return TensorStorage.flatIndex(shape, indices);
   }

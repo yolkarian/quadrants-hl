@@ -85,6 +85,27 @@ final values = x.toArray();
 x.fromArray(values);
 final bytes = x.readBytes();
 x.writeBytes(bytes);
+x.saveNpy("x.npy");
+final loaded = ctx.loadNpy("x.npy"); // TensorRuntime; actual object is dtype-specific
+if (loaded.dtype == DType.F32) {
+  final loadedF32:Tensor<F32> = cast loaded;
+}
+```
+
+`.npy` I/O is native and supports primitive tensors in C-order row-major layout. `Context.loadNpy(...)` allocates the tensor once from the file's dtype and shape, then returns it as `TensorRuntime`; the returned object's concrete runtime class is the dtype-specific generated tensor class, so an explicit Haxe `cast` is valid after checking `dtype`.
+
+The cast is a typed view of the same loaded tensor object: it does not copy data and does not allocate another native tensor. Do not use it to convert dtypes; cast only after matching the file dtype, and close the loaded tensor once through either the `TensorRuntime` reference or the typed `Tensor<T>` reference.
+
+```haxe
+final loaded = ctx.loadNpy("weights.npy");
+switch (loaded.dtype) {
+  case DType.F32:
+    final weights:Tensor<F32> = cast loaded;
+    useF32(weights);
+  case other:
+    loaded.close();
+    throw 'weights.npy has unsupported dtype ${other}';
+}
 ```
 
 Interop is explicit:

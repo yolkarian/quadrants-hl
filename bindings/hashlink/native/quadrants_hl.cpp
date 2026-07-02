@@ -2,13 +2,17 @@
 
 #include <atomic>
 #include <algorithm>
+#include <cerrno>
 #include <cmath>
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
+#include <cctype>
+#include <fstream>
 #include <limits>
 #include <memory>
 #include <new>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -227,6 +231,37 @@ PrimitiveTypeID primitive_id_from_bridge_id(int dtype) {
       return PrimitiveTypeID::f16;
     default:
       throw std::runtime_error("Unsupported Quadrants HashLink dtype id: " + std::to_string(dtype));
+  }
+}
+
+int bridge_id_from_primitive_id(PrimitiveTypeID dtype) {
+  switch (dtype) {
+    case PrimitiveTypeID::i8:
+      return 0;
+    case PrimitiveTypeID::i16:
+      return 1;
+    case PrimitiveTypeID::i32:
+      return 2;
+    case PrimitiveTypeID::i64:
+      return 3;
+    case PrimitiveTypeID::u8:
+      return 4;
+    case PrimitiveTypeID::u16:
+      return 5;
+    case PrimitiveTypeID::u32:
+      return 6;
+    case PrimitiveTypeID::u64:
+      return 7;
+    case PrimitiveTypeID::f32:
+      return 8;
+    case PrimitiveTypeID::f64:
+      return 9;
+    case PrimitiveTypeID::u1:
+      return 10;
+    case PrimitiveTypeID::f16:
+      return 11;
+    default:
+      throw std::runtime_error("Unsupported Quadrants HashLink primitive dtype");
   }
 }
 
@@ -1709,6 +1744,435 @@ bool profiler_enabled(QdContextState &state) {
 
 std::string bytes_to_string(vbyte *bytes) {
   return bytes == nullptr ? std::string() : std::string(reinterpret_cast<const char *>(bytes));
+}
+
+struct NpyFileData {
+  int dtype{0};
+  PrimitiveTypeID primitive_dtype{PrimitiveTypeID::unknown};
+  std::vector<int> shape;
+  std::vector<std::uint8_t> payload;
+};
+
+bool host_is_little_endian() {
+  const std::uint16_t value = 1;
+  return *reinterpret_cast<const std::uint8_t *>(&value) == 1;
+}
+
+std::size_t npy_dtype_byte_size(PrimitiveTypeID dtype) {
+  switch (dtype) {
+    case PrimitiveTypeID::i8:
+    case PrimitiveTypeID::u8:
+    case PrimitiveTypeID::u1:
+      return 1;
+    case PrimitiveTypeID::i16:
+    case PrimitiveTypeID::u16:
+    case PrimitiveTypeID::f16:
+      return 2;
+    case PrimitiveTypeID::i32:
+    case PrimitiveTypeID::u32:
+    case PrimitiveTypeID::f32:
+      return 4;
+    case PrimitiveTypeID::i64:
+    case PrimitiveTypeID::u64:
+    case PrimitiveTypeID::f64:
+      return 8;
+    default:
+      throw std::runtime_error("Unsupported Quadrants dtype for NumPy .npy I/O");
+  }
+}
+
+PrimitiveTypeID ndarray_primitive_dtype(const Ndarray &array) {
+  const auto *primitive = array.get_element_data_type()->cast<PrimitiveType>();
+  if (primitive == nullptr) {
+    throw std::runtime_error("Quadrants NumPy .npy I/O supports only primitive tensors");
+  }
+  return primitive->type;
+}
+
+int ndarray_bridge_dtype(const Ndarray &array) {
+  return bridge_id_from_primitive_id(ndarray_primitive_dtype(array));
+}
+
+std::string npy_descr_from_dtype(PrimitiveTypeID dtype) {
+  switch (dtype) {
+    case PrimitiveTypeID::i8:
+      return "|i1";
+    case PrimitiveTypeID::i16:
+      return "<i2";
+    case PrimitiveTypeID::i32:
+      return "<i4";
+    case PrimitiveTypeID::i64:
+      return "<i8";
+    case PrimitiveTypeID::u8:
+      return "|u1";
+    case PrimitiveTypeID::u16:
+      return "<u2";
+    case PrimitiveTypeID::u32:
+      return "<u4";
+    case PrimitiveTypeID::u64:
+      return "<u8";
+    case PrimitiveTypeID::f16:
+      return "<f2";
+    case PrimitiveTypeID::f32:
+      return "<f4";
+    case PrimitiveTypeID::f64:
+      return "<f8";
+    case PrimitiveTypeID::u1:
+      return "|b1";
+    default:
+      throw std::runtime_error("Unsupported Quadrants dtype for NumPy .npy I/O");
+  }
+}
+
+std::string trim_copy(std::string s) {
+  std::size_t begin = 0;
+  while (begin < s.size() && std::isspace(static_cast<unsigned char>(s[begin]))) {
+    ++begin;
+  }
+  std::size_t end = s.size();
+  while (end > begin && std::isspace(static_cast<unsigned char>(s[end - 1]))) {
+    --end;
+  }
+  return s.substr(begin, end - begin);
+}
+
+std::size_t find_npy_key(const std::string &header, const std::string &key) {
+  const std::string single = "'" + key + "'";
+  const std::string dbl = "\"" + key + "\"";
+  std::size_t pos = header.find(single);
+  if (pos == std::string::npos) {
+    pos = header.find(dbl);
+  }
+  if (pos == std::string::npos) {
+    throw std::runtime_error("Invalid NumPy .npy header: missing key `" + key + "`");
+  }
+  return pos;
+}
+
+std::size_t npy_value_start(const std::string &header, const std::string &key) {
+  const std::size_t key_pos = find_npy_key(header, key);
+  const std::size_t colon = header.find(':', key_pos);
+  if (colon == std::string::npos) {
+    throw std::runtime_error("Invalid NumPy .npy header: missing `:` after key `" + key + "`");
+  }
+  std::size_t pos = colon + 1;
+  while (pos < header.size() && std::isspace(static_cast<unsigned char>(header[pos]))) {
+    ++pos;
+  }
+  if (pos >= header.size()) {
+    throw std::runtime_error("Invalid NumPy .npy header: missing value for key `" + key + "`");
+  }
+  return pos;
+}
+
+std::string npy_string_field(const std::string &header, const std::string &key) {
+  std::size_t pos = npy_value_start(header, key);
+  const char quote = header[pos];
+  if (quote != '\'' && quote != '"') {
+    throw std::runtime_error("Invalid NumPy .npy header: string field `" + key + "` is not quoted");
+  }
+  const std::size_t end = header.find(quote, pos + 1);
+  if (end == std::string::npos) {
+    throw std::runtime_error("Invalid NumPy .npy header: unterminated string field `" + key + "`");
+  }
+  return header.substr(pos + 1, end - pos - 1);
+}
+
+bool npy_bool_field(const std::string &header, const std::string &key) {
+  const std::size_t pos = npy_value_start(header, key);
+  if (header.compare(pos, 4, "True") == 0) {
+    return true;
+  }
+  if (header.compare(pos, 5, "False") == 0) {
+    return false;
+  }
+  throw std::runtime_error("Invalid NumPy .npy header: boolean field `" + key + "` is not True/False");
+}
+
+std::vector<int> npy_shape_field(const std::string &header) {
+  std::size_t pos = npy_value_start(header, "shape");
+  if (header[pos] != '(') {
+    throw std::runtime_error("Invalid NumPy .npy header: shape is not a tuple");
+  }
+  const std::size_t end = header.find(')', pos + 1);
+  if (end == std::string::npos) {
+    throw std::runtime_error("Invalid NumPy .npy header: unterminated shape tuple");
+  }
+  std::string body = header.substr(pos + 1, end - pos - 1);
+  std::vector<int> shape;
+  std::size_t token_begin = 0;
+  while (token_begin <= body.size()) {
+    const std::size_t comma = body.find(',', token_begin);
+    const std::size_t token_end = comma == std::string::npos ? body.size() : comma;
+    std::string token = trim_copy(body.substr(token_begin, token_end - token_begin));
+    if (!token.empty()) {
+      char *parse_end = nullptr;
+      errno = 0;
+      const long long dim = std::strtoll(token.c_str(), &parse_end, 10);
+      if (errno != 0 || parse_end == token.c_str() || *parse_end != '\0') {
+        throw std::runtime_error("Invalid NumPy .npy header: shape dimension is not an integer");
+      }
+      if (dim <= 0) {
+        throw std::runtime_error("Quadrants NumPy .npy load requires positive shape dimensions");
+      }
+      if (dim > std::numeric_limits<int>::max()) {
+        throw std::runtime_error("Quadrants NumPy .npy load shape dimension exceeds Haxe Int range");
+      }
+      shape.push_back(static_cast<int>(dim));
+    }
+    if (comma == std::string::npos) {
+      break;
+    }
+    token_begin = comma + 1;
+  }
+  return shape;
+}
+
+PrimitiveTypeID npy_dtype_from_descr(const std::string &descr) {
+  if (descr.size() < 3) {
+    throw std::runtime_error("Unsupported NumPy .npy dtype descriptor: " + descr);
+  }
+  const char endian = descr[0];
+  const char kind = descr[1];
+  char *parse_end = nullptr;
+  errno = 0;
+  const long bytes = std::strtol(descr.c_str() + 2, &parse_end, 10);
+  if (errno != 0 || parse_end == descr.c_str() + 2 || *parse_end != '\0') {
+    throw std::runtime_error("Unsupported NumPy .npy dtype descriptor: " + descr);
+  }
+  if (endian == '>' || ((endian == '<' || endian == '=') && !host_is_little_endian())) {
+    throw std::runtime_error("Quadrants NumPy .npy load supports only little-endian payloads");
+  }
+  if (endian == '|' && bytes != 1) {
+    throw std::runtime_error("Unsupported NumPy .npy non-byte-order dtype descriptor: " + descr);
+  }
+  if (endian != '<' && endian != '|' && endian != '=') {
+    throw std::runtime_error("Unsupported NumPy .npy dtype endian marker: " + descr);
+  }
+
+  switch (kind) {
+    case 'i':
+      if (bytes == 1) return PrimitiveTypeID::i8;
+      if (bytes == 2) return PrimitiveTypeID::i16;
+      if (bytes == 4) return PrimitiveTypeID::i32;
+      if (bytes == 8) return PrimitiveTypeID::i64;
+      break;
+    case 'u':
+      if (bytes == 1) return PrimitiveTypeID::u8;
+      if (bytes == 2) return PrimitiveTypeID::u16;
+      if (bytes == 4) return PrimitiveTypeID::u32;
+      if (bytes == 8) return PrimitiveTypeID::u64;
+      break;
+    case 'f':
+      if (bytes == 2) return PrimitiveTypeID::f16;
+      if (bytes == 4) return PrimitiveTypeID::f32;
+      if (bytes == 8) return PrimitiveTypeID::f64;
+      break;
+    case 'b':
+      if (bytes == 1) return PrimitiveTypeID::u1;
+      break;
+    default:
+      break;
+  }
+  throw std::runtime_error("Unsupported NumPy .npy dtype descriptor: " + descr);
+}
+
+int checked_npy_element_count(const std::vector<int> &shape) {
+  std::size_t count = 1;
+  for (int dim : shape) {
+    if (count > static_cast<std::size_t>(std::numeric_limits<int>::max()) / static_cast<std::size_t>(dim)) {
+      throw std::runtime_error("Quadrants NumPy .npy tensor is too large for HashLink tensor I/O");
+    }
+    count *= static_cast<std::size_t>(dim);
+  }
+  return static_cast<int>(count);
+}
+
+std::size_t checked_npy_byte_count(const std::vector<int> &shape, PrimitiveTypeID dtype) {
+  const std::size_t count = static_cast<std::size_t>(checked_npy_element_count(shape));
+  const std::size_t element_size = npy_dtype_byte_size(dtype);
+  if (count > std::numeric_limits<std::size_t>::max() / element_size) {
+    throw std::runtime_error("Quadrants NumPy .npy byte size overflow");
+  }
+  return count * element_size;
+}
+
+std::uint16_t read_le_u16(const std::uint8_t *bytes) {
+  return static_cast<std::uint16_t>(bytes[0]) | (static_cast<std::uint16_t>(bytes[1]) << 8);
+}
+
+std::uint32_t read_le_u32(const std::uint8_t *bytes) {
+  return static_cast<std::uint32_t>(bytes[0]) | (static_cast<std::uint32_t>(bytes[1]) << 8) |
+         (static_cast<std::uint32_t>(bytes[2]) << 16) | (static_cast<std::uint32_t>(bytes[3]) << 24);
+}
+
+void read_exact(std::istream &is, void *data, std::size_t size, const std::string &what) {
+  if (size == 0) {
+    return;
+  }
+  is.read(reinterpret_cast<char *>(data), static_cast<std::streamsize>(size));
+  if (is.gcount() != static_cast<std::streamsize>(size)) {
+    throw std::runtime_error("Unexpected end of file while reading NumPy .npy " + what);
+  }
+}
+
+NpyFileData read_npy_file(const std::string &path) {
+  std::ifstream file(path, std::ios::binary);
+  if (!file) {
+    throw std::runtime_error("Failed to open NumPy .npy file for reading: " + path);
+  }
+
+  file.seekg(0, std::ios::end);
+  const std::streamoff file_size_signed = file.tellg();
+  if (file_size_signed < 0) {
+    throw std::runtime_error("Failed to determine NumPy .npy file size: " + path);
+  }
+  const std::uint64_t file_size = static_cast<std::uint64_t>(file_size_signed);
+  file.seekg(0, std::ios::beg);
+  if (!file) {
+    throw std::runtime_error("Failed to seek NumPy .npy file: " + path);
+  }
+
+  std::uint8_t prefix[10] = {};
+  read_exact(file, prefix, sizeof(prefix), "header prefix");
+  const std::uint8_t expected_magic[6] = {0x93, 'N', 'U', 'M', 'P', 'Y'};
+  if (std::memcmp(prefix, expected_magic, sizeof(expected_magic)) != 0) {
+    throw std::runtime_error("Invalid NumPy .npy file: bad magic header");
+  }
+
+  const int major = prefix[6];
+  const int minor = prefix[7];
+  (void)minor;
+  std::uint32_t header_len = 0;
+  if (major == 1) {
+    header_len = read_le_u16(prefix + 8);
+  } else if (major == 2 || major == 3) {
+    std::uint8_t len_bytes[4] = {prefix[8], prefix[9], 0, 0};
+    read_exact(file, len_bytes + 2, 2, "v2/v3 header length");
+    header_len = read_le_u32(len_bytes);
+  } else {
+    throw std::runtime_error("Unsupported NumPy .npy format version");
+  }
+
+  const std::uint64_t header_start = major == 1 ? 10 : 12;
+  if (file_size < header_start || static_cast<std::uint64_t>(header_len) > file_size - header_start) {
+    throw std::runtime_error("Invalid NumPy .npy file: header length exceeds remaining file size");
+  }
+
+  std::string header(header_len, '\0');
+  read_exact(file, header.data(), header.size(), "header");
+
+  const std::string descr = npy_string_field(header, "descr");
+  const bool fortran_order = npy_bool_field(header, "fortran_order");
+  if (fortran_order) {
+    throw std::runtime_error("Quadrants NumPy .npy load supports only C-order arrays");
+  }
+  std::vector<int> shape = npy_shape_field(header);
+  PrimitiveTypeID primitive_dtype = npy_dtype_from_descr(descr);
+  const std::size_t byte_count = checked_npy_byte_count(shape, primitive_dtype);
+  const std::uint64_t payload_start = header_start + static_cast<std::uint64_t>(header_len);
+  if (static_cast<std::uint64_t>(byte_count) > file_size - payload_start) {
+    throw std::runtime_error("Invalid NumPy .npy file: payload size exceeds remaining file size");
+  }
+
+  std::vector<std::uint8_t> payload(byte_count);
+  read_exact(file, payload.data(), payload.size(), "payload");
+  char trailing = 0;
+  if (file.read(&trailing, 1)) {
+    throw std::runtime_error("Invalid NumPy .npy file: trailing bytes after payload");
+  }
+
+  NpyFileData result;
+  result.primitive_dtype = primitive_dtype;
+  result.dtype = bridge_id_from_primitive_id(primitive_dtype);
+  result.shape = std::move(shape);
+  result.payload = std::move(payload);
+  return result;
+}
+
+std::string npy_shape_literal(const std::vector<int> &shape) {
+  if (shape.empty()) {
+    return "()";
+  }
+  std::ostringstream os;
+  os << '(';
+  for (std::size_t i = 0; i < shape.size(); ++i) {
+    if (i != 0) {
+      os << ", ";
+    }
+    os << shape[i];
+  }
+  if (shape.size() == 1) {
+    os << ',';
+  }
+  os << ')';
+  return os.str();
+}
+
+std::string build_npy_header(const Ndarray &array) {
+  const PrimitiveTypeID dtype = ndarray_primitive_dtype(array);
+  std::string dict = "{'descr': '" + npy_descr_from_dtype(dtype) + "', 'fortran_order': False, 'shape': " +
+                     npy_shape_literal(array.shape) + ", }";
+  constexpr std::size_t kNpyArrayAlign = 64;
+  const std::size_t prefix_size_v1 = 10;
+  std::size_t padding = (kNpyArrayAlign - ((prefix_size_v1 + dict.size() + 1) % kNpyArrayAlign)) % kNpyArrayAlign;
+  std::string header = dict + std::string(padding, ' ') + "\n";
+  if (header.size() <= std::numeric_limits<std::uint16_t>::max()) {
+    return header;
+  }
+
+  const std::size_t prefix_size_v2 = 12;
+  padding = (kNpyArrayAlign - ((prefix_size_v2 + dict.size() + 1) % kNpyArrayAlign)) % kNpyArrayAlign;
+  header = dict + std::string(padding, ' ') + "\n";
+  if (header.size() > std::numeric_limits<std::uint32_t>::max()) {
+    throw std::runtime_error("Quadrants NumPy .npy header is too large");
+  }
+  return header;
+}
+
+void save_npy_file(QdContextState &state, qd_ndarray *handle, const std::string &path) {
+  Ndarray &array = require_ndarray(state, handle);
+  const PrimitiveTypeID dtype = ndarray_primitive_dtype(array);
+  const int bridge_dtype = bridge_id_from_primitive_id(dtype);
+  const int element_count = checked_npy_element_count(array.shape);
+  const std::size_t byte_count = checked_npy_byte_count(array.shape, dtype);
+
+  std::vector<std::uint8_t> payload(byte_count);
+  read_ndarray_bytes(state, handle, primitive_id_from_bridge_id(bridge_dtype), 0, element_count,
+                     reinterpret_cast<vbyte *>(payload.data()), 0);
+
+  std::string header = build_npy_header(array);
+  const bool use_v1 = header.size() <= std::numeric_limits<std::uint16_t>::max();
+  std::ofstream file(path, std::ios::binary | std::ios::trunc);
+  if (!file) {
+    throw std::runtime_error("Failed to open NumPy .npy file for writing: " + path);
+  }
+  const char magic[] = "\x93NUMPY";
+  file.write(magic, 6);
+  if (use_v1) {
+    const std::uint8_t version[2] = {1, 0};
+    const std::uint16_t len = static_cast<std::uint16_t>(header.size());
+    const std::uint8_t len_bytes[2] = {static_cast<std::uint8_t>(len & 0xff),
+                                       static_cast<std::uint8_t>((len >> 8) & 0xff)};
+    file.write(reinterpret_cast<const char *>(version), sizeof(version));
+    file.write(reinterpret_cast<const char *>(len_bytes), sizeof(len_bytes));
+  } else {
+    const std::uint8_t version[2] = {2, 0};
+    const std::uint32_t len = static_cast<std::uint32_t>(header.size());
+    const std::uint8_t len_bytes[4] = {static_cast<std::uint8_t>(len & 0xff),
+                                       static_cast<std::uint8_t>((len >> 8) & 0xff),
+                                       static_cast<std::uint8_t>((len >> 16) & 0xff),
+                                       static_cast<std::uint8_t>((len >> 24) & 0xff)};
+    file.write(reinterpret_cast<const char *>(version), sizeof(version));
+    file.write(reinterpret_cast<const char *>(len_bytes), sizeof(len_bytes));
+  }
+  file.write(header.data(), static_cast<std::streamsize>(header.size()));
+  if (!payload.empty()) {
+    file.write(reinterpret_cast<const char *>(payload.data()), static_cast<std::streamsize>(payload.size()));
+  }
+  if (!file) {
+    throw std::runtime_error("Failed to write NumPy .npy file: " + path);
+  }
 }
 
 std::vector<std::string> strings_from_hl_array(varray *values, const char *name) {
@@ -3445,6 +3909,62 @@ HL_PRIM qd_ndarray *HL_NAME(ndarray_create)(qd_context *ctx, int dtype, varray *
   });
 }
 
+HL_PRIM qd_ndarray *HL_NAME(ndarray_load_npy)(qd_context *ctx, vbyte *path) {
+  return guard([&]() -> qd_ndarray * {
+    BlockingSection blocking;
+    QdContextState &state = require_context(ctx);
+    NpyFileData file_data = read_npy_file(bytes_to_string(path));
+    Ndarray *array = state.program->create_ndarray(dtype_from_bridge_id(file_data.dtype), file_data.shape);
+    qd_ndarray *handle = make_ndarray_handle(state, array, true);
+    try {
+      const int element_count = checked_npy_element_count(file_data.shape);
+      write_ndarray_bytes(state, handle, file_data.primitive_dtype, 0, element_count,
+                          reinterpret_cast<vbyte *>(file_data.payload.data()), 0);
+      return handle;
+    } catch (...) {
+      release_ndarray_handle(handle);
+      throw;
+    }
+  });
+}
+
+HL_PRIM int HL_NAME(ndarray_dtype)(qd_context *ctx, qd_ndarray *arr) {
+  return guard([&]() -> int {
+    QdContextState &state = require_context(ctx);
+    return ndarray_bridge_dtype(require_ndarray(state, arr));
+  });
+}
+
+HL_PRIM int HL_NAME(ndarray_rank)(qd_context *ctx, qd_ndarray *arr) {
+  return guard([&]() -> int {
+    QdContextState &state = require_context(ctx);
+    Ndarray &array = require_ndarray(state, arr);
+    if (array.shape.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+      throw std::runtime_error("Quadrants ndarray rank exceeds Haxe Int range");
+    }
+    return static_cast<int>(array.shape.size());
+  });
+}
+
+HL_PRIM int HL_NAME(ndarray_shape_dim)(qd_context *ctx, qd_ndarray *arr, int axis) {
+  return guard([&]() -> int {
+    QdContextState &state = require_context(ctx);
+    Ndarray &array = require_ndarray(state, arr);
+    if (axis < 0 || axis >= static_cast<int>(array.shape.size())) {
+      throw std::runtime_error("Quadrants ndarray shape axis is out of bounds");
+    }
+    return array.shape[static_cast<std::size_t>(axis)];
+  });
+}
+
+HL_PRIM void HL_NAME(ndarray_save_npy)(qd_context *ctx, qd_ndarray *arr, vbyte *path) {
+  guard([&]() {
+    BlockingSection blocking;
+    QdContextState &state = require_context(ctx);
+    save_npy_file(state, arr, bytes_to_string(path));
+  });
+}
+
 HL_PRIM qd_ndarray *HL_NAME(ndarray_import_dlpack)(qd_context *ctx, int dtype, int64 handle) {
   return guard([&]() -> qd_ndarray * {
     QdContextState &state = require_context(ctx);
@@ -4708,6 +5228,11 @@ DEFINE_PRIM(_QD_MESH_RELATION, mesh_relation_create, _QD_CONTEXT _I32 _I32 _ARR 
 DEFINE_PRIM(_VOID, mesh_relation_close, _QD_MESH_RELATION);
 
 DEFINE_PRIM(_QD_NDARRAY, ndarray_create, _QD_CONTEXT _I32 _ARR);
+DEFINE_PRIM(_QD_NDARRAY, ndarray_load_npy, _QD_CONTEXT _BYTES);
+DEFINE_PRIM(_I32, ndarray_dtype, _QD_CONTEXT _QD_NDARRAY);
+DEFINE_PRIM(_I32, ndarray_rank, _QD_CONTEXT _QD_NDARRAY);
+DEFINE_PRIM(_I32, ndarray_shape_dim, _QD_CONTEXT _QD_NDARRAY _I32);
+DEFINE_PRIM(_VOID, ndarray_save_npy, _QD_CONTEXT _QD_NDARRAY _BYTES);
 DEFINE_PRIM(_QD_NDARRAY, ndarray_import_dlpack, _QD_CONTEXT _I32 _I64);
 DEFINE_PRIM(_QD_NDARRAY, ndarray_import_external_pointer, _QD_CONTEXT _I64 _I32 _ARR);
 DEFINE_PRIM(_VOID, ndarray_fill_i8, _QD_CONTEXT _QD_NDARRAY _I32);

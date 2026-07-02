@@ -1,7 +1,21 @@
 package quadrants;
 
 import quadrants.Types.Arch;
+import quadrants.Types.DType;
+import quadrants.Types.F16;
+import quadrants.Types.F32;
+import quadrants.Types.F64;
+import quadrants.Types.I8;
+import quadrants.Types.I16;
+import quadrants.Types.I32;
+import quadrants.Types.I64;
+import quadrants.Types.U1;
+import quadrants.Types.U8;
+import quadrants.Types.U16;
+import quadrants.Types.U32;
+import quadrants.Types.U64;
 import quadrants.Native.QContext;
+import quadrants.Native.QNdarray;
 import sys.FileSystem;
 
 class Context {
@@ -68,6 +82,43 @@ class Context {
 
   public function sync():Void {
     Native.context_sync(nativeHandle());
+  }
+
+  public function loadNpy(path:String):TensorRuntime {
+    if (path == null) {
+      throw "Quadrants Context.loadNpy requires a path";
+    }
+    var nativePath = @:privateAccess path.toUtf8();
+    var handle = Native.ndarray_load_npy(nativeHandle(), nativePath);
+    try {
+      return tensorFromNativeHandle(handle);
+    } catch (e:Dynamic) {
+      Native.ndarray_close(handle);
+      throw e;
+    }
+  }
+
+  function tensorFromNativeHandle(handle:QNdarray):TensorRuntime {
+    var dtype:DType = cast Native.ndarray_dtype(nativeHandle(), handle);
+    var rank = Native.ndarray_rank(nativeHandle(), handle);
+    var shape = new Array<Int>();
+    for (axis in 0...rank) {
+      shape.push(Native.ndarray_shape_dim(nativeHandle(), handle, axis));
+    }
+    return switch (dtype) {
+      case DType.I8: new Tensor<I8>(this, shape, handle);
+      case DType.I16: new Tensor<I16>(this, shape, handle);
+      case DType.I32: new Tensor<I32>(this, shape, handle);
+      case DType.I64: new Tensor<I64>(this, shape, handle);
+      case DType.U8: new Tensor<U8>(this, shape, handle);
+      case DType.U16: new Tensor<U16>(this, shape, handle);
+      case DType.U32: new Tensor<U32>(this, shape, handle);
+      case DType.U64: new Tensor<U64>(this, shape, handle);
+      case DType.F32: new Tensor<F32>(this, shape, handle);
+      case DType.F64: new Tensor<F64>(this, shape, handle);
+      case DType.U1: new Tensor<U1>(this, shape, handle);
+      case DType.F16: new Tensor<F16>(this, shape, handle);
+    }
   }
 
   public function stream():Stream {

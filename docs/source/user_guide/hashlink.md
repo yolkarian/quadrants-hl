@@ -186,7 +186,7 @@ k.close();
 ctx.close();
 ```
 
-Primitive tensors are allocated with `new Tensor<T>(ctx, shape)`, where `T` is one of `I8`, `I16`, `I32`, `I64`, `U8`, `U16`, `U32`, `U64`, `U1`, `F16`, `F32`, or `F64`. Host access uses the typed `fill`, `read`, `write`, `readAt`, `writeAt`, `toArray`, and `fromArray` methods.
+Primitive tensors are allocated with `new Tensor<T>(ctx, shape)`, where `T` is one of `I8`, `I16`, `I32`, `I64`, `U8`, `U16`, `U32`, `U64`, `U1`, `F16`, `F32`, or `F64`. Host access uses the typed `fill`, `read`, `write`, `readAt`, `writeAt`, `toArray`, and `fromArray` methods. Native NumPy `.npy` roundtrips are available with `tensor.saveNpy(path)` and `ctx.loadNpy(path)`. `ctx.loadNpy(path)` returns `TensorRuntime`, but the concrete object is the loaded dtype-specific tensor, so after checking `loaded.dtype` you may explicitly `cast loaded` to `Tensor<T>` without copying or allocating a second native tensor. The cast is not a dtype conversion; close the loaded tensor once through either reference.
 
 ## Kernel macro coverage
 

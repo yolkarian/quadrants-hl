@@ -17,6 +17,7 @@ import quadrants.StructField;
 import quadrants.StructTensor;
 import quadrants.Tape;
 import quadrants.Tensor;
+import quadrants.TensorRuntime;
 import quadrants.Vec3;
 import quadrants.Vector;
 import quadrants.ad.CustomGradient;
@@ -171,6 +172,18 @@ class V3RuntimeSemantic {
     y.write(0, 0);
     y.writeBytes(oneValueBytes, 0, 1);
     eq("tensor_bytes_roundtrip", y.read(0), x.read(0));
+
+    var npyPath = "v3_runtime_tensor_roundtrip.npy";
+    x.saveNpy(npyPath);
+    var loadedRuntime:TensorRuntime = ctx.loadNpy(npyPath);
+    eq("tensor_npy_dtype", loadedRuntime.dtype, DType.I32);
+    eq("tensor_npy_rank", loadedRuntime.rank(), 1);
+    eq("tensor_npy_shape", loadedRuntime.shape[0], 4);
+    var loadedI32:Tensor<I32> = cast loadedRuntime;
+    eq("tensor_npy_value", loadedI32.read(2), x.read(2));
+    loadedI32.close();
+    if (sys.FileSystem.exists(npyPath)) sys.FileSystem.deleteFile(npyPath);
+
     if (x.supportsDLPack() != ctx.capabilities().interop.dlpack) throw "DLPack capability query mismatch";
     if (x.supportsExternalPointerImport() != ctx.capabilities().interop.externalPointerImport) throw "external pointer capability query mismatch";
     if (x.supportsExternalPointerImport()) {

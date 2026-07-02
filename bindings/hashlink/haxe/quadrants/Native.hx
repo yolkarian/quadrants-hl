@@ -425,6 +425,31 @@ class Native {
     throw "Quadrants HashLink native bridge is not loaded";
   }
 
+  @:hlNative("quadrants", "ndarray_load_npy")
+  public static function ndarray_load_npy(ctx:QContext, path:hl.Bytes):QNdarray {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "ndarray_dtype")
+  public static function ndarray_dtype(ctx:QContext, arr:QNdarray):Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "ndarray_rank")
+  public static function ndarray_rank(ctx:QContext, arr:QNdarray):Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "ndarray_shape_dim")
+  public static function ndarray_shape_dim(ctx:QContext, arr:QNdarray, axis:Int):Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "ndarray_save_npy")
+  public static function ndarray_save_npy(ctx:QContext, arr:QNdarray, path:hl.Bytes):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
   @:hlNative("quadrants", "ndarray_import_dlpack")
   public static function ndarray_import_dlpack(ctx:QContext, dtype:Int, handle:haxe.Int64):QNdarray {
     throw "Quadrants HashLink native bridge is not loaded";
