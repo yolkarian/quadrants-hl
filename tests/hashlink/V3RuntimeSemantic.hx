@@ -667,7 +667,7 @@ class V3RuntimeSemantic {
     var spd = Linalg.makeSpd(Matrix.ofArray(2, 2, [1.0, 2.0, 2.0, -1.0]));
     if (spd.get(0, 0) <= 0.0) throw "makeSpd failed";
 
-    var deviceLinalgOut = new Tensor<F32>(ctx, [32]);
+    var deviceLinalgOut = new Tensor<F32>(ctx, [51]);
     var deviceLinalgKernel = Kernel.build(ctx, macro (out:Tensor<F32>) -> {
       var a2 = Matrix.ofArray(2, 2, [2.0, 0.0, 0.0, 4.0]);
       var b2 = Matrix.ofArray(2, 1, [6.0, 8.0]);
@@ -703,15 +703,48 @@ class V3RuntimeSemantic {
       var x2 = LinalgDevice.solve2(af2, bv2);
       out[25] = x2[0];
       out[26] = x2[1];
+      var af3:Matrix<Float> = Matrix.ofArray(3, 3, [2.0, 0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 0.0, 5.0]);
+      var bv3:Vector<Float> = Vector.ofArray([6.0, 8.0, 20.0]);
+      var x3 = LinalgDevice.solve3(af3, bv3);
+      out[27] = x3[0];
+      out[28] = x3[1];
+      out[29] = x3[2];
       var eig2Values = LinalgDevice.eig2Values(af2);
-      out[27] = eig2Values[0];
-      out[28] = eig2Values[1];
+      out[30] = eig2Values[0];
+      out[31] = eig2Values[1];
+      var sym2Vals = LinalgDevice.symEig2Values(af2);
+      out[32] = sym2Vals[0];
+      out[33] = sym2Vals[1];
+      var sym3Input:Matrix<Float> = Matrix.ofArray(3, 3, [1.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 2.0]);
+      var sym3Vals = LinalgDevice.symEig3Values(sym3Input);
+      out[34] = sym3Vals[0];
+      out[35] = sym3Vals[1];
+      out[36] = sym3Vals[2];
+      var svd2Input:Matrix<Float> = Matrix.ofArray(2, 2, [3.0, 0.0, 0.0, 2.0]);
+      var sig2 = LinalgDevice.svd2Sigmas(svd2Input);
+      out[37] = sig2[0];
+      out[38] = sig2[1];
+      var svd3Input:Matrix<Float> = Matrix.ofArray(3, 3, [4.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 2.0]);
+      var sig3 = LinalgDevice.svd3Sigmas(svd3Input);
+      out[39] = sig3[0];
+      out[40] = sig3[1];
+      out[41] = sig3[2];
       var pr2 = LinalgDevice.polar2Rotation(af2);
-      out[29] = pr2.kernelGet(0, 0);
-      out[30] = pr2.kernelGet(1, 1);
+      out[42] = pr2.kernelGet(0, 0);
+      out[43] = pr2.kernelGet(1, 1);
+      var polar3Input:Matrix<Float> = Matrix.ofArray(3, 3, [1.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 3.0]);
+      var pr3 = LinalgDevice.polar3Rotation(polar3Input);
+      out[44] = pr3.kernelGet(0, 0);
+      out[45] = pr3.kernelGet(1, 1);
+      out[46] = pr3.kernelGet(2, 2);
       var spd2Input:Matrix<Float> = Matrix.ofArray(2, 2, [1.0, 2.0, 2.0, -1.0]);
       var spd2 = LinalgDevice.makeSpd2(spd2Input);
-      out[31] = spd2.kernelGet(0, 0);
+      out[47] = spd2.kernelGet(0, 0);
+      var spd3Input:Matrix<Float> = Matrix.ofArray(3, 3, [-1.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 3.0]);
+      var spd3 = LinalgDevice.makeSpd3Matrix(spd3Input);
+      out[48] = spd3.kernelGet(0, 0);
+      out[49] = spd3.kernelGet(1, 1);
+      out[50] = spd3.kernelGet(2, 2);
     }, {name: "v3_runtime_device_linalg", helpers: [DeviceLinalg, LinalgDevice]});
     deviceLinalgKernel.launch(deviceLinalgOut);
     ctx.sync();
@@ -740,11 +773,30 @@ class V3RuntimeSemantic {
     }
     near("device_linalg_facade_solve2_x", deviceLinalgOut.read(25), 3.0);
     near("device_linalg_facade_solve2_y", deviceLinalgOut.read(26), 2.0);
-    near("device_linalg_facade_eig2_0", deviceLinalgOut.read(27), 4.0);
-    near("device_linalg_facade_eig2_1", deviceLinalgOut.read(28), 2.0);
-    near("device_linalg_facade_polar2_r00", deviceLinalgOut.read(29), 1.0);
-    near("device_linalg_facade_polar2_r11", deviceLinalgOut.read(30), 1.0);
-    if ((deviceLinalgOut.read(31) : Float) <= 0.0) throw "device_linalg_facade_make_spd2 failed";
+    near("device_linalg_facade_solve3_x", deviceLinalgOut.read(27), 3.0);
+    near("device_linalg_facade_solve3_y", deviceLinalgOut.read(28), 2.0);
+    near("device_linalg_facade_solve3_z", deviceLinalgOut.read(29), solveGolden[2]);
+    near("device_linalg_facade_eig2_0", deviceLinalgOut.read(30), 4.0);
+    near("device_linalg_facade_eig2_1", deviceLinalgOut.read(31), 2.0);
+    near("device_linalg_facade_sym_eig2_0", deviceLinalgOut.read(32), 4.0);
+    near("device_linalg_facade_sym_eig2_1", deviceLinalgOut.read(33), 2.0);
+    near("device_linalg_facade_sym_eig3_0", deviceLinalgOut.read(34), 3.0);
+    near("device_linalg_facade_sym_eig3_1", deviceLinalgOut.read(35), 2.0);
+    near("device_linalg_facade_sym_eig3_2", deviceLinalgOut.read(36), 1.0);
+    near("device_linalg_facade_svd2_0", deviceLinalgOut.read(37), 3.0);
+    near("device_linalg_facade_svd2_1", deviceLinalgOut.read(38), 2.0);
+    near("device_linalg_facade_svd3_0", deviceLinalgOut.read(39), 4.0);
+    near("device_linalg_facade_svd3_1", deviceLinalgOut.read(40), 3.0);
+    near("device_linalg_facade_svd3_2", deviceLinalgOut.read(41), 2.0);
+    near("device_linalg_facade_polar2_r00", deviceLinalgOut.read(42), 1.0);
+    near("device_linalg_facade_polar2_r11", deviceLinalgOut.read(43), 1.0);
+    near("device_linalg_facade_polar3_r00", deviceLinalgOut.read(44), 1.0);
+    near("device_linalg_facade_polar3_r11", deviceLinalgOut.read(45), 1.0);
+    near("device_linalg_facade_polar3_r22", deviceLinalgOut.read(46), 1.0);
+    if ((deviceLinalgOut.read(47) : Float) <= 0.0) throw "device_linalg_facade_make_spd2 failed";
+    if ((deviceLinalgOut.read(48) : Float) <= 0.0 || (deviceLinalgOut.read(49) : Float) <= 0.0 || (deviceLinalgOut.read(50) : Float) <= 0.0) {
+      throw "device_linalg_facade_make_spd3 failed";
+    }
 
     deviceLinalgKernel.close();
     deviceLinalgOut.close();

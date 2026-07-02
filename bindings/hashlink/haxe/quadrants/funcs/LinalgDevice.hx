@@ -19,10 +19,48 @@ class LinalgDevice {
   }
 
   @:qdFunc
+  public static function solve3(a:Matrix<Float>, b:Vector<Float>) {
+    return Vector.ofArray([
+      DeviceLinalg.solve3X(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), b[0], b[1], b[2]),
+      DeviceLinalg.solve3Y(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), b[0], b[1], b[2]),
+      DeviceLinalg.solve3Z(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), b[0], b[1], b[2])]);
+  }
+
+  @:qdFunc
   public static function eig2Values(a:Matrix<Float>) {
     return Vector.ofArray([
       DeviceLinalg.eig2Large(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(1, 0), a.kernelGet(1, 1)),
       DeviceLinalg.eig2Small(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(1, 0), a.kernelGet(1, 1))]);
+  }
+
+  @:qdFunc
+  public static function symEig2Values(a:Matrix<Float>) {
+    return Vector.ofArray([
+      DeviceLinalg.symEig2Large(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(1, 1)),
+      DeviceLinalg.symEig2Small(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(1, 1))]);
+  }
+
+  @:qdFunc
+  public static function symEig3Values(a:Matrix<Float>) {
+    return Vector.ofArray([
+      DeviceLinalg.symEig3Value(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 2), 0),
+      DeviceLinalg.symEig3Value(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 2), 1),
+      DeviceLinalg.symEig3Value(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 2), 2)]);
+  }
+
+  @:qdFunc
+  public static function svd2Sigmas(a:Matrix<Float>) {
+    return Vector.ofArray([
+      DeviceLinalg.svd2Sigma0(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(1, 0), a.kernelGet(1, 1)),
+      DeviceLinalg.svd2Sigma1(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(1, 0), a.kernelGet(1, 1))]);
+  }
+
+  @:qdFunc
+  public static function svd3Sigmas(a:Matrix<Float>) {
+    return Vector.ofArray([
+      DeviceLinalg.svd3Sigma(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 0),
+      DeviceLinalg.svd3Sigma(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 1),
+      DeviceLinalg.svd3Sigma(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 2)]);
   }
 
   @:qdFunc
@@ -32,6 +70,20 @@ class LinalgDevice {
       DeviceLinalg.polar2R01(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(1, 0), a.kernelGet(1, 1)),
       DeviceLinalg.polar2R10(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(1, 0), a.kernelGet(1, 1)),
       DeviceLinalg.polar2R11(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(1, 0), a.kernelGet(1, 1))]);
+  }
+
+  @:qdFunc
+  public static function polar3Rotation(a:Matrix<Float>) {
+    return Matrix.ofArray(3, 3, [
+      DeviceLinalg.polar3R(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 0),
+      DeviceLinalg.polar3R(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 1),
+      DeviceLinalg.polar3R(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 2),
+      DeviceLinalg.polar3R(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 3),
+      DeviceLinalg.polar3R(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 4),
+      DeviceLinalg.polar3R(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 5),
+      DeviceLinalg.polar3R(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 6),
+      DeviceLinalg.polar3R(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 7),
+      DeviceLinalg.polar3R(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 8)]);
   }
 
   @:qdFunc
@@ -53,5 +105,19 @@ class LinalgDevice {
       makeSpd2Component(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(1, 0), a.kernelGet(1, 1), 1),
       makeSpd2Component(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(1, 0), a.kernelGet(1, 1), 2),
       makeSpd2Component(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(1, 0), a.kernelGet(1, 1), 3)]);
+  }
+
+  @:qdFunc
+  public static function makeSpd3Matrix(a:Matrix<Float>) {
+    return Matrix.ofArray(3, 3, [
+      DeviceLinalg.makeSpd3(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 0),
+      DeviceLinalg.makeSpd3(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 1),
+      DeviceLinalg.makeSpd3(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 2),
+      DeviceLinalg.makeSpd3(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 3),
+      DeviceLinalg.makeSpd3(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 4),
+      DeviceLinalg.makeSpd3(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 5),
+      DeviceLinalg.makeSpd3(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 6),
+      DeviceLinalg.makeSpd3(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 7),
+      DeviceLinalg.makeSpd3(a.kernelGet(0, 0), a.kernelGet(0, 1), a.kernelGet(0, 2), a.kernelGet(1, 0), a.kernelGet(1, 1), a.kernelGet(1, 2), a.kernelGet(2, 0), a.kernelGet(2, 1), a.kernelGet(2, 2), 8)]);
   }
 }
