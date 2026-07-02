@@ -93,6 +93,6 @@ haxe -cp bindings/hashlink/haxe -D quadrants_hdll_path="$QD_BUILD_DIR/quadrants.
 
 ## Next steps
 
-- Read [Haxe/HashLink API v3](haxe_api_v3.md) for the recommended typed API.
-- Read [Haxe kernels v3](haxe_kernel_v3.md) and [Haxe kernel language](kernel_language.md) for the supported kernel DSL subset.
+- Read [Haxe/HashLink API](haxe_api.md) for the typed public API.
+- Read [Haxe kernels](haxe_kernel_v3.md) and [Haxe kernel language](kernel_language.md) for the supported kernel DSL subset.
 - Read [Supported systems](supported_systems.md) before enabling CUDA, Vulkan, Metal, or AMDGPU.

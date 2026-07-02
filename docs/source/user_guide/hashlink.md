@@ -149,7 +149,7 @@ LD_LIBRARY_PATH="$QD_BUILD_DIR:${LD_LIBRARY_PATH:-}" \
 hl build/hashlink-v3-smoke-buildtree.hl
 ```
 
-For the recommended typed API and migration notes from the former Python binding, see [Haxe/HashLink API v3](haxe_api_v3.md) and [Haxe v2 to v3 migration](haxe_migration_v2_to_v3.md). For accepted kernel syntax, see [Haxe kernels v3](haxe_kernel_v3.md) and [Haxe kernel language](kernel_language.md).
+For the typed public API, see [Haxe/HashLink API](haxe_api.md). For accepted kernel syntax, see [Haxe kernels](haxe_kernel_v3.md) and [Haxe kernel language](kernel_language.md).
 
 ## Minimal API
 

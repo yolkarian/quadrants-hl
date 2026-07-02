@@ -16,4 +16,4 @@ trace(meta.args[0].sourcePath); // "x"
 
 The default v3 CTest suite includes descriptor golden snapshots for primitive/spec, direct field-resource, and QdStruct/StructTensor descriptors, plus an invalid schema-version runtime validation check.
 
-The old `DescriptorV2` alias has been removed from the v3 package.
+Descriptor aliases for earlier schemas are not part of the public package.
