@@ -15,10 +15,11 @@ Quadrants is distributed for Haxe through a haxelib-compatible source package an
 | --- | --- | --- | --- |
 | `Arch.Cpu` | Host LLVM backend (`x64`/`arm64`) | `QD_WITH_LLVM=ON` | host runtime bitcode, e.g. `runtime_x64.bc` |
 | `Arch.Cuda` | CUDA | `QD_WITH_LLVM=ON`, `QD_WITH_CUDA=ON` | CUDA driver libraries, `runtime_cuda.bc`, `slim_libdevice.10.bc` |
-CUDA/OpenGL interop additionally requires `QD_WITH_CUDA=ON` with the CUDA toolkit found by CMake (sets `QD_HASHLINK_CUDA_GL_INTEROP`).
 | `Arch.Vulkan` | Vulkan/SPIR-V | `QD_WITH_VULKAN=ON` | Vulkan loader/driver libraries visible to `hl` |
 | `Arch.Metal` | Metal | macOS, `QD_WITH_METAL=ON` | Metal runtime on macOS |
 | `Arch.Amdgpu` | AMDGPU/ROCm | Linux x64, `QD_WITH_LLVM=ON`, `QD_WITH_AMDGPU=ON` | ROCm/HIP libraries and ROCm device bitcode |
+
+CUDA/OpenGL interop additionally requires `QD_WITH_CUDA=ON` with the CUDA toolkit found by CMake (sets `QD_HASHLINK_CUDA_GL_INTEROP`).
 
 ## Build and install
 
@@ -98,7 +99,9 @@ cmake --build "$QD_BUILD_DIR" --target quadrants.hdll
 ctest --test-dir "$QD_BUILD_DIR" --output-on-failure
 ```
 
-The CTest suite is the v3 gate: it compiles and runs `tests/hashlink/v3/hashlink_v3_smoke.hxml`, runs `tests/hashlink/hashlink_tests.hxml` as the v3 runtime semantic suite, runs descriptor golden snapshots from `tests/hashlink/descriptor/hashlink_descriptor_golden.hxml`, verifies Haxe macro compile-fail cases in `tests/hashlink/compile_fail/`, scans public `Dynamic` boundaries, and validates the haxelib package zip layout via `hashlink_package_validate`.
+The CTest suite is the HashLink gate: it compiles and runs `tests/hashlink/v3/hashlink_v3_smoke.hxml`, runs `tests/hashlink/hashlink_tests.hxml` as the runtime semantic suite, runs descriptor golden snapshots from `tests/hashlink/descriptor/hashlink_descriptor_golden.hxml`, verifies Haxe macro compile-fail cases in `tests/hashlink/compile_fail/`, scans public `Dynamic` boundaries, and validates the haxelib package zip layout via `hashlink_package_validate`.
+
+When the native build enables CUDA or AMDGPU, CTest also registers optional backend-depth tests (`hashlink_v3_cuda_backend_semantic` / `hashlink_v3_amdgpu_backend_semantic`). These tests attempt to create the requested device context, run stream-event ordering and multi-stream `Graph.parallel` stress cases when possible, and print a structured skip when the device/runtime is unavailable.
 
 ## Build/test helper entry points
 
@@ -110,7 +113,7 @@ The CTest suite is the v3 gate: it compiles and runs `tests/hashlink/v3/hashlink
 | Run descriptor schema snapshots | `tests/hashlink/descriptor/hashlink_descriptor_golden.hxml` through `ctest` (`hashlink_descriptor_golden`). |
 | Run macro diagnostics | `cmake/RunHaxeCompileFailTests.cmake` through `ctest` (`hashlink_macro_compile_fail`). |
 | Run public Dynamic boundary scan | `tools/check_public_dynamic.sh` through `ctest` (`hashlink_public_dynamic_scan`). |
-| Run requested device HL/JIT coverage | Set `QD_HASHLINK_TEST_ARCHES=<arch>` (for example `cuda`) and rerun the v3 smoke test on a build with that backend enabled. |
+| Run optional CUDA/AMDGPU stream-depth coverage | Configure with `QD_WITH_CUDA=ON` or `QD_WITH_AMDGPU=ON`; CTest registers `hashlink_v3_cuda_backend_semantic` / `hashlink_v3_amdgpu_backend_semantic`. |
 | Run the CUDA bridge sample manually | `bindings/hashlink/tests/hashlink_bridge_test.hxml` when `QD_WITH_CUDA=ON` and CUDA libraries are visible to `hl`. |
 | Check macro diagnostics | `cmake/RunHaxeCompileFailTests.cmake` over `tests/hashlink/compile_fail/*.hx`. |
 | Build docs for the Haxe public API | `haxelib install dox` once, then `make -C docs html`. |

@@ -1,12 +1,10 @@
-# Haxe API v3 plan status
+# Haxe/HashLink API status
 
-Last audited: 2026-07-01 on branch `haxe-binding-v3`.
+This page summarizes what the documented Haxe/HashLink API currently promises and how that promise is tested. It is a user-facing status page, not a migration guide or an internal implementation plan.
 
-This page tracks the repository against `PLAN_breakable.md`. A phase is marked **Complete** only when API surface, compile-fail coverage, descriptor/snapshot coverage where applicable, and runtime semantic coverage are all present in the default v3 gate.
+## Default HashLink gate
 
-## Default v3 gate
-
-The default HashLink v3 CTest gate is expected to include:
+The default HashLink CTest gate is expected to include:
 
 ```text
 hashlink_haxe_compile
@@ -18,28 +16,37 @@ hashlink_public_dynamic_scan
 hashlink_package_validate
 ```
 
-`tests/hashlink/hashlink_tests.hxml` is now the v3 runtime semantic suite. Pre-v3 runtime suites are not a compatibility gate.
+`tests/hashlink/hashlink_tests.hxml` is the main runtime semantic suite. Archived pre-reset runtime suites under `tests/hashlink/legacy/pre_v3/` are not a compatibility gate.
 
-## Phase matrix
+## Supported public surface
 
-| Phase | Status | Evidence | Remaining gaps |
-| --- | --- | --- | --- |
-| 0. Branch cut and deletion strategy | Complete | Branch/docs/v3 smoke/capabilities exist; old field mirror and packed primary APIs are not on the main path. | None for Phase 0. |
-| 1. Public API reset | Complete | `Context.create`, `Tensor<T>`, `Field<T>`, typed `Kernel.build`/`QKernelN`, `KernelRaw` internal boundary. | None for the v3 API surface. |
-| 2. Descriptor schema reset | Complete for current v3 schema | Native/Haxe descriptors use schema version 3; descriptor golden snapshots pass; `DescriptorWriter` metadata and descriptor table-builder entries are typed. | None for the current schema; add new snapshots when adding resource forms. |
-| 3. Typed kernel launch and ArgEncoder | Complete | Typed wrapper launch/launchOn/launchGraph; compile-fail arity/dtype/resource tests; v3 runtime semantic suite. | None for current supported arities. |
-| 4. QdArgs, Spec, data-oriented | Complete for current v3 path | `Spec<T>`, nested `@:build(QdArgs.build())`, primitive members lowered as real `Spec<T>` parameters, `@:kernel` instance methods, spec-value relaunch, and nested QdArgs descriptor snapshots are covered by v3 runtime/descriptor tests. | Broader object shapes can be added as new cases, but current DoD items are covered. |
-| 5. QdStruct and compound storage | Complete for current v3 scope | `QdStruct`, `StructTensor`, `StructField` SOA, nested struct kernel load/store, Vec3 lanes, and Mat3 lane access (`m00`/`m11`) are covered by v3 runtime semantic tests; public struct schema/resource descriptors are typed. | Broader compound combinations can be added as new cases, but current vector/matrix/nested DoD items are covered. |
-| 6. Tensor/Field/SNode/layout/host movement | Complete for current CPU/LLVM scope | Tensor host movement, direct `Field<T>` kernel params, shape-based placement, physical order validation/lowering, SNode domain offset placement, and DLPack/external-pointer aliasing roundtrips are covered by v3 runtime semantic tests; mirror fallback path removed. | Add descriptor golden variants when new placement node kinds are added. |
-| 7. AD/Tape/custom gradient | Complete for binding scope | Reverse grad, forward grad, validation kernel launch, read-after-write validation rejection, Tape backward/withLoss/FwdMode, pause/resume/clear, registered custom-gradient replacement through typed `launchTape`, and integer/bool no-grad errors are covered by v3 runtime semantic tests. | Dynamic while-loop reverse/validation AD is a core Quadrants limitation also xfailed in Python, so it is explicitly out of Haxe binding scope rather than a remaining binding gap. |
-| 8. Streams/events/graph | Complete for current backend-scoped contract plus optional backend-depth gate | `launchOn`, `launchGraph`, host `launchGraphWhile`, native `launchGraphDoWhile`, single-block `Graph.parallel`, multi-block `Graph.parallel` capability error on CPU, backend-gated multi-block `Graph.parallel` on event-capable backends, `Graph.sequence`, explicit `launchTapeOn` AD/stream rejection, stream event capability errors, backend-gated cross-stream event ordering with a dependent read, and optional CUDA/AMDGPU stream-event/multi-stream stress tests with JSON timing/skip are covered. | CPU stream events are a core/backend limitation and stay error-path only. |
-| 9. Algorithms/per-thread linalg | Complete for current scalar/component API plus aggregate facade | reduce/min/scan/select/sort/sort-pairs/reduce-by-key, host Linalg deterministic checks, kernel-side `DeviceLinalg` solve2/solve3, 2D eig/symEig/svd/polar scalar helpers, 3D symmetric eigenvalue / singular-value / polar-rotation / SPD-shift component helpers, `LinalgDevice` vector/matrix-return facade (`solve2`, `solve3`, `eig2Values`, `symEig2Values`, `symEig3Values`, `svd2Sigmas`, `svd3Sigmas`, `polar2Rotation`, `polar3Rotation`, `makeSpd2`, `makeSpd3Matrix`), Python-golden core cases, and a JSON-emitting benchmark are covered. | Python tuple/eigenvector exact return shape is a Python API-shape non-goal; no unsupported facade is exposed. |
-| 10. Sparse/Mesh/Quant | Complete for current CPU/LLVM scope plus sparse bulk depth | Sparse build/matvec/solver-with-explicit-fallback/mmwrite/mmread plus canonical native-bulk COO/CSR import/export helpers, duplicate COO last-writer-wins, invalid CSR rowPtr validation, mesh relation/attribute traversal, host mesh save/load/reorder, native mesh index conversion through relation-carried mapping SNodes, quantized kernel params, quant-float placement, and fixed quant saturation golden cases are covered. | Quant fixed offset is removed from Haxe binding scope because core Quadrants and Python do not expose it; add new native sparse backends as future capability-gated work. |
-| 11. Profiler/diagnostics/release | Complete for current CPU/LLVM scope plus structured counters | capabilities/health/profiler trace/version self-check, memory profiler availability, and typed `allocatedBytes` / `snodeBytes` / `ndarrayBytes` stats are covered by v3 runtime semantic tests; haxelib package zip layout validation is registered as a CTest release gate. | None for current CPU/LLVM profiler scope. |
-| 12. Cross-cutting tests | Complete for current v3 gate | compile-fail, descriptor golden, v3 smoke, v3 runtime semantic, public-Dynamic scan, a core Python-golden JSON artifact, a JSON-emitting HashLink benchmark, and archived pre-v3 orphan tests under `tests/hashlink/legacy/pre_v3/` exist. | Golden and benchmark coverage should grow with new deterministic features/backends. Remaining Dynamic allowlist entries are native ABI/internal replay/diagnostics boundaries. |
+| Area | Current status | Test evidence |
+| --- | --- | --- |
+| Contexts and typed launch | `Context.create`, typed `Kernel.build`, typed wrappers, `Spec<T>`, and internal-only raw handles are the documented launch path. | Smoke, runtime semantic suite, compile-fail arity/dtype tests. |
+| Descriptors | The native/Haxe bridge uses QDHL descriptor schema version 3 with typed type/arg/resource/spec metadata. | Descriptor golden snapshots and invalid-schema validation. |
+| QdArgs / data-oriented host objects | `@:build(QdArgs.build())`, nested QdArgs primitive specialization, resource flattening, and `@:kernel` instance methods are supported. | Runtime semantic suite and descriptor snapshots. |
+| QdStruct / compound storage | `QdStruct`, `StructTensor`, `StructField`, vector/matrix lanes, and nested scalar members are supported. | Runtime semantic suite and compile-fail struct diagnostics. |
+| Tensors, fields, and SNodes | Tensor host movement, direct field kernel parameters, shape-based placement, physical order lowering, SNode domain offsets, and DLPack/external-pointer aliasing on supported backends are covered. | Runtime semantic suite. |
+| AD / Tape / custom gradients | Reverse grad, forward grad, validation kernels, read-after-write validation rejection, Tape replay, registered custom-gradient replacement, and integer/bool no-grad errors are covered. | Runtime semantic suite and compile-fail diagnostics. |
+| Streams and graph | `launchOn`, `launchGraph`, host `launchGraphWhile`, native `launchGraphDoWhile`, single-block `Graph.parallel`, explicit `Graph.sequence`, Tape/stream rejection, and capability-gated stream events are covered. | Runtime semantic suite plus optional CUDA/AMDGPU backend-depth tests. |
+| Algorithms and linalg | Reduce/scan/select/sort/reduce-by-key, host linalg checks, scalar `DeviceLinalg`, and aggregate `LinalgDevice` vector/matrix-return helpers are covered. | Runtime semantic suite, Python-golden JSON, JSON benchmark smoke. |
+| Sparse / mesh / quant | Sparse F32/F64 COO/CSR native bulk import/export, MatrixMarket roundtrip, explicit sparse solver fallback, mesh relation/attribute kernels, mesh index conversion, mesh save/load/reorder, quantized tensor parameters, and quant placement are covered. | Runtime semantic suite and compile-fail diagnostics. |
+| Profiler / diagnostics / release | Capabilities, health checks, descriptor dumps, profiler trace events, memory-profiler typed counters, ABI/version checks, public-Dynamic scan, and haxelib package validation are covered. | Runtime semantic suite, public-Dynamic scan, package validation. |
 
-## Current conclusion
+## Explicit non-promises
 
-The v3 API has moved beyond smoke-only coverage: the main HashLink runtime suite now exercises typed kernels, nested QdArgs, QdStruct vector/matrix lanes, AD/Tape, streams/graph CPU semantics, algorithms/linalg, sparse/mesh/quant, diagnostics, profiler, and version checks.
+The API does not promise compatibility with removed raw/legacy launch paths, old flatten/template annotations, descriptor aliases for earlier schemas, packed compound workarounds, or field-mirror fallback behavior.
 
-No phase is marked Complete for behavior that is only smoke-covered or explicitly unsupported. Core-only limitations that Python also lacks (dynamic while AD, CPU stream events, quant fixed offset) are out of Haxe binding scope. Additional work should be new feature/backend expansion rather than an exposed v3 binding gap.
+Some behaviors are explicit core/backend limitations rather than Haxe binding gaps:
+
+- reverse/validation AD for dynamic `while` loops;
+- CPU stream events;
+- quant fixed offset parameters.
+
+These paths should fail clearly instead of silently falling back or pretending to be supported.
+
+## Backend-depth status
+
+CPU/LLVM is the default semantic gate. CUDA and AMDGPU builds can register optional backend-depth tests for stream-event ordering and multi-stream `Graph.parallel`. Those tests print a structured skip when no device/runtime is available and should pass on machines that claim backend support.
+
+Performance is reported through JSON benchmark output and profiler APIs, but release correctness does not depend on hardware-specific timing thresholds.

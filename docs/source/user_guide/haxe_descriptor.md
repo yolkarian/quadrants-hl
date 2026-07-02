@@ -1,6 +1,6 @@
 # Haxe descriptor metadata
 
-> API v3 uses QDHL descriptor schema version `3`. Use `quadrants.descriptor.Descriptor.fromKernel(...)` or `DescriptorV3.fromKernel(...)` to inspect normalized descriptor metadata.
+> The current API uses QDHL descriptor schema version `3`. Use `quadrants.descriptor.Descriptor.fromKernel(...)` or `DescriptorV3.fromKernel(...)` to inspect normalized descriptor metadata.
 
 HashLink kernels emit a QDHL binary descriptor with native TypeTable, ArgTable, ResourceTable, StructTable, and SpecTable sections, plus a normalized JSON metadata blob under the `qdhl.meta.json` descriptor attribute. Native validation and lowering canonicalize kernel parameter/resource/spec types from these tables before compiling the KernelIr body. `Diagnostics.dumpDescriptor(...)` parses the same canonical tables (`typeTable`, `argTable`, `resourceTable`, `structTable`, `specTable`) so descriptor snapshots verify the binary schema, not just the JSON attribute.
 
