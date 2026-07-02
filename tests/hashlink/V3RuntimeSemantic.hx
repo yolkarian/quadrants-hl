@@ -895,7 +895,7 @@ class V3RuntimeSemantic {
     var edgeSum = new Tensor<I32>(ctx, [2]);
     var meshGlobal = new Tensor<I32>(ctx, [2]);
     var meshKernel = Kernel.build(ctx, macro (relation:MeshRelation<Edge, Vertex>, mass:MeshAttribute<Vertex, I32>, edgeSum:Tensor<I32>, meshGlobal:Tensor<I32>) -> {
-      for (e in 0...2) {
+      for (e in Mesh.forEdges(2)) {
         var sum = 0;
         for (j in 0...relation.size(e)) sum = sum + mass.read(relation.get(e, j));
         edgeSum[e] = sum;
