@@ -1,0 +1,82 @@
+name: docs
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "docs/**"
+      - "bindings/hashlink/haxe/**"
+      - "bindings/hashlink/haxelib.json"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent docs deployment.
+concurrency:
+  group: docs
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Haxe
+        uses: HaxeFoundation/setup-haxe@v1
+        with:
+          haxe-version: 4.3.6
+
+      - name: Install system dependencies for HashLink
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            libmbedtls-dev \
+            libpng-dev \
+            libpcre3-dev \
+            libturbojpeg0-dev \
+            libuv1-dev \
+            zlib1g-dev
+
+      - name: Build HashLink from source
+        run: |
+          set -eux
+          HASHLINK_ROOT="$RUNNER_TEMP/hashlink"
+          git clone --depth 1 https://github.com/HaxeFoundation/hashlink.git "$HASHLINK_ROOT"
+          make -C "$HASHLINK_ROOT" -j2 hl
+          echo "$HASHLINK_ROOT" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=$HASHLINK_ROOT:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+
+      - name: Install haxelibs
+        run: |
+          set -eux
+          haxelib git hxtemplo https://github.com/Simn/hxtemplo 4b9ec0c07e9ec619c7c414c3a72af4be63d820cc
+          haxelib git hxparse   https://github.com/Simn/hxparse 876070ec62a4869de60081f87763e23457a3bda8
+          haxelib git hxargs    https://github.com/Simn/hxargs  1d8ec84f641833edd6f0cb2e4290b7524fd27219
+          haxelib install markdown --always
+          haxelib git quadrants-dox https://github.com/yolkarian/quadrants-dox.git
+
+      - name: Build unified docs site
+        run: make -C docs html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/build/html
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-22.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
