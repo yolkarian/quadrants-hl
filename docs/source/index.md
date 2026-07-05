@@ -1,6 +1,6 @@
 # Quadrants
 
-Quadrants is a high-performance compiler for CPU/GPU kernels used from Haxe through HashLink. The public package consists of haxelib-compatible Haxe sources and the native `quadrants.hdll` bridge, executed as HashLink JIT bytecode (`haxe -hl`, then `hl`).
+Quadrants is a high-performance compiler for CPU/GPU kernels used from Haxe through HashLink. The haxelib package provides Haxe interface sources, while the native `quadrants.hdll` bridge is installed separately as a HashLink native extension. Programs run as HashLink JIT bytecode (`haxe -hl`, then `hl`).
 
 ```haxe
 import quadrants.Context;

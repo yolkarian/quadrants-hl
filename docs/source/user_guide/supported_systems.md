@@ -24,7 +24,7 @@ The staged CI path builds and tests the HashLink bridge on Ubuntu 22.04 x86_64 w
 
 Notes:
 
-- `Arch.Cpu` maps to the host LLVM backend and needs `runtime_x64.bc` or `runtime_arm64.bc` available through `QD_LIB_DIR` or the installed layout.
+- `Arch.Cpu` maps to the host LLVM backend and needs `runtime_x64.bc` or `runtime_arm64.bc` available next to `quadrants.hdll`, through `QD_LIB_DIR`, or through the installed layout.
 - `Arch.Cuda` also needs `runtime_cuda.bc`, `slim_libdevice.10.bc`, CUDA driver libraries, and a native build configured with `QD_WITH_CUDA=ON`.
 - `Arch.Amdgpu` needs the AMDGPU runtime bitcode and ROCm device libraries installed by the HashLink component.
 - `Arch.Vulkan` and `Arch.Metal` do not use LLVM runtime bitcode, but they do need the corresponding native backend compiled into `quadrants.hdll`.
@@ -32,10 +32,10 @@ Notes:
 
 ## HashLink library loading
 
-At run time, `hl` must be able to load `quadrants.hdll`, `libhl`, and any backend driver libraries. Use the platform dynamic-library path when necessary:
+At run time, `hl` must be able to load `quadrants.hdll`, `libhl`, and any backend driver libraries. Install `quadrants.hdll` like HashLink native extensions such as `sdl.hdll`/`openal.hdll`: either into the same prefix/libdir as the `hl` executable, next to a HashLink checkout's `hl`, or onto the platform dynamic-library path. Use the platform dynamic-library path when necessary:
 
 - Linux: `LD_LIBRARY_PATH`
 - macOS: `DYLD_LIBRARY_PATH`
 - Windows: `PATH`
 
-The installed haxelib layout lets the Haxe macro find `quadrants.hdll` and the runtime bitcode automatically. Build-tree runs should set `QUADRANTS_HDLL` and `QUADRANTS_RUNTIME_DIR` while invoking `haxe`.
+The haxelib package only provides Haxe interface code. Native setup is separate: `hashlink_native` or `scripts/install_hashlink_native.sh` installs `quadrants.hdll` and runtime bitcode. Compiled `.hl` files use the logical native library name `quadrants`, so moving native files requires updating the HashLink native setup, not recompiling Haxe bytecode.

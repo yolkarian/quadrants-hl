@@ -1,13 +1,17 @@
 cmake_minimum_required(VERSION 3.17)
+include(GNUInstallDirs)
 
 if(NOT QD_HASHLINK_ROOT)
   set(QD_HASHLINK_ROOT "${PROJECT_SOURCE_DIR}/../hashlink" CACHE PATH "Path to a HashLink checkout or install")
 endif()
 
 set(QD_HASHLINK_ROOT "${QD_HASHLINK_ROOT}" CACHE PATH "Path to a HashLink checkout or install")
-set(QD_HASHLINK_INSTALL_DIR "share/quadrants/hashlink" CACHE PATH "HashLink bridge install directory")
+set(QD_HASHLINK_INSTALL_DIR "share/quadrants/hashlink" CACHE PATH "Quadrants HashLink haxelib interface install directory")
+set(QD_HASHLINK_HDLL_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}" CACHE PATH "HashLink native extension install directory for quadrants.hdll")
 set(QD_HASHLINK_RUNTIME_INSTALL_DIR "${QD_HASHLINK_INSTALL_DIR}/runtime" CACHE PATH "HashLink runtime bitcode install directory")
 set(QD_HASHLINK_ROCM_RUNTIME_INSTALL_DIR "${QD_HASHLINK_INSTALL_DIR}/runtime_rocm70" CACHE PATH "HashLink ROCm runtime bitcode install directory")
+set(QD_HASHLINK_NATIVE_COMPONENT "hashlink_native")
+set(QD_HASHLINK_HAXELIB_COMPONENT "hashlink_haxelib")
 option(QD_BUILD_HASHLINK_TESTS "Register Haxe/HashLink v3 tests with CTest" OFF)
 
 if(NOT EXISTS "${QD_HASHLINK_ROOT}/src/hl.h")
@@ -74,7 +78,7 @@ target_include_directories(quadrants.hdll SYSTEM
   PRIVATE
     "${PROJECT_SOURCE_DIR}/external/VulkanMemoryAllocator/include")
 
-target_link_libraries(quadrants.hdll PRIVATE quadrants_core "${QD_HASHLINK_LIBRARY}")
+target_link_libraries(quadrants.hdll PRIVATE quadrants_core "${QD_HASHLINK_LIBRARY}" ${CMAKE_DL_LIBS})
 
 if(QD_WITH_CUDA)
   find_package(CUDAToolkit QUIET)
@@ -100,19 +104,19 @@ if(LINUX)
 endif()
 
 install(TARGETS quadrants.hdll
-  RUNTIME DESTINATION "${QD_HASHLINK_INSTALL_DIR}"
-  LIBRARY DESTINATION "${QD_HASHLINK_INSTALL_DIR}"
-  COMPONENT hashlink)
+  RUNTIME DESTINATION "${QD_HASHLINK_HDLL_INSTALL_DIR}"
+  LIBRARY DESTINATION "${QD_HASHLINK_HDLL_INSTALL_DIR}"
+  COMPONENT ${QD_HASHLINK_NATIVE_COMPONENT})
 
 install(FILES
     "${PROJECT_SOURCE_DIR}/bindings/hashlink/haxelib.json"
     "${PROJECT_SOURCE_DIR}/bindings/hashlink/README.md"
   DESTINATION "${QD_HASHLINK_INSTALL_DIR}"
-  COMPONENT hashlink)
+  COMPONENT ${QD_HASHLINK_HAXELIB_COMPONENT})
 
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/bindings/hashlink/haxe/"
   DESTINATION "${QD_HASHLINK_INSTALL_DIR}/haxe"
-  COMPONENT hashlink
+  COMPONENT ${QD_HASHLINK_HAXELIB_COMPONENT}
   FILES_MATCHING
     PATTERN "*.hx"
     PATTERN "*.hxml"
@@ -131,26 +135,26 @@ if(QD_WITH_LLVM)
   endif()
   install(FILES ${QD_HASHLINK_RUNTIME_FILES}
     DESTINATION "${QD_HASHLINK_RUNTIME_INSTALL_DIR}"
-    COMPONENT hashlink)
+    COMPONENT ${QD_HASHLINK_NATIVE_COMPONENT})
 endif()
 
 if(NOT APPLE)
   install(FILES "${PROJECT_SOURCE_DIR}/external/cuda_libdevice/slim_libdevice.10.bc"
     DESTINATION "${QD_HASHLINK_RUNTIME_INSTALL_DIR}"
-    COMPONENT hashlink)
+    COMPONENT ${QD_HASHLINK_NATIVE_COMPONENT})
 endif()
 
 if(QD_WITH_AMDGPU)
   file(GLOB QD_HASHLINK_AMDGPU_BC_FILES_ROCM70 "${PROJECT_SOURCE_DIR}/external/amdgpu_libdevice_rocm70/*.bc")
   install(FILES ${QD_HASHLINK_AMDGPU_BC_FILES_ROCM70}
     DESTINATION "${QD_HASHLINK_ROCM_RUNTIME_INSTALL_DIR}"
-    COMPONENT hashlink)
+    COMPONENT ${QD_HASHLINK_NATIVE_COMPONENT})
 endif()
 
 if(APPLE AND QD_WITH_VULKAN AND QD_MOLTENVK_DYLIB)
   install(FILES "${QD_MOLTENVK_DYLIB}"
     DESTINATION "${QD_HASHLINK_RUNTIME_INSTALL_DIR}"
-    COMPONENT hashlink)
+    COMPONENT ${QD_HASHLINK_NATIVE_COMPONENT})
 endif()
 
 if(QD_BUILD_HASHLINK_TESTS)

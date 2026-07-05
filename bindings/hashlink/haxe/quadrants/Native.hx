@@ -11,10 +11,8 @@ abstract QSparseMatrix(hl.Abstract<"qd_sparse_matrix">) {}
 abstract QSparseSolver(hl.Abstract<"qd_sparse_solver">) {}
 abstract QMeshRelation(hl.Abstract<"qd_mesh_relation">) {}
 
-@:build(quadrants.macro.NativeLibrary.build())
 class Native {
   static var configured = false;
-  static final packagedRuntimeLibDir:String = quadrants.macro.NativeLibrary.runtimeLibDir();
 
   public static function ensureConfigured():Void {
     if (configured) {
@@ -25,9 +23,6 @@ class Native {
     var runtimeLibDir = Sys.getEnv("QD_LIB_DIR");
     if (runtimeLibDir == null || runtimeLibDir.length == 0) {
       runtimeLibDir = Sys.getEnv("QUADRANTS_RUNTIME_DIR");
-    }
-    if (runtimeLibDir == null || runtimeLibDir.length == 0) {
-      runtimeLibDir = packagedRuntimeLibDir;
     }
     if (runtimeLibDir != null && runtimeLibDir.length > 0) {
       @:privateAccess runtime_set_lib_dir(runtimeLibDir.toUtf8());

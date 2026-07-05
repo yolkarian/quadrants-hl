@@ -3,39 +3,38 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Package the current Quadrants Haxe/HashLink build as a self-contained haxelib zip.
+Package the current Quadrants Haxe/HashLink interface as a haxelib zip.
 
-The package layout keeps Haxe sources under haxe/ and points haxelib's
-classPath there, so native artifacts can sit next to that source root:
+The haxelib package contains Haxe interface code only. Install the native
+HashLink extension separately, like HashLink's sdl.hdll/openal.hdll: put
+quadrants.hdll on HashLink's native library path and put runtime bitcode in the
+matching Quadrants runtime directory.
 
   haxelib.json              # classPath: "haxe"
   LICENSE
   haxe/quadrants/*.hx
-  quadrants.hdll
-  runtime/runtime_*.bc
-  runtime/slim_libdevice.10.bc  # when packaging a CUDA build
-  runtime_rocm70/*.bc           # when packaging an AMDGPU build
 
 Usage:
   scripts/package_hashlink_haxelib.sh [options]
 
 Options:
-  --build-dir DIR          CMake build directory containing quadrants.hdll and runtime/.
-  --hdll FILE              Explicit quadrants.hdll/quadrants64.hdll to package.
-  --runtime-dir DIR        Explicit runtime directory to package.
-  --rocm-runtime-dir DIR   Explicit ROCm libdevice directory for AMDGPU packages.
+  --build-dir DIR          CMake build directory containing quadrants.hdll and runtime/ for validation.
+  --hdll FILE              Explicit quadrants.hdll/quadrants64.hdll to validate against.
+  --runtime-dir DIR        Explicit runtime directory to validate.
+  --rocm-runtime-dir DIR   Explicit ROCm libdevice directory to validate for AMDGPU builds.
   --out FILE               Output zip path. Default: build/quadrants-haxelib.zip
   --stage-dir DIR          Staging directory. Default: a temporary dir under build/.
   --keep-stage             Do not remove the staging directory after zipping.
-  --allow-no-runtime       Allow packaging without runtime/runtime_*.bc files.
+  --allow-no-runtime       Allow native validation without runtime/runtime_*.bc files.
   --skip-native-symbol-check
                             Do not verify that Native.hx @:hlNative functions are exported by the hdll.
   --install                Run haxelib install on the produced zip after packaging.
   -h, --help               Show this help.
 
 Auto-detection:
-  If --hdll/--build-dir are omitted, the newest quadrants.hdll under build/ is used.
-  The matching runtime/ directory is searched near the selected hdll/build dir.
+  If native validation is enabled and --hdll/--build-dir are omitted, the newest
+  quadrants.hdll under build/ is used. The matching runtime/ directory is
+  searched near the selected hdll/build dir.
 EOF
 }
 
@@ -199,6 +198,10 @@ validate_runtime_dir() {
   if ! runtime_has_host_bc "$dir"; then
     fail "runtime directory is missing host runtime bitcode (runtime_x64.bc, runtime_arm64.bc, or runtime_x86.bc): $dir"
   fi
+
+  if [[ -f "$dir/runtime_cuda.bc" && ! -f "$dir/slim_libdevice.10.bc" && ! -f "$repo_root/external/cuda_libdevice/slim_libdevice.10.bc" ]]; then
+    fail "runtime directory has runtime_cuda.bc but is missing slim_libdevice.10.bc: $dir"
+  fi
 }
 
 readonly ROCM_REQUIRED_BC_FILES=(
@@ -251,11 +254,6 @@ validate_staged_package_layout() {
   [[ -d "$dir/haxe/quadrants" ]] || fail "staged package is missing haxe/quadrants/ sources"
   [[ -f "$dir/haxe/quadrants/Native.hx" ]] || fail "staged package is missing haxe/quadrants/Native.hx"
   [[ -f "$dir/haxe/quadrants/VersionInfo.hx" ]] || fail "staged package is missing haxe/quadrants/VersionInfo.hx"
-  [[ -f "$dir/quadrants.hdll" || -f "$dir/quadrants64.hdll" ]] || fail "staged package is missing quadrants.hdll"
-
-  local hdll_count
-  hdll_count=$(find "$dir" -maxdepth 1 -type f \( -name 'quadrants.hdll' -o -name 'quadrants64.hdll' \) | wc -l | tr -d '[:space:]')
-  [[ "$hdll_count" == "1" ]] || fail "staged package must contain exactly one quadrants hdll, found $hdll_count"
 
   local hx_count
   hx_count=$(find "$dir/haxe/quadrants" -type f -name '*.hx' | wc -l | tr -d '[:space:]')
@@ -265,12 +263,6 @@ validate_staged_package_layout() {
   stray=$(find "$dir" -maxdepth 2 -type f \( -name 'PLAN*.md' -o -name 'DIFF.md' -o -name '*.patch' \) -print -quit)
   [[ -z "$stray" ]] || fail "staged package contains non-release planning/diff file: $stray"
 
-  if [[ -d "$dir/runtime" ]]; then
-    validate_runtime_dir "$dir/runtime"
-  fi
-  if [[ -d "$dir/runtime_rocm70" ]]; then
-    validate_rocm_runtime_dir "$dir/runtime_rocm70"
-  fi
 }
 
 validate_zip_layout() {
@@ -289,21 +281,11 @@ validate_zip_layout() {
 
   grep -Fxq "haxelib.json" "$listing" || fail "created zip is missing haxelib.json"
   grep -Fxq "haxe/quadrants/Native.hx" "$listing" || fail "created zip is missing haxe/quadrants/Native.hx"
-  if ! grep -Fxq "quadrants.hdll" "$listing" && ! grep -Fxq "quadrants64.hdll" "$listing"; then
-    fail "created zip is missing quadrants.hdll"
-  fi
   if grep -Eq '(^|/)(PLAN[^/]*\.md|DIFF\.md|.*\.patch)$' "$listing"; then
     fail "created zip contains planning/diff files"
   fi
   rm -f -- "$listing"
   log "Zip layout: ok"
-}
-
-copy_top_level_files() {
-  local src=$1
-  local dst=$2
-  mkdir -p -- "$dst"
-  find "$src" -maxdepth 1 -type f -exec cp -p -- {} "$dst/" \;
 }
 
 native_prim_names() {
@@ -511,33 +493,37 @@ if [[ -n "$hdll" ]]; then
 elif [[ -n "$build_dir" ]]; then
   hdll=$(find_hdll_in_build_dir "$build_dir") || fail "could not find quadrants.hdll in build dir: $build_dir"
   hdll=$(abs_path "$hdll")
-elif [[ -f "$PWD/quadrants.hdll" || -f "$PWD/quadrants64.hdll" ]]; then
-  if [[ -f "$PWD/quadrants.hdll" ]]; then
-    hdll=$(abs_path "$PWD/quadrants.hdll")
+elif [[ "$skip_native_symbol_check" -eq 0 ]]; then
+  if [[ -f "$PWD/quadrants.hdll" || -f "$PWD/quadrants64.hdll" ]]; then
+    if [[ -f "$PWD/quadrants.hdll" ]]; then
+      hdll=$(abs_path "$PWD/quadrants.hdll")
+    else
+      hdll=$(abs_path "$PWD/quadrants64.hdll")
+    fi
+    build_dir=$(dirname -- "$hdll")
   else
-    hdll=$(abs_path "$PWD/quadrants64.hdll")
+    hdll=$(find_newest_hdll_under "$repo_root/build") || fail "could not auto-detect quadrants.hdll under $repo_root/build; pass --build-dir/--hdll or --skip-native-symbol-check"
+    hdll=$(abs_path "$hdll")
+    build_dir=$(dirname -- "$hdll")
   fi
-  build_dir=$(dirname -- "$hdll")
 else
-  hdll=$(find_newest_hdll_under "$repo_root/build") || fail "could not auto-detect quadrants.hdll under $repo_root/build; pass --build-dir or --hdll"
-  hdll=$(abs_path "$hdll")
-  build_dir=$(dirname -- "$hdll")
+  hdll=""
 fi
 
-if [[ -z "$build_dir" ]]; then
+if [[ -z "$build_dir" && -n "$hdll" ]]; then
   build_dir=$(dirname -- "$hdll")
 fi
 
 if [[ -n "$runtime_dir" ]]; then
   [[ -d "$runtime_dir" ]] || fail "runtime directory does not exist: $runtime_dir"
   runtime_dir=$(existing_abs_path "$runtime_dir")
-elif runtime_dir_found=$(find_runtime_dir "$hdll" "$build_dir"); then
+elif [[ -n "$hdll" ]] && runtime_dir_found=$(find_runtime_dir "$hdll" "$build_dir"); then
   runtime_dir=$runtime_dir_found
 else
   runtime_dir=""
 fi
 
-if [[ -z "$runtime_dir" && "$allow_no_runtime" -ne 1 ]]; then
+if [[ -z "$runtime_dir" && "$allow_no_runtime" -ne 1 && -n "$hdll" ]]; then
   fail "could not auto-detect runtime directory near $hdll; pass --runtime-dir or --allow-no-runtime"
 fi
 
@@ -545,7 +531,23 @@ if [[ -n "$runtime_dir" && "$allow_no_runtime" -ne 1 ]]; then
   validate_runtime_dir "$runtime_dir"
 fi
 
-validate_native_symbols "$hdll" "$haxe_src/quadrants/Native.hx"
+if [[ -n "$runtime_dir" && -f "$runtime_dir/runtime_amdgpu.bc" ]]; then
+  if [[ -n "$rocm_runtime_dir" ]]; then
+    [[ -d "$rocm_runtime_dir" ]] || fail "ROCm runtime directory does not exist: $rocm_runtime_dir"
+    rocm_runtime_dir=$(existing_abs_path "$rocm_runtime_dir")
+  elif rocm_dir_found=$(find_rocm_runtime_dir "$runtime_dir" "$build_dir"); then
+    rocm_runtime_dir=$rocm_dir_found
+  else
+    fail "runtime_amdgpu.bc is present but ROCm libdevice directory was not found; pass --rocm-runtime-dir"
+  fi
+  validate_rocm_runtime_dir "$rocm_runtime_dir"
+fi
+
+if [[ -n "$hdll" ]]; then
+  validate_native_symbols "$hdll" "$haxe_src/quadrants/Native.hx"
+else
+  log "Native symbols: skipped (no hdll selected)"
+fi
 
 out=$(abs_path "$out")
 mkdir -p -- "$(dirname -- "$out")"
@@ -570,11 +572,18 @@ trap cleanup EXIT
 
 log "Package src  : $package_src"
 log "Haxe sources : $haxe_src"
-log "HDLL         : $hdll"
-if [[ -n "$runtime_dir" ]]; then
-  log "Runtime      : $runtime_dir"
+if [[ -n "$hdll" ]]; then
+  log "HDLL check   : $hdll"
 else
-  log "Runtime      : <none>"
+  log "HDLL check   : <none>"
+fi
+if [[ -n "$runtime_dir" ]]; then
+  log "Runtime check: $runtime_dir"
+else
+  log "Runtime check: <none>"
+fi
+if [[ -n "$rocm_runtime_dir" ]]; then
+  log "ROCm check   : $rocm_runtime_dir"
 fi
 log "Stage        : $stage_dir"
 log "Output       : $out"
@@ -588,35 +597,6 @@ if [[ -f "$repo_root/LICENSE" ]]; then
 fi
 mkdir -p -- "$stage_dir/haxe"
 cp -R -- "$haxe_src/." "$stage_dir/haxe/"
-cp -p -- "$hdll" "$stage_dir/$(basename -- "$hdll")"
-
-if [[ -n "$runtime_dir" ]]; then
-  copy_top_level_files "$runtime_dir" "$stage_dir/runtime"
-
-  if [[ -f "$stage_dir/runtime/runtime_cuda.bc" && ! -f "$stage_dir/runtime/slim_libdevice.10.bc" ]]; then
-    cuda_libdevice="$repo_root/external/cuda_libdevice/slim_libdevice.10.bc"
-    if [[ -f "$cuda_libdevice" ]]; then
-      log "Adding CUDA libdevice: $cuda_libdevice"
-      cp -p -- "$cuda_libdevice" "$stage_dir/runtime/"
-    else
-      fail "runtime_cuda.bc is present but slim_libdevice.10.bc was not found in runtime dir or $cuda_libdevice"
-    fi
-  fi
-
-  if [[ -f "$stage_dir/runtime/runtime_amdgpu.bc" ]]; then
-    if [[ -n "$rocm_runtime_dir" ]]; then
-      [[ -d "$rocm_runtime_dir" ]] || fail "ROCm runtime directory does not exist: $rocm_runtime_dir"
-      rocm_runtime_dir=$(existing_abs_path "$rocm_runtime_dir")
-    elif rocm_dir_found=$(find_rocm_runtime_dir "$runtime_dir" "$build_dir"); then
-      rocm_runtime_dir=$rocm_dir_found
-    else
-      fail "runtime_amdgpu.bc is present but ROCm libdevice directory was not found; pass --rocm-runtime-dir"
-    fi
-    validate_rocm_runtime_dir "$rocm_runtime_dir"
-    log "ROCm runtime : $rocm_runtime_dir"
-    copy_top_level_files "$rocm_runtime_dir" "$stage_dir/runtime_rocm70"
-  fi
-fi
 
 validate_staged_package_layout "$stage_dir"
 
@@ -641,5 +621,6 @@ fi
 
 log "Done. Example use:"
 log "  haxelib install $out"
+log "  # install/copy quadrants.hdll and runtime bitcode to the HashLink native setup first"
 log "  haxe -lib quadrants -main Main -hl main.hl"
 log "  hl main.hl"

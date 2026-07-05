@@ -54,7 +54,7 @@ What they cover:
 | `hashlink_descriptor_golden` | Descriptor schema snapshots and validation behavior. |
 | `hashlink_macro_compile_fail` | User-facing macro diagnostics for unsupported syntax, dtype mismatches, resource misuse, stream misuse in kernel bodies, invalid mesh/quant forms, and removed API surfaces. |
 | `hashlink_public_dynamic_scan` | Ensures public `Dynamic` use remains confined to documented boundaries. |
-| `hashlink_package_validate` | Builds a haxelib zip and validates metadata, source layout, native symbols, runtime bitcode, and package contents. |
+| `hashlink_package_validate` | Builds a Haxe-interface haxelib zip and validates metadata, source layout, selected native symbols/runtime bitcode, and package contents. |
 
 When building CUDA or AMDGPU support, also run the optional backend-depth CTest entries if they are registered:
 
@@ -91,8 +91,8 @@ For every public API or behavior change:
 ## Packaging checklist
 
 - Configure with the intended backend flags and `QD_WITH_HASHLINK=ON`.
-- Build `quadrants.hdll`.
+- Build `quadrants.hdll` and install/validate the `hashlink_native` artifacts (`quadrants.hdll` plus runtime bitcode).
 - Run the default CTest gate.
 - Run optional CUDA/AMDGPU backend-depth tests on a matching machine when those backends are enabled.
-- Package with `scripts/package_hashlink_haxelib.sh`.
-- Verify the package can compile and run the smoke program through `haxe -lib quadrants ...` and `hl ...`.
+- Package the Haxe interface with `scripts/package_hashlink_haxelib.sh`.
+- Verify the haxelib package can compile and run the smoke program through `haxe -lib quadrants ...` and `hl ...` against the installed native setup.

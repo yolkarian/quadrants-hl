@@ -1,6 +1,6 @@
 # Haxe/HashLink integration
 
-Quadrants is distributed for Haxe through a haxelib-compatible source package and the native HashLink bridge `quadrants.hdll`. Haxe macros build kernel descriptors at compile time; the native bridge creates Quadrants contexts, allocates ndarrays, compiles kernels, launches kernels, and synchronizes.
+Quadrants is distributed for Haxe as two separate pieces: a haxelib-compatible Haxe interface package and the native HashLink extension `quadrants.hdll`. Haxe macros build kernel descriptors at compile time; the native bridge creates Quadrants contexts, allocates ndarrays, compiles kernels, launches kernels, and synchronizes.
 
 ## Prerequisites
 
@@ -38,7 +38,6 @@ cmake -S . -B "$QD_BUILD_DIR" \
   -DQD_WITH_AMDGPU=OFF
 cmake --build "$QD_BUILD_DIR" --target quadrants.hdll
 rm -rf "$QD_INSTALL_DIR"
-cmake --install "$QD_BUILD_DIR" --component hashlink --prefix "$QD_INSTALL_DIR"
 ```
 
 For a CPU + CUDA HashLink package, enable CUDA in the same build:
@@ -55,28 +54,68 @@ cmake -S . -B "$QD_BUILD_DIR" \
 cmake --build "$QD_BUILD_DIR" --target quadrants.hdll
 ```
 
-The `quadrants.hdll` target depends on the required host/runtime bitcode targets for the enabled backends. A CUDA package must include `runtime_cuda.bc` and `slim_libdevice.10.bc` next to the CPU runtime bitcode.
+The `quadrants.hdll` target depends on the required host/runtime bitcode targets for the enabled backends. A CUDA native setup must include `runtime_cuda.bc` and `slim_libdevice.10.bc` next to the CPU runtime bitcode.
 
 ## Installed layout
 
 ```text
-share/quadrants/hashlink/haxelib.json
-share/quadrants/hashlink/quadrants.hdll
-share/quadrants/hashlink/README.md
-share/quadrants/hashlink/haxe/quadrants/*.hx
-share/quadrants/hashlink/haxe/quadrants/macro/*.hx
+lib/quadrants.hdll                         # native HashLink extension, like sdl.hdll/openal.hdll
 share/quadrants/hashlink/runtime/runtime_x64.bc
 share/quadrants/hashlink/runtime/runtime_cuda.bc       # CUDA builds
 share/quadrants/hashlink/runtime/slim_libdevice.10.bc  # CUDA builds
+share/quadrants/hashlink/runtime_rocm70/*.bc           # AMDGPU builds
 ```
 
-Register the installed haxelib package root for development:
+The haxelib interface is installed or packaged separately:
+
+```text
+share/quadrants/hashlink/haxelib.json
+share/quadrants/hashlink/README.md
+share/quadrants/hashlink/haxe/quadrants/*.hx
+share/quadrants/hashlink/haxe/quadrants/macro/*.hx
+```
+
+Native installation and haxelib installation are separate.
+
+For the common no-sudo user-level CPU+CUDA+Vulkan setup with HashLink installed under `$HOME/.local`, use the combined helper. It configures the native build, builds `quadrants.hdll` with `-j2`, installs native artifacts under `$HOME/.local`, packages the Haxe interface, and installs that zip into haxelib:
 
 ```bash
+scripts/package_hashlink_user_level.sh
+PATH="$HOME/.local/bin:$PATH" haxe -lib quadrants -main Main -hl build/main.hl
+PATH="$HOME/.local/bin:$PATH" hl build/main.hl
+```
+
+For a manual no-sudo native setup with an installed HashLink under the same prefix, use a user prefix and run that prefix's `hl`:
+
+```bash
+cmake --install "$QD_BUILD_DIR" --component hashlink_native --prefix "$HOME/.local"
+PATH="$HOME/.local/bin:$PATH" haxe -lib quadrants -main Main -hl build/main.hl
+PATH="$HOME/.local/bin:$PATH" hl build/main.hl
+```
+
+For a HashLink checkout/build tree, copy the native extension next to that checkout's `hl` and copy runtime files under a sibling directory that the bridge can discover:
+
+```bash
+scripts/install_hashlink_native.sh \
+  --build-dir "$QD_BUILD_DIR" \
+  --runtime-dir "$QD_BUILD_DIR/runtime" \
+  --hashlink-dir "$QD_HASHLINK_ROOT"
+```
+
+System-level native install uses the same component with a system prefix:
+
+```bash
+cmake --install "$QD_BUILD_DIR" --component hashlink_native --prefix /usr/local
+```
+
+Install the haxelib interface separately. For development from a CMake install tree, install the interface component and register it:
+
+```bash
+cmake --install "$QD_BUILD_DIR" --component hashlink_haxelib --prefix "$QD_INSTALL_DIR"
 haxelib dev quadrants "$QD_INSTALL_DIR/share/quadrants/hashlink"
 ```
 
-Or package the build tree and install it into the global haxelib repository:
+Or package only the Haxe interface code and install it into haxelib:
 
 ```bash
 scripts/package_hashlink_haxelib.sh \
@@ -86,9 +125,9 @@ scripts/package_hashlink_haxelib.sh \
 haxelib --global install build/quadrants-haxelib.zip --always
 ```
 
-The package script stages `quadrants.hdll`, Haxe sources, the top-level `LICENSE`, and top-level files from `runtime/`. It also validates that the selected `quadrants.hdll` exports the `@:hlNative` functions used by the current Haxe sources and that `runtime/` contains host `runtime_*.bc` bitcode. If `runtime_cuda.bc` is present but `slim_libdevice.10.bc` is missing, it copies `external/cuda_libdevice/slim_libdevice.10.bc` into the package. Use `--skip-native-symbol-check` only when deliberately packaging a different Haxe/native pair; use `--allow-no-runtime` for Vulkan/Metal-only packages without LLVM bitcode.
+The haxelib zip contains Haxe sources, metadata, and license files only. The package script can still validate that the selected `quadrants.hdll` exports the `@:hlNative` functions used by the current Haxe sources and that the runtime directory contains host `runtime_*.bc` bitcode. Use `--skip-native-symbol-check` only when deliberately packaging without a native validation step; use `--allow-no-runtime` for Vulkan/Metal-only packages without LLVM bitcode.
 
-The Haxe macros discover `quadrants.hdll` and the package-local `runtime` directory from that haxelib root. If a build tree or moved install tree is used, set `QUADRANTS_HDLL` and `QUADRANTS_RUNTIME_DIR` while compiling the `.hl` file. The same values can be supplied as Haxe defines: `-D quadrants_hdll_path=/path/to/quadrants.hdll` and `-D quadrants_runtime_dir=/path/to/runtime`.
+Compiled `.hl` files record only the logical native library name `quadrants`; they do not embed a `quadrants.hdll` path. At run time, `hl` must find `quadrants.hdll` through the same native extension search path used by HashLink libraries such as `sdl.hdll` and `openal.hdll`. The bridge then discovers runtime bitcode next to itself (`runtime/`, `quadrants/runtime/`, or the installed `share/quadrants/hashlink/runtime`) unless `QD_LIB_DIR` or `QUADRANTS_RUNTIME_DIR` overrides it.
 
 ## Running tests
 
@@ -107,8 +146,8 @@ When the native build enables CUDA or AMDGPU, CTest also registers optional back
 
 | Purpose | Haxe/HL entry point |
 | --- | --- |
-| Build/install the Haxe package and native bridge | CMake with `-DQD_WITH_HASHLINK=ON`, target `quadrants.hdll`, and `cmake --install --component hashlink`. |
-| Package and install into global haxelib | `scripts/package_hashlink_haxelib.sh --build-dir <build> --runtime-dir <build>/runtime --out build/quadrants-haxelib.zip`, then `haxelib --global install ...`. |
+| Build/install the native bridge | CMake with `-DQD_WITH_HASHLINK=ON`, target `quadrants.hdll`, then `cmake --install --component hashlink_native` or `scripts/install_hashlink_native.sh`. |
+| Package and install the Haxe interface into haxelib | `scripts/package_hashlink_haxelib.sh --build-dir <build> --runtime-dir <build>/runtime --out build/quadrants-haxelib.zip`, then `haxelib --global install ...`. |
 | Compile and run the v3 smoke test | `tests/hashlink/v3/hashlink_v3_smoke.hxml` through `ctest` (`hashlink_haxe_compile`, `haxe_v3_smoke`). |
 | Run descriptor schema snapshots | `tests/hashlink/descriptor/hashlink_descriptor_golden.hxml` through `ctest` (`hashlink_descriptor_golden`). |
 | Run macro diagnostics | `cmake/RunHaxeCompileFailTests.cmake` through `ctest` (`hashlink_macro_compile_fail`). |
@@ -141,15 +180,15 @@ Expected output:
 hashlink v3 smoke ok
 ```
 
-Manual build-tree run:
+Manual build-tree native setup and run:
 
 ```bash
-QUADRANTS_HDLL="$QD_BUILD_DIR/quadrants.hdll" \
-QUADRANTS_RUNTIME_DIR="$QD_BUILD_DIR/runtime" \
+scripts/install_hashlink_native.sh \
+  --build-dir "$QD_BUILD_DIR" \
+  --runtime-dir "$QD_BUILD_DIR/runtime" \
+  --hashlink-dir "$QD_HASHLINK_ROOT"
 haxe tests/hashlink/v3/hashlink_v3_smoke.hxml -hl build/hashlink-v3-smoke-buildtree.hl
-QD_LIB_DIR="$QD_BUILD_DIR/runtime" \
-LD_LIBRARY_PATH="$QD_BUILD_DIR:${LD_LIBRARY_PATH:-}" \
-hl build/hashlink-v3-smoke-buildtree.hl
+"$QD_HASHLINK_ROOT/hl" build/hashlink-v3-smoke-buildtree.hl
 ```
 
 For the typed public API, see [Haxe/HashLink API](haxe_api.md). For accepted kernel syntax, see [Haxe kernels](haxe_kernel_v3.md) and [Haxe kernel language](kernel_language.md).
@@ -221,11 +260,11 @@ Unsupported constructs are rejected by the Haxe macro with `Unsupported Quadrant
 
 | Symptom | Fix |
 | --- | --- |
-| `Quadrants HashLink native bridge is not loaded` | Re-run `haxe` with `QUADRANTS_HDLL` set to the built `quadrants.hdll`, or use the installed haxelib layout and make the bridge directory visible to the dynamic loader. |
+| `Quadrants HashLink native bridge is not loaded` | Install `quadrants.hdll` as a HashLink native extension (`hashlink_native`, `scripts/install_hashlink_native.sh`, or a platform library path visible to `hl`). |
 | HashLink cannot load `libhl`, CUDA, ROCm, Vulkan, or another native dependency | Add the HashLink library directory and backend SDK library directories to `LD_LIBRARY_PATH` on Linux, `DYLD_LIBRARY_PATH` on macOS, or `PATH` on Windows. |
-| `Bitcode file (.../runtime_*.bc) not found` | Set `QD_LIB_DIR` at run time or `QUADRANTS_RUNTIME_DIR` while compiling to the directory containing the required `.bc` files. CUDA also needs `slim_libdevice.10.bc`. |
+| `Bitcode file (.../runtime_*.bc) not found` | Install runtime bitcode next to `quadrants.hdll` or set `QD_LIB_DIR` / `QUADRANTS_RUNTIME_DIR` to the directory containing the required `.bc` files. CUDA also needs `slim_libdevice.10.bc`. |
 | Context creation fails for a non-CPU backend | Verify the backend was enabled in the native build and that the host driver/runtime is installed. |
-| A moved install tree no longer works | Re-run `haxe`; `QUADRANTS_HDLL` and the discovered runtime path are compile-time macro inputs. |
+| A moved install tree no longer works | Use a matching moved native setup: keep `quadrants.hdll` in HashLink's native search path and keep runtime bitcode in `runtime/`, `quadrants/runtime/`, or `share/quadrants/hashlink/runtime` relative to it. The `.hl` file itself does not need recompilation. |
 | Kernel launch reports argument count, dtype, rank, or context mismatch | Launch with the same parameter count and tensor ranks/dtypes used by `Kernel.build`; do not mix tensors from different `Context` objects. |
 | Shutdown crashes or use-after-close errors | Close kernels before closing their context. Native finalizers are only a safety net. |
 | `CudaGlInterop.available(ctx)` returns `false` on a CUDA context | Build `quadrants.hdll` with `QD_WITH_CUDA=ON` and ensure CMake finds the CUDA toolkit (sets `QD_HASHLINK_CUDA_GL_INTEROP`). |

@@ -35,16 +35,18 @@ The docs build generates Haxe XML from `bindings/hashlink/haxe` and renders it w
 
 ## Haxe package development
 
-Register the source tree directly while iterating:
+Register the source tree directly while iterating, and install the native bridge into the HashLink checkout used for local runs:
 
 ```bash
 haxelib dev quadrants "$PWD/bindings/hashlink"
-QUADRANTS_HDLL="$PWD/build/dev/quadrants.hdll" \
-QUADRANTS_RUNTIME_DIR="$PWD/build/dev/runtime" \
+scripts/install_hashlink_native.sh \
+  --build-dir "$PWD/build/dev" \
+  --runtime-dir "$PWD/build/dev/runtime" \
+  --hashlink-dir /path/to/hashlink
 haxe tests/hashlink/v3/hashlink_v3_smoke.hxml -hl build/dev-v3-smoke.hl
-QD_LIB_DIR="$PWD/build/dev/runtime" hl build/dev-v3-smoke.hl
+/path/to/hashlink/hl build/dev-v3-smoke.hl
 ```
 
 ## CI
 
-The main Linux workflow builds `quadrants.hdll`, installs the HashLink component, registers the installed haxelib package, compiles the v3 Haxe tests, runs the v3 smoke suite, checks descriptor golden snapshots, and scans public `Dynamic` boundaries.
+The main Linux workflow builds `quadrants.hdll`, installs the HashLink native setup, installs/registers the haxelib interface package, compiles the v3 Haxe tests, runs the v3 smoke suite, checks descriptor golden snapshots, and scans public `Dynamic` boundaries.

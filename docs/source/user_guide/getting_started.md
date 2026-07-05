@@ -5,18 +5,13 @@ Quadrants is used from Haxe by compiling your Haxe program to HashLink bytecode 
 ## Prerequisites
 
 - `haxe` and `hl` on `PATH`.
-- A built or installed `quadrants.hdll`; see [Haxe/HashLink integration](hashlink.md#build-and-install).
-- Runtime bitcode for JIT backends, usually `runtime_x64.bc` or `runtime_arm64.bc` for `Arch.Cpu`.
+- `quadrants.hdll` installed as a HashLink native extension; see [Haxe/HashLink integration](hashlink.md#build-and-install).
+- Runtime bitcode installed next to the native extension, usually `runtime_x64.bc` or `runtime_arm64.bc` for `Arch.Cpu`.
 
 ## Install-tree quick start
 
-After installing the HashLink component, register the Haxe package:
+After installing the native HashLink component and installing/registering the haxelib interface, create a program:
 
-```bash
-haxelib dev quadrants "$QD_INSTALL_DIR/share/quadrants/hashlink"
-```
-
-Create `Main.hx`:
 
 ```haxe
 import quadrants.Context;
@@ -74,22 +69,18 @@ quadrants hashlink ok
 
 ## Build-tree quick start
 
-When using the source tree directly, point the Haxe macro at the bridge and runtime directory while compiling:
+When using a HashLink checkout/build tree directly, install the native files next to that checkout's `hl`, then compile normally. The `.hl` file records only the logical native library name `quadrants`.
 
 ```bash
-QUADRANTS_HDLL="$QD_BUILD_DIR/quadrants.hdll" \
-QUADRANTS_RUNTIME_DIR="$QD_BUILD_DIR/runtime" \
+scripts/install_hashlink_native.sh \
+  --build-dir "$QD_BUILD_DIR" \
+  --runtime-dir "$QD_BUILD_DIR/runtime" \
+  --hashlink-dir "$QD_HASHLINK_ROOT"
 haxe -cp bindings/hashlink/haxe -main Main -hl build/main.hl
-QD_LIB_DIR="$QD_BUILD_DIR/runtime" \
-LD_LIBRARY_PATH="$QD_BUILD_DIR:${LD_LIBRARY_PATH:-}" \
-hl build/main.hl
+"$QD_HASHLINK_ROOT/hl" build/main.hl
 ```
 
-The same values can also be passed as Haxe defines:
-
-```bash
-haxe -cp bindings/hashlink/haxe -D quadrants_hdll_path="$QD_BUILD_DIR/quadrants.hdll" -D quadrants_runtime_dir="$QD_BUILD_DIR/runtime" -main Main -hl build/main.hl
-```
+For a no-sudo prefix install, install HashLink and Quadrants under the same user prefix, for example `$HOME/.local`, and run the matching `$HOME/.local/bin/hl`.
 
 ## Next steps
 

@@ -11,12 +11,22 @@
 #include <fstream>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <new>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#include "quadrants/common/filesystem.hpp"
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#elif defined(__APPLE__) || defined(__linux__) || defined(__unix__)
+#include <dlfcn.h>
+#endif
 
 #include "bindings/hashlink/native/descriptor.h"
 #include "quadrants/ir/type.h"
@@ -61,6 +71,137 @@ using quadrants::lang::SNode;
 using quadrants::lang::SNodeType;
 using quadrants::lang::Type;
 using quadrants::lang::TypeFactory;
+
+std::mutex runtime_lib_dir_mutex;
+
+std::string non_empty_env(const char *name) {
+  const char *value = std::getenv(name);
+  return value != nullptr && value[0] != '\0' ? std::string(value) : std::string();
+}
+
+std::string normalized_path_string(const std::filesystem::path &path) {
+  std::error_code error;
+  const auto canonical = std::filesystem::weakly_canonical(path, error);
+  if (!error) {
+    return canonical.string();
+  }
+  const auto absolute = std::filesystem::absolute(path, error);
+  return error ? path.string() : absolute.string();
+}
+
+bool has_runtime_payload(const std::filesystem::path &dir) {
+  std::error_code error;
+  if (!std::filesystem::is_directory(dir, error)) {
+    return false;
+  }
+
+  const std::vector<std::filesystem::path> markers = {
+      "runtime_x64.bc",
+      "runtime_arm64.bc",
+      "runtime_x86.bc",
+      "runtime_cuda.bc",
+      "runtime_amdgpu.bc",
+      "slim_libdevice.10.bc",
+      "libMoltenVK.dylib",
+  };
+  for (const auto &marker : markers) {
+    if (std::filesystem::exists(dir / marker, error)) {
+      return true;
+    }
+  }
+
+  for (const auto &entry : std::filesystem::directory_iterator(dir, error)) {
+    if (error) {
+      break;
+    }
+    if (entry.path().extension() == ".bc") {
+      return true;
+    }
+  }
+  return false;
+}
+
+std::string quadrants_hl_module_path() {
+#if defined(_WIN32)
+  HMODULE module = nullptr;
+  if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                          reinterpret_cast<LPCSTR>(&HL_NAME(hashlink_hdll_abi_version)),
+                          &module)) {
+    return "";
+  }
+  char buffer[MAX_PATH];
+  const DWORD length = GetModuleFileNameA(module, buffer, static_cast<DWORD>(sizeof(buffer)));
+  if (length == 0 || length >= sizeof(buffer)) {
+    return "";
+  }
+  return std::string(buffer, length);
+#elif defined(__APPLE__) || defined(__linux__) || defined(__unix__)
+  Dl_info info{};
+  if (dladdr(reinterpret_cast<const void *>(&HL_NAME(hashlink_hdll_abi_version)), &info) == 0 || info.dli_fname == nullptr) {
+    return "";
+  }
+  return std::string(info.dli_fname);
+#else
+  return "";
+#endif
+}
+
+std::vector<std::filesystem::path> runtime_lib_dir_candidates(const std::filesystem::path &module_dir) {
+  std::vector<std::filesystem::path> result;
+  result.push_back(module_dir / "runtime");
+  result.push_back(module_dir / "quadrants" / "runtime");
+
+  const auto prefix = module_dir.parent_path();
+  if (!prefix.empty()) {
+    result.push_back(prefix / "runtime");
+    result.push_back(prefix / "share" / "quadrants" / "hashlink" / "runtime");
+    result.push_back(prefix / "share" / "quadrants" / "runtime");
+  }
+  return result;
+}
+
+std::string default_runtime_lib_dir() {
+  const auto qdLibDir = non_empty_env("QD_LIB_DIR");
+  if (!qdLibDir.empty()) {
+    return qdLibDir;
+  }
+  const auto quadrantsRuntimeDir = non_empty_env("QUADRANTS_RUNTIME_DIR");
+  if (!quadrantsRuntimeDir.empty()) {
+    return quadrantsRuntimeDir;
+  }
+
+  const auto modulePath = quadrants_hl_module_path();
+  if (modulePath.empty()) {
+    return "";
+  }
+  const auto moduleDir = std::filesystem::path(modulePath).parent_path();
+  for (const auto &candidate : runtime_lib_dir_candidates(moduleDir)) {
+    if (has_runtime_payload(candidate)) {
+      return normalized_path_string(candidate);
+    }
+  }
+  return "";
+}
+
+void configure_runtime_lib_dir_if_needed() {
+  std::lock_guard<std::mutex> lock(runtime_lib_dir_mutex);
+  if (!quadrants::lang::compiled_lib_dir.empty()) {
+    return;
+  }
+  const auto runtimeLibDir = default_runtime_lib_dir();
+  if (!runtimeLibDir.empty()) {
+    quadrants::lang::compiled_lib_dir = runtimeLibDir;
+  }
+}
+
+void configure_runtime_lib_dir_for_arch(Arch arch) {
+  configure_runtime_lib_dir_if_needed();
+  if (arch_uses_llvm(arch) && quadrants::lang::compiled_lib_dir.empty()) {
+    throw std::runtime_error(
+        "Quadrants runtime bitcode directory is not configured. Install runtime bitcode next to quadrants.hdll "
+        "(runtime/, quadrants/runtime/, or share/quadrants/hashlink/runtime), or set QD_LIB_DIR/QUADRANTS_RUNTIME_DIR.");
+  }
+}
 
 struct QdContextState {
   explicit QdContextState(Arch arch, bool enable_profiler = false) : program(std::make_unique<Program>(arch, enable_profiler)), arch(arch) {
@@ -3129,14 +3270,17 @@ HL_PRIM void HL_NAME(runtime_set_lib_dir)(vbyte *path) {
     if (path == nullptr) {
       throw std::runtime_error("Quadrants runtime library directory is null");
     }
+    std::lock_guard<std::mutex> lock(runtime_lib_dir_mutex);
     quadrants::lang::compiled_lib_dir = std::string(reinterpret_cast<const char *>(path));
   });
 }
 
 HL_PRIM qd_context *HL_NAME(context_create)(int arch) {
   return guard([&]() -> qd_context * {
+    const auto qdArch = arch_from_bridge_id(arch);
+    configure_runtime_lib_dir_for_arch(qdArch);
     BlockingSection blocking;
-    auto *state = new QdContextState(arch_from_bridge_id(arch));
+    auto *state = new QdContextState(qdArch);
     auto *handle = static_cast<qd_context *>(hl_gc_alloc_finalizer(sizeof(qd_context)));
     new (handle) qd_context();
     handle->finalize = finalize_context;
@@ -3147,8 +3291,10 @@ HL_PRIM qd_context *HL_NAME(context_create)(int arch) {
 
 HL_PRIM qd_context *HL_NAME(context_create_configured)(int arch, int enable_profiler) {
   return guard([&]() -> qd_context * {
+    const auto qdArch = arch_from_bridge_id(arch);
+    configure_runtime_lib_dir_for_arch(qdArch);
     BlockingSection blocking;
-    auto *state = new QdContextState(arch_from_bridge_id(arch), enable_profiler != 0);
+    auto *state = new QdContextState(qdArch, enable_profiler != 0);
     auto *handle = static_cast<qd_context *>(hl_gc_alloc_finalizer(sizeof(qd_context)));
     new (handle) qd_context();
     handle->finalize = finalize_context;
