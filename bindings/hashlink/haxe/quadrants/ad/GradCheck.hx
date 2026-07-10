@@ -6,12 +6,13 @@ import quadrants.FieldRuntime;
 import quadrants.kernel.QKernel;
 import quadrants.Tensor;
 import quadrants.TensorRuntime;
-import quadrants.Types.F32;
+import quadrants.Types.DType;
 
 private class GradCheckTarget {
   public final name:String;
   public final value:Dynamic;
   public final context:Context;
+  public final dtype:DType;
   public final elementCount:Int;
   final readValue:Int->Float;
   final writeValue:Int->Float->Void;
@@ -21,6 +22,7 @@ private class GradCheckTarget {
   public function new(name:String,
       value:Dynamic,
       context:Context,
+      dtype:DType,
       elementCount:Int,
       readValue:Int->Float,
       writeValue:Int->Float->Void,
@@ -29,6 +31,7 @@ private class GradCheckTarget {
     this.name = name;
     this.value = value;
     this.context = context;
+    this.dtype = dtype;
     this.elementCount = elementCount;
     this.readValue = readValue;
     this.writeValue = writeValue;
@@ -56,6 +59,7 @@ private class GradCheckTarget {
 private class GradCheckLoss {
   public final value:Dynamic;
   public final context:Context;
+  public final dtype:DType;
   public final elementCount:Int;
   final readValue:Void->Float;
   final writeValue:Float->Void;
@@ -65,6 +69,7 @@ private class GradCheckLoss {
 
   public function new(value:Dynamic,
       context:Context,
+      dtype:DType,
       elementCount:Int,
       readValue:Void->Float,
       writeValue:Float->Void,
@@ -73,6 +78,7 @@ private class GradCheckLoss {
       seedGradient:Float->Void) {
     this.value = value;
     this.context = context;
+    this.dtype = dtype;
     this.elementCount = elementCount;
     this.readValue = readValue;
     this.writeValue = writeValue;
@@ -109,6 +115,12 @@ typedef GradCheckOptions = {
   ?maxChecks:Int,
   ?maxMismatches:Int,
   ?resetLoss:Bool
+}
+
+private typedef GradCheckPrecision = {
+  var epsilon:Float;
+  var absoluteTolerance:Float;
+  var relativeTolerance:Float;
 }
 
 typedef GradCheckMismatch = {
@@ -166,37 +178,40 @@ class GradCheck {
   static inline var DEFAULT_EPSILON:Float = 0.01;
   static inline var DEFAULT_ABSOLUTE_TOLERANCE:Float = 0.02;
   static inline var DEFAULT_RELATIVE_TOLERANCE:Float = 0.02;
+  static inline var DEFAULT_F64_EPSILON:Float = 1e-5;
+  static inline var DEFAULT_F64_ABSOLUTE_TOLERANCE:Float = 1e-7;
+  static inline var DEFAULT_F64_RELATIVE_TOLERANCE:Float = 1e-6;
   static inline var DEFAULT_MAX_MISMATCHES:Int = 16;
   static inline var RELATIVE_ERROR_FLOOR:Float = 1e-12;
 
-  public static function checkTensorToScalar(kernel:QKernel,
+  public static function checkTensorToScalar<TInput, TLoss>(kernel:QKernel,
       args:Array<Dynamic>,
-      input:Tensor<F32>,
-      loss:Tensor<F32>,
+      input:Tensor<TInput>,
+      loss:Tensor<TLoss>,
       ?options:GradCheckOptions):GradCheckResult {
     return checkTargetsToScalar(kernel, args, [tensorTarget("input", input)], tensorLoss(loss), options);
   }
 
-  public static function checkTensorsToScalar(kernel:QKernel,
+  public static function checkTensorsToScalar<TInput, TLoss>(kernel:QKernel,
       args:Array<Dynamic>,
-      inputs:Array<Tensor<F32>>,
-      loss:Tensor<F32>,
+      inputs:Array<Tensor<TInput>>,
+      loss:Tensor<TLoss>,
       ?options:GradCheckOptions):GradCheckResult {
     return checkTargetsToScalar(kernel, args, tensorTargets(inputs), tensorLoss(loss), options);
   }
 
-  public static function checkFieldToScalar(kernel:QKernel,
+  public static function checkFieldToScalar<TInput, TLoss>(kernel:QKernel,
       args:Array<Dynamic>,
-      input:Field<F32>,
-      loss:Tensor<F32>,
+      input:Field<TInput>,
+      loss:Tensor<TLoss>,
       ?options:GradCheckOptions):GradCheckResult {
     return checkTargetsToScalar(kernel, args, [fieldTarget("input", input)], tensorLoss(loss), options);
   }
 
-  public static function checkFieldsToScalar(kernel:QKernel,
+  public static function checkFieldsToScalar<TInput, TLoss>(kernel:QKernel,
       args:Array<Dynamic>,
-      inputs:Array<Field<F32>>,
-      loss:Tensor<F32>,
+      inputs:Array<Field<TInput>>,
+      loss:Tensor<TLoss>,
       ?options:GradCheckOptions):GradCheckResult {
     return checkTargetsToScalar(kernel, args, fieldTargets(inputs), tensorLoss(loss), options);
   }
@@ -208,9 +223,13 @@ class GradCheck {
       ?options:GradCheckOptions):GradCheckResult {
     validate(kernel, args, inputs, loss);
 
-    var epsilon = optionFloat(options == null ? null : options.epsilon, DEFAULT_EPSILON, "epsilon");
-    var absoluteTolerance = optionFloat(options == null ? null : options.absoluteTolerance, DEFAULT_ABSOLUTE_TOLERANCE, "absoluteTolerance");
-    var relativeTolerance = optionFloat(options == null ? null : options.relativeTolerance, DEFAULT_RELATIVE_TOLERANCE, "relativeTolerance");
+    var precision = precisionDefaults(inputs, loss);
+    if (precisionDType(inputs, loss) == DType.F16 && (options == null || options.epsilon == null)) {
+      throw "Quadrants GradCheck F16 finite differences require an explicit epsilon representable by F16 host storage";
+    }
+    var epsilon = optionFloat(options == null ? null : options.epsilon, precision.epsilon, "epsilon");
+    var absoluteTolerance = optionFloat(options == null ? null : options.absoluteTolerance, precision.absoluteTolerance, "absoluteTolerance");
+    var relativeTolerance = optionFloat(options == null ? null : options.relativeTolerance, precision.relativeTolerance, "relativeTolerance");
     var configuredMaxChecks = options == null ? null : options.maxChecks;
     var maxMismatches = optionInt(options == null ? null : options.maxMismatches, DEFAULT_MAX_MISMATCHES, "maxMismatches");
     var resetLoss = options == null || options.resetLoss == null ? true : options.resetLoss;
@@ -248,12 +267,19 @@ class GradCheck {
         }
 
         input.write(index, original + step);
+        var plusInput = input.read(index);
         prepareLoss(loss, initialLoss, resetLoss);
         kernel.raw().launchDynamic(args);
         input.context.sync();
         var plus = loss.read();
 
         input.write(index, original - step);
+        var minusInput = input.read(index);
+        var sampledWidth = plusInput - minusInput;
+        if (!(Math.abs(sampledWidth) > 0.0)) {
+          input.write(index, original);
+          throw 'Quadrants GradCheck ${input.name}[${index}] epsilon ${step} cannot produce distinct ${input.dtype} host values';
+        }
         prepareLoss(loss, initialLoss, resetLoss);
         kernel.raw().launchDynamic(args);
         input.context.sync();
@@ -261,7 +287,7 @@ class GradCheck {
 
         input.write(index, original);
 
-        var numeric = (plus - minus) / (2.0 * step);
+        var numeric = (plus - minus) / sampledWidth;
         var analyticValue = analytic[parameter][i];
         var absError = Math.abs(analyticValue - numeric);
         var relDenom = Math.max(Math.max(Math.abs(analyticValue), Math.abs(numeric)), RELATIVE_ERROR_FLOOR);
@@ -308,10 +334,10 @@ class GradCheck {
       throw "Quadrants GradCheck requires at least one checked input";
     }
     if (loss == null) {
-      throw "Quadrants GradCheck requires a scalar loss";
+      throw "Quadrants GradCheck requires a scalar real loss";
     }
     if (loss.elementCount != 1) {
-      throw "Quadrants GradCheck loss must contain exactly one F32 element";
+      throw "Quadrants GradCheck loss must contain exactly one element";
     }
     if (!containsArg(args, loss.value)) {
       throw "Quadrants GradCheck args must include the scalar loss";
@@ -374,7 +400,7 @@ class GradCheck {
 
   static function zeroGradArgs(args:Array<Dynamic>):Void {
     for (arg in args) {
-      if (Std.isOfType(arg, TensorRuntime) || Std.isOfType(arg, FieldRuntime)) {
+      if ((Std.isOfType(arg, TensorRuntime) || Std.isOfType(arg, FieldRuntime)) && Grad.supportsAutodiff(arg)) {
         Grad.zeroGrad(arg);
       }
     }
@@ -432,59 +458,71 @@ class GradCheck {
     return result;
   }
 
-  static function tensorTargets(inputs:Array<Tensor<F32>>):Array<GradCheckTarget> {
+  static function tensorTargets<T>(inputs:Array<Tensor<T>>):Array<GradCheckTarget> {
     if (inputs == null || inputs.length == 0) {
       throw "Quadrants GradCheck requires at least one tensor input";
     }
     return [for (i in 0...inputs.length) tensorTarget('input${i}', inputs[i])];
   }
 
-  static function fieldTargets(inputs:Array<Field<F32>>):Array<GradCheckTarget> {
+  static function fieldTargets<T>(inputs:Array<Field<T>>):Array<GradCheckTarget> {
     if (inputs == null || inputs.length == 0) {
       throw "Quadrants GradCheck requires at least one field input";
     }
     return [for (i in 0...inputs.length) fieldTarget('input${i}', inputs[i])];
   }
 
-  static function tensorTarget(name:String, input:Tensor<F32>):GradCheckTarget {
+  static function tensorTarget<T>(name:String, input:Tensor<T>):GradCheckTarget {
     if (input == null) {
-      throw "Quadrants GradCheck requires an F32 tensor input";
+      throw "Quadrants GradCheck requires a real tensor input";
+    }
+    var runtime:TensorRuntime = cast input;
+    runtime.requireAutodiffDType("grad");
+    return new GradCheckTarget(name,
+      input,
+      runtime.context,
+      runtime.dtype,
+      runtime.elementCount(),
+      function(index:Int):Float return Grad.readTensorReal(input, index, "GradCheck tensor input"),
+      function(index:Int, value:Float):Void Grad.writeTensorReal(input, index, value, "GradCheck tensor input"),
+      function():Void Grad.enableTensorGrad(input, "GradCheck tensor input"),
+      function(index:Int):Float return Grad.readTensorReal(input.lazyGrad(), index, "GradCheck tensor gradient"));
+  }
+
+  static function fieldTarget<T>(name:String, input:Field<T>):GradCheckTarget {
+    if (input == null) {
+      throw "Quadrants GradCheck requires a real field input";
+    }
+    var runtime:FieldRuntime = cast input;
+    runtime.requireAutodiffDType("grad");
+    if (runtime.shape == null) {
+      throw "Quadrants GradCheck field inputs must be placed";
     }
     return new GradCheckTarget(name,
       input,
-      input.context,
-      input.elementCount(),
-      function(index:Int):Float return input.read(index),
-      function(index:Int, value:Float):Void input.write(index, value),
-      function():Void input.enableGrad(),
-      function(index:Int):Float return input.grad.read(index));
+      runtime.context,
+      runtime.dtype,
+      runtime.elementCount(),
+      function(index:Int):Float return Grad.readFieldReal(input, index, "GradCheck field input"),
+      function(index:Int, value:Float):Void Grad.writeFieldReal(input, index, value, "GradCheck field input"),
+      function():Void Grad.enableFieldGrad(input, "GradCheck field input"),
+      function(index:Int):Float return Grad.readFieldReal(input.lazyGrad(), index, "GradCheck field gradient"));
   }
 
-  static function fieldTarget(name:String, input:Field<F32>):GradCheckTarget {
-    if (input == null) {
-      throw "Quadrants GradCheck requires an F32 field input";
-    }
-    return new GradCheckTarget(name,
-      input,
-      input.context,
-      input.elementCount(),
-      function(index:Int):Float return input.read(index),
-      function(index:Int, value:Float):Void input.write(index, value),
-      function():Void {},
-      function(index:Int):Float return input.grad.read(index));
-  }
-
-  static function tensorLoss(loss:Tensor<F32>):GradCheckLoss {
+  static function tensorLoss<T>(loss:Tensor<T>):GradCheckLoss {
     if (loss == null) {
-      throw "Quadrants GradCheck requires a scalar F32 loss tensor";
+      throw "Quadrants GradCheck requires a scalar real loss tensor";
     }
+    var runtime:TensorRuntime = cast loss;
+    runtime.requireAutodiffDType("grad");
     return new GradCheckLoss(loss,
-      loss.context,
-      loss.elementCount(),
-      function():Float return loss.read(0),
-      function(value:Float):Void loss.write(0, value),
-      function(value:Float):Void loss.fill(value),
-      function():Void loss.enableGrad(),
+      runtime.context,
+      runtime.dtype,
+      runtime.elementCount(),
+      function():Float return Grad.readTensorReal(loss, 0, "GradCheck loss"),
+      function(value:Float):Void Grad.writeTensorReal(loss, 0, value, "GradCheck loss"),
+      function(value:Float):Void Grad.fillTensorReal(loss, value, "GradCheck loss"),
+      function():Void Grad.enableTensorGrad(loss, "GradCheck loss"),
       function(value:Float):Void Grad.seedTensorGrad(loss, value));
   }
 
@@ -495,6 +533,33 @@ class GradCheck {
       }
     }
     return false;
+  }
+
+  static function precisionDefaults(inputs:Array<GradCheckTarget>, loss:GradCheckLoss):GradCheckPrecision {
+    return switch (precisionDType(inputs, loss)) {
+      case DType.F64:
+        {epsilon: DEFAULT_F64_EPSILON, absoluteTolerance: DEFAULT_F64_ABSOLUTE_TOLERANCE, relativeTolerance: DEFAULT_F64_RELATIVE_TOLERANCE};
+      case DType.F16, DType.F32:
+        {epsilon: DEFAULT_EPSILON, absoluteTolerance: DEFAULT_ABSOLUTE_TOLERANCE, relativeTolerance: DEFAULT_RELATIVE_TOLERANCE};
+      default:
+        throw "Quadrants GradCheck requires real floating inputs and loss";
+    };
+  }
+
+  static function precisionDType(inputs:Array<GradCheckTarget>, loss:GradCheckLoss):DType {
+    var hasF32 = loss.dtype == DType.F32;
+    if (loss.dtype == DType.F16) {
+      return DType.F16;
+    }
+    for (input in inputs) {
+      if (input.dtype == DType.F16) {
+        return DType.F16;
+      }
+      if (input.dtype == DType.F32) {
+        hasF32 = true;
+      }
+    }
+    return hasF32 ? DType.F32 : DType.F64;
   }
 
   static function optionFloat(value:Null<Float>, fallback:Float, name:String):Float {

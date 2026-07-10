@@ -1,6 +1,5 @@
 package quadrants;
 
-import quadrants.Types.F32;
 import quadrants.ad.Grad;
 import quadrants.ad.CustomGradient;
 import quadrants.kernel.QKernel;
@@ -110,13 +109,13 @@ class Tape {
     return tape;
   }
 
-  public static function withLoss(context:Context, loss:Tensor<F32>, body:Tape->Void, clearAfter:Bool = true):Tape {
-    return withLossAndParams(context, loss, [], body, clearAfter);
+  public static function withLoss<T>(context:Context, loss:Tensor<T>, body:Tape->Void, clearAfter:Bool = true):Tape {
+    return withLossAndParams(context, loss, new Array<Tensor<T>>(), body, clearAfter);
   }
 
-  public static function withLossAndParams(context:Context,
-      loss:Tensor<F32>,
-      params:Array<Tensor<F32>>,
+  public static function withLossAndParams<TLoss, TParam>(context:Context,
+      loss:Tensor<TLoss>,
+      params:Array<Tensor<TParam>>,
       body:Tape->Void,
       clearAfter:Bool = true):Tape {
     requireLoss(context, loss);
@@ -124,17 +123,16 @@ class Tape {
       throw "Quadrants Tape.withLossAndParams requires a parameter array";
     }
     if (body == null) {
-      throw "Quadrants Tape.withLoss requires a body callback";
+      throw "Quadrants Tape.withLossAndParams requires a body callback";
     }
 
-    loss.enableGrad();
-    Grad.zeroTensorGrad(loss);
-    zeroTensorParams(params, loss);
+    Grad.seedTensorGrad(loss, 0.0);
+    zeroTensorParams(params, context);
 
     var tape = new Tape();
     body(tape);
     tape.zeroRecordedGradients();
-    zeroTensorParams(params, loss);
+    zeroTensorParams(params, context);
     Grad.seedTensorGrad(loss, 1.0);
     tape.backward(clearAfter);
     return tape;
@@ -212,7 +210,7 @@ class Tape {
   function zeroRecordedPeers(peerName:String):Void {
     for (record in records) {
       for (arg in record.args) {
-        if (Std.isOfType(arg, TensorRuntime) || Std.isOfType(arg, FieldRuntime)) {
+        if ((Std.isOfType(arg, TensorRuntime) || Std.isOfType(arg, FieldRuntime)) && Grad.supportsAutodiff(arg)) {
           if (peerName == "grad") {
             Grad.zeroGrad(arg);
           } else {
@@ -223,30 +221,33 @@ class Tape {
     }
   }
 
-  static function requireLoss(context:Context, loss:Tensor<F32>):Void {
+  static function requireLoss<T>(context:Context, loss:Tensor<T>):Void {
     if (context == null) {
       throw "Quadrants Tape.withLoss requires a Context";
     }
     if (loss == null) {
-      throw "Quadrants Tape.withLoss requires a scalar F32 loss tensor";
+      throw "Quadrants Tape.withLoss requires a scalar real loss tensor";
     }
-    if (loss.context != context) {
+    var runtime:TensorRuntime = cast loss;
+    if (runtime.context != context) {
       throw "Quadrants Tape.withLoss loss tensor must belong to the supplied Context";
     }
-    if (loss.elementCount() != 1) {
+    if (runtime.elementCount() != 1) {
       throw "Quadrants Tape.withLoss loss tensor must contain exactly one element";
     }
+    runtime.requireAutodiffDType("grad");
   }
 
-  static function zeroTensorParams(params:Array<Tensor<F32>>, loss:Tensor<F32>):Void {
+  static function zeroTensorParams<T>(params:Array<Tensor<T>>, context:Context):Void {
     for (param in params) {
       if (param == null) {
         throw "Quadrants Tape.withLossAndParams parameters cannot contain null";
       }
-      if (param.context != loss.context) {
+      var runtime:TensorRuntime = cast param;
+      if (runtime.context != context) {
         throw "Quadrants Tape.withLossAndParams parameters must share the loss Context";
       }
-      param.enableGrad();
+      runtime.enableGradFlag(true);
       Grad.zeroTensorGrad(param);
     }
   }

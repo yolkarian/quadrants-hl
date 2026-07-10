@@ -14,4 +14,6 @@ interface TensorArg<T> extends TensorHandle {
   public function write(flatIndex:Int, value:T):Void;
   public function scalarRead():T;
   public function scalarWrite(value:T):Void;
+  public function lazyGrad():Tensor<T>;
+  public function lazyDual():Tensor<T>;
 }
