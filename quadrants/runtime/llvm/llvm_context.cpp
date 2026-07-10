@@ -529,6 +529,8 @@ std::unique_ptr<llvm::Module> QuadrantsLLVMContext::module_from_file(const std::
       patch_intrinsic("amdgpu_ds_bpermute", llvm::Intrinsic::amdgcn_ds_bpermute);
       patch_intrinsic("amdgpu_mbcnt_lo", llvm::Intrinsic::amdgcn_mbcnt_lo);
       patch_intrinsic("amdgpu_mbcnt_hi", llvm::Intrinsic::amdgcn_mbcnt_hi);
+      patch_intrinsic("amdgpu_ballot_w32", llvm::Intrinsic::amdgcn_ballot, true, {llvm::Type::getInt32Ty(*ctx)});
+      patch_intrinsic("amdgpu_ballot_w64", llvm::Intrinsic::amdgcn_ballot, true, {llvm::Type::getInt64Ty(*ctx)});
 
       // Patch warp_size() for AMDGPU. The shared `cuda_kernel_utils.inc.h` stub returns 32, which is baked into the
       // runtime bitcode by the host clang front-end. Without this patch, AMDGPU code that uses `warp_size()` (e.g. the

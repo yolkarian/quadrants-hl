@@ -91,6 +91,10 @@ void IRBuilder::init_header() {
     ib_.begin(spv::OpCapability).add(spv::CapabilityShaderClockKHR).commit(&header_);
   }
 
+  if (caps_->get(cap::spirv_has_subgroup_ballot)) {
+    ib_.begin(spv::OpCapability).add(spv::CapabilityGroupNonUniformBallot).commit(&header_);
+  }
+
   ib_.begin(spv::OpExtension).add("SPV_KHR_storage_buffer_storage_class").commit(&header_);
 
   // `SPV_KHR_{8,16}bit_storage` is paired with `CapabilityStorageBuffer{8,16}BitAccess` above.
@@ -206,6 +210,9 @@ void IRBuilder::init_pre_defs() {
 
   t_v3_uint_.id = id_counter_++;
   ib_.begin(spv::OpTypeVector).add(t_v3_uint_).add_seq(t_uint32_, 3).commit(&global_);
+
+  t_v4_uint_.id = id_counter_++;
+  ib_.begin(spv::OpTypeVector).add(t_v4_uint_).add_seq(t_uint32_, 4).commit(&global_);
 
   t_v4_fp32_.id = id_counter_++;
   ib_.begin(spv::OpTypeVector).add(t_v4_fp32_).add_seq(t_fp32_, 4).commit(&global_);

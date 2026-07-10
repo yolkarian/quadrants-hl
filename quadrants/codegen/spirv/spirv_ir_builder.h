@@ -530,6 +530,10 @@ class IRBuilder {
     return t_bool_;
   }
 
+  SType v4_u32_type() const {
+    return t_v4_uint_;
+  }
+
   // quick cache for const zero/one i32
   Value const_i32_zero_;
   Value const_i32_one_;
@@ -582,6 +586,7 @@ class IRBuilder {
   SType t_v2_int_;
   SType t_v3_int_;
   SType t_v3_uint_;
+  SType t_v4_uint_;
   SType t_v4_fp32_;
   SType t_v3_fp32_;
   SType t_v2_fp32_;

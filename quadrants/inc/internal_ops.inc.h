@@ -33,6 +33,8 @@ PER_INTERNAL_OP(subgroupBroadcast)
 PER_INTERNAL_OP(subgroupShuffle)
 PER_INTERNAL_OP(subgroupShuffleDown)
 PER_INTERNAL_OP(subgroupShuffleUp)
+PER_INTERNAL_OP(subgroupBallotU32)
+PER_INTERNAL_OP(subgroupBallotU64)
 PER_INTERNAL_OP(subgroupSize)
 PER_INTERNAL_OP(subgroupInvocationId)
 // subgroupAdd / subgroupMul / subgroupMin / subgroupMax / subgroupAnd / subgroupOr / subgroupXor and subgroupInclusive*
