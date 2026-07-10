@@ -85,8 +85,11 @@ class Sort {
       case DType.U64:
         var end = checkedBitRange(beginBit, endBit, 64);
         radixSortU64(cast input, cast output, count, ascending, beginBit, mask64(beginBit, end));
+      case DType.F32:
+        var end = checkedBitRange(beginBit, endBit, 32);
+        radixSortF32(cast input, cast output, count, ascending, beginBit, mask32(beginBit, end));
       default:
-        throw "Quadrants radix sort supports only I32, U32, I64, and U64 key tensors";
+        throw "Quadrants radix sort supports only I32, U32, I64, U64, and F32 key tensors";
     }
   }
 
@@ -186,8 +189,29 @@ class Sort {
           default:
             throw "Quadrants radix sort pair values support only I32, U32, I64, U64, F32, and F64 tensors";
         }
+      case DType.F32:
+        var end = checkedBitRange(beginBit, endBit, 32);
+        var rangeMask = mask32(beginBit, end);
+        encodeF32SortableBits(cast keysIn, cast keysOut, count);
+        switch (valuesInTensor.dtype) {
+          case DType.I32:
+            radixSortPairsF32I32(cast keysOut, cast valuesIn, cast keysOut, cast valuesOut, count, ascending, beginBit, rangeMask);
+          case DType.U32:
+            radixSortPairsF32U32(cast keysOut, cast valuesIn, cast keysOut, cast valuesOut, count, ascending, beginBit, rangeMask);
+          case DType.I64:
+            radixSortPairsF32I64(cast keysOut, cast valuesIn, cast keysOut, cast valuesOut, count, ascending, beginBit, rangeMask);
+          case DType.U64:
+            radixSortPairsF32U64(cast keysOut, cast valuesIn, cast keysOut, cast valuesOut, count, ascending, beginBit, rangeMask);
+          case DType.F32:
+            radixSortPairsF32F32(cast keysOut, cast valuesIn, cast keysOut, cast valuesOut, count, ascending, beginBit, rangeMask);
+          case DType.F64:
+            radixSortPairsF32F64(cast keysOut, cast valuesIn, cast keysOut, cast valuesOut, count, ascending, beginBit, rangeMask);
+          default:
+            throw "Quadrants radix sort pair values support only I32, U32, I64, U64, F32, and F64 tensors";
+        }
+        decodeF32SortableBits(cast keysOut, cast keysOut, count);
       default:
-        throw "Quadrants radix sort pairs supports only I32, U32, I64, and U64 key tensors";
+        throw "Quadrants radix sort pairs supports only I32, U32, I64, U64, and F32 key tensors";
     }
   }
 
@@ -460,6 +484,99 @@ class Sort {
       kernel.close();
     } catch (e:Dynamic) {
       closeKernel(kernel);
+      throw e;
+    }
+  }
+
+  static function radixSortF32(input:Tensor<F32>, output:Tensor<F32>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
+    encodeF32SortableBits(input, output, n);
+    radixSortF32SortableBits(output, output, n, ascending, beginBit, mask);
+    decodeF32SortableBits(output, output, n);
+  }
+
+  static function encodeF32SortableBits(input:Tensor<F32>, output:Tensor<F32>, n:Int):Void {
+    var kernel = Kernel.build(input.context, macro (input:Tensor<F32>, output:Tensor<F32>, n:Int) -> {
+      var signMask:U32 = -2147483647 - 1;
+      var allBits:U32 = -1;
+      for (i in 0...n) {
+        var bits:U32 = bitCast(input[i], U32);
+        // Positive bit patterns XOR the sign bit; negative ones XOR every bit.
+        var twiddle:U32 = signMask;
+        if ((bits & signMask) != 0) {
+          twiddle = allBits;
+        }
+        output[i] = bitCast(bits ^ twiddle, F32);
+      }
+    });
+    try {
+      kernel.launch(input, output, n);
+      kernel.close();
+    } catch (e:Dynamic) {
+      kernel.close();
+      throw e;
+    }
+  }
+
+  static function radixSortF32SortableBits(input:Tensor<F32>, output:Tensor<F32>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
+    var kernel = Kernel.build(input.context, macro (input:Tensor<F32>, output:Tensor<F32>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
+      for (i in 0...n) output[i] = input[i];
+      var rangeMask:U32 = mask;
+      var i = 1;
+      while (i < n) {
+        // Keys are sortable U32 bit patterns stored in F32 slots; never compare them as floats.
+        var key:F32 = output[i];
+        var keyBits:U32 = bitCast(key, U32);
+        var rank:U32 = (keyBits >> beginBit) & rangeMask;
+        var j = i;
+        while (j > 0) {
+          var previousKey:F32 = output[j - 1];
+          var previousBits:U32 = bitCast(previousKey, U32);
+          var previousRank:U32 = (previousBits >> beginBit) & rangeMask;
+          var move:Bool = false;
+          if (ascending) {
+            if (rank < previousRank) move = true;
+          } else {
+            if (rank > previousRank) move = true;
+          }
+          if (move) {
+            output[j] = previousKey;
+            j -= 1;
+          } else {
+            break;
+          }
+        }
+        output[j] = key;
+        i += 1;
+      }
+    });
+    try {
+      kernel.launch(input, output, n, ascending, beginBit, mask);
+      kernel.close();
+    } catch (e:Dynamic) {
+      kernel.close();
+      throw e;
+    }
+  }
+
+  static function decodeF32SortableBits(input:Tensor<F32>, output:Tensor<F32>, n:Int):Void {
+    var kernel = Kernel.build(input.context, macro (input:Tensor<F32>, output:Tensor<F32>, n:Int) -> {
+      var signMask:U32 = -2147483647 - 1;
+      var allBits:U32 = -1;
+      for (i in 0...n) {
+        var sortableBits:U32 = bitCast(input[i], U32);
+        // The inverse branches on the sortable output sign bit, not the original sign bit.
+        var twiddle:U32 = allBits;
+        if ((sortableBits & signMask) != 0) {
+          twiddle = signMask;
+        }
+        output[i] = bitCast(sortableBits ^ twiddle, F32);
+      }
+    });
+    try {
+      kernel.launch(input, output, n);
+      kernel.close();
+    } catch (e:Dynamic) {
+      kernel.close();
       throw e;
     }
   }
@@ -1662,6 +1779,283 @@ class Sort {
     }
   }
 
+  // F32 key slots hold sortable U32 bit patterns until decodeF32SortableBits restores them.
+  static function radixSortPairsF32I32(keysIn:Tensor<F32>, valuesIn:Tensor<I32>, keysOut:Tensor<F32>, valuesOut:Tensor<I32>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
+    var kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<F32>, valuesIn:Tensor<I32>, keysOut:Tensor<F32>, valuesOut:Tensor<I32>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
+      for (i in 0...n) {
+        keysOut[i] = keysIn[i];
+        valuesOut[i] = valuesIn[i];
+      }
+      var rangeMask:U32 = mask;
+      var i = 1;
+      while (i < n) {
+        var key:F32 = keysOut[i];
+        var value:I32 = valuesOut[i];
+        var keyBits:U32 = bitCast(key, U32);
+        var rank:U32 = (keyBits >> beginBit) & rangeMask;
+        var j = i;
+        while (j > 0) {
+          var previousKey:F32 = keysOut[j - 1];
+          var previousBits:U32 = bitCast(previousKey, U32);
+          var previousRank:U32 = (previousBits >> beginBit) & rangeMask;
+          var move:Bool = false;
+          if (ascending) {
+            if (rank < previousRank) move = true;
+          } else {
+            if (rank > previousRank) move = true;
+          }
+          if (move) {
+            keysOut[j] = previousKey;
+            valuesOut[j] = valuesOut[j - 1];
+            j -= 1;
+          } else {
+            break;
+          }
+        }
+        keysOut[j] = key;
+        valuesOut[j] = value;
+        i += 1;
+      }
+    });
+    try {
+      kernel.launch(keysIn, valuesIn, keysOut, valuesOut, n, ascending, beginBit, mask);
+      kernel.close();
+    } catch (e:Dynamic) {
+      kernel.close();
+      throw e;
+    }
+  }
+
+  static function radixSortPairsF32U32(keysIn:Tensor<F32>, valuesIn:Tensor<U32>, keysOut:Tensor<F32>, valuesOut:Tensor<U32>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
+    var kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<F32>, valuesIn:Tensor<U32>, keysOut:Tensor<F32>, valuesOut:Tensor<U32>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
+      for (i in 0...n) {
+        keysOut[i] = keysIn[i];
+        valuesOut[i] = valuesIn[i];
+      }
+      var rangeMask:U32 = mask;
+      var i = 1;
+      while (i < n) {
+        var key:F32 = keysOut[i];
+        var value:U32 = valuesOut[i];
+        var keyBits:U32 = bitCast(key, U32);
+        var rank:U32 = (keyBits >> beginBit) & rangeMask;
+        var j = i;
+        while (j > 0) {
+          var previousKey:F32 = keysOut[j - 1];
+          var previousBits:U32 = bitCast(previousKey, U32);
+          var previousRank:U32 = (previousBits >> beginBit) & rangeMask;
+          var move:Bool = false;
+          if (ascending) {
+            if (rank < previousRank) move = true;
+          } else {
+            if (rank > previousRank) move = true;
+          }
+          if (move) {
+            keysOut[j] = previousKey;
+            valuesOut[j] = valuesOut[j - 1];
+            j -= 1;
+          } else {
+            break;
+          }
+        }
+        keysOut[j] = key;
+        valuesOut[j] = value;
+        i += 1;
+      }
+    });
+    try {
+      kernel.launch(keysIn, valuesIn, keysOut, valuesOut, n, ascending, beginBit, mask);
+      kernel.close();
+    } catch (e:Dynamic) {
+      kernel.close();
+      throw e;
+    }
+  }
+
+  static function radixSortPairsF32I64(keysIn:Tensor<F32>, valuesIn:Tensor<I64>, keysOut:Tensor<F32>, valuesOut:Tensor<I64>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
+    var kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<F32>, valuesIn:Tensor<I64>, keysOut:Tensor<F32>, valuesOut:Tensor<I64>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
+      for (i in 0...n) {
+        keysOut[i] = keysIn[i];
+        valuesOut[i] = valuesIn[i];
+      }
+      var rangeMask:U32 = mask;
+      var i = 1;
+      while (i < n) {
+        var key:F32 = keysOut[i];
+        var value:I64 = valuesOut[i];
+        var keyBits:U32 = bitCast(key, U32);
+        var rank:U32 = (keyBits >> beginBit) & rangeMask;
+        var j = i;
+        while (j > 0) {
+          var previousKey:F32 = keysOut[j - 1];
+          var previousBits:U32 = bitCast(previousKey, U32);
+          var previousRank:U32 = (previousBits >> beginBit) & rangeMask;
+          var move:Bool = false;
+          if (ascending) {
+            if (rank < previousRank) move = true;
+          } else {
+            if (rank > previousRank) move = true;
+          }
+          if (move) {
+            keysOut[j] = previousKey;
+            valuesOut[j] = valuesOut[j - 1];
+            j -= 1;
+          } else {
+            break;
+          }
+        }
+        keysOut[j] = key;
+        valuesOut[j] = value;
+        i += 1;
+      }
+    });
+    try {
+      kernel.launch(keysIn, valuesIn, keysOut, valuesOut, n, ascending, beginBit, mask);
+      kernel.close();
+    } catch (e:Dynamic) {
+      kernel.close();
+      throw e;
+    }
+  }
+
+  static function radixSortPairsF32U64(keysIn:Tensor<F32>, valuesIn:Tensor<U64>, keysOut:Tensor<F32>, valuesOut:Tensor<U64>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
+    var kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<F32>, valuesIn:Tensor<U64>, keysOut:Tensor<F32>, valuesOut:Tensor<U64>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
+      for (i in 0...n) {
+        keysOut[i] = keysIn[i];
+        valuesOut[i] = valuesIn[i];
+      }
+      var rangeMask:U32 = mask;
+      var i = 1;
+      while (i < n) {
+        var key:F32 = keysOut[i];
+        var value:U64 = valuesOut[i];
+        var keyBits:U32 = bitCast(key, U32);
+        var rank:U32 = (keyBits >> beginBit) & rangeMask;
+        var j = i;
+        while (j > 0) {
+          var previousKey:F32 = keysOut[j - 1];
+          var previousBits:U32 = bitCast(previousKey, U32);
+          var previousRank:U32 = (previousBits >> beginBit) & rangeMask;
+          var move:Bool = false;
+          if (ascending) {
+            if (rank < previousRank) move = true;
+          } else {
+            if (rank > previousRank) move = true;
+          }
+          if (move) {
+            keysOut[j] = previousKey;
+            valuesOut[j] = valuesOut[j - 1];
+            j -= 1;
+          } else {
+            break;
+          }
+        }
+        keysOut[j] = key;
+        valuesOut[j] = value;
+        i += 1;
+      }
+    });
+    try {
+      kernel.launch(keysIn, valuesIn, keysOut, valuesOut, n, ascending, beginBit, mask);
+      kernel.close();
+    } catch (e:Dynamic) {
+      kernel.close();
+      throw e;
+    }
+  }
+
+  static function radixSortPairsF32F32(keysIn:Tensor<F32>, valuesIn:Tensor<F32>, keysOut:Tensor<F32>, valuesOut:Tensor<F32>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
+    var kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<F32>, valuesIn:Tensor<F32>, keysOut:Tensor<F32>, valuesOut:Tensor<F32>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
+      for (i in 0...n) {
+        keysOut[i] = keysIn[i];
+        valuesOut[i] = valuesIn[i];
+      }
+      var rangeMask:U32 = mask;
+      var i = 1;
+      while (i < n) {
+        var key:F32 = keysOut[i];
+        var value:F32 = valuesOut[i];
+        var keyBits:U32 = bitCast(key, U32);
+        var rank:U32 = (keyBits >> beginBit) & rangeMask;
+        var j = i;
+        while (j > 0) {
+          var previousKey:F32 = keysOut[j - 1];
+          var previousBits:U32 = bitCast(previousKey, U32);
+          var previousRank:U32 = (previousBits >> beginBit) & rangeMask;
+          var move:Bool = false;
+          if (ascending) {
+            if (rank < previousRank) move = true;
+          } else {
+            if (rank > previousRank) move = true;
+          }
+          if (move) {
+            keysOut[j] = previousKey;
+            valuesOut[j] = valuesOut[j - 1];
+            j -= 1;
+          } else {
+            break;
+          }
+        }
+        keysOut[j] = key;
+        valuesOut[j] = value;
+        i += 1;
+      }
+    });
+    try {
+      kernel.launch(keysIn, valuesIn, keysOut, valuesOut, n, ascending, beginBit, mask);
+      kernel.close();
+    } catch (e:Dynamic) {
+      kernel.close();
+      throw e;
+    }
+  }
+
+  static function radixSortPairsF32F64(keysIn:Tensor<F32>, valuesIn:Tensor<F64>, keysOut:Tensor<F32>, valuesOut:Tensor<F64>, n:Int, ascending:Bool, beginBit:Int, mask:Int):Void {
+    var kernel = Kernel.build(keysIn.context, macro (keysIn:Tensor<F32>, valuesIn:Tensor<F64>, keysOut:Tensor<F32>, valuesOut:Tensor<F64>, n:Int, ascending:Bool, beginBit:Int, mask:Int) -> {
+      for (i in 0...n) {
+        keysOut[i] = keysIn[i];
+        valuesOut[i] = valuesIn[i];
+      }
+      var rangeMask:U32 = mask;
+      var i = 1;
+      while (i < n) {
+        var key:F32 = keysOut[i];
+        var value:F64 = valuesOut[i];
+        var keyBits:U32 = bitCast(key, U32);
+        var rank:U32 = (keyBits >> beginBit) & rangeMask;
+        var j = i;
+        while (j > 0) {
+          var previousKey:F32 = keysOut[j - 1];
+          var previousBits:U32 = bitCast(previousKey, U32);
+          var previousRank:U32 = (previousBits >> beginBit) & rangeMask;
+          var move:Bool = false;
+          if (ascending) {
+            if (rank < previousRank) move = true;
+          } else {
+            if (rank > previousRank) move = true;
+          }
+          if (move) {
+            keysOut[j] = previousKey;
+            valuesOut[j] = valuesOut[j - 1];
+            j -= 1;
+          } else {
+            break;
+          }
+        }
+        keysOut[j] = key;
+        valuesOut[j] = value;
+        i += 1;
+      }
+    });
+    try {
+      kernel.launch(keysIn, valuesIn, keysOut, valuesOut, n, ascending, beginBit, mask);
+      kernel.close();
+    } catch (e:Dynamic) {
+      kernel.close();
+      throw e;
+    }
+  }
+
   static function requireSortDType(tensor:TensorRuntime, name:String):Void {
     switch (tensor.dtype) {
       case DType.I32 | DType.U32 | DType.I64 | DType.U64 | DType.F32 | DType.F64:
@@ -1672,9 +2066,9 @@ class Sort {
 
   static function requireRadixKeyDType(tensor:TensorRuntime, name:String):Void {
     switch (tensor.dtype) {
-      case DType.I32 | DType.U32 | DType.I64 | DType.U64:
+      case DType.I32 | DType.U32 | DType.I64 | DType.U64 | DType.F32:
       default:
-        throw 'Quadrants ${name} must be an I32, U32, I64, or U64 Tensor';
+        throw 'Quadrants ${name} must be an I32, U32, I64, U64, or F32 Tensor';
     }
   }
 
