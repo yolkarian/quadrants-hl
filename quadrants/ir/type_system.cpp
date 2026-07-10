@@ -357,10 +357,10 @@ void Operations::init_internals() {
   PLAIN_OP(subgroupBarrier, i32_void, false);
   PLAIN_OP(subgroupMemoryBarrier, i32_void, false);
   PLAIN_OP(subgroupElect, i32, false);
-  POLY_OP(subgroupBroadcast, false, Signature({}, {ValueT, !u32}, ValueT));
-  POLY_OP(subgroupShuffle, false, Signature({}, {ValueT, !u32}, ValueT));
-  POLY_OP(subgroupShuffleDown, false, Signature({}, {ValueT, !u32}, ValueT));
-  POLY_OP(subgroupShuffleUp, false, Signature({}, {ValueT, !u32}, ValueT));
+  POLY_OP(subgroupBroadcast, false, Signature({}, {ValueT, !i32}, ValueT));
+  POLY_OP(subgroupShuffle, false, Signature({}, {ValueT, !i32}, ValueT));
+  POLY_OP(subgroupShuffleDown, false, Signature({}, {ValueT, !i32}, ValueT));
+  POLY_OP(subgroupShuffleUp, false, Signature({}, {ValueT, !i32}, ValueT));
   PLAIN_OP(subgroupBallotU32, u32, false, i32);
   PLAIN_OP(subgroupBallotU64, u64, false, i32);
   PLAIN_OP(subgroupSize, i32, false);
