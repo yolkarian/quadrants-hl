@@ -19,9 +19,6 @@ class TypedKernelBuild {
     }
 
     var sourceArgs = functionDef.args;
-    if (sourceArgs.length > 12) {
-      Context.error("Quadrants typed kernels currently support up to 12 parameters", functionExpr.pos);
-    }
     for (arg in sourceArgs) {
       if (arg.type == null) {
         Context.error('Quadrants typed kernel parameter ${arg.name} requires an explicit type annotation', arg.value == null ? functionExpr.pos : arg.value.pos);
@@ -33,9 +30,9 @@ class TypedKernelBuild {
     if (returnType == null) {
       returnType = voidType();
     }
+    QKernelTypeBuilder.ensure(args.length, functionExpr.pos);
 
     var wrapperType = wrapperComplexType(args, returnType);
-    var wrapperPath = wrapperPath(args.length);
     var metadataArgs = [for (arg in sourceArgs) metadataArg(arg, functionExpr.pos)];
     var descriptorOptions = mergeOptionsWithMetadata(optionsExpr,
       quadrants.macro.DescriptorWriter.metadata(kernelNameFromOptions(optionsExpr, functionExpr.pos), metadataArgs, [], [], []),
@@ -464,9 +461,6 @@ class TypedKernelBuild {
     return TPath({pack: ["quadrants", "kernel"], name: 'QKernel${args.length}', params: params});
   }
 
-  static function wrapperPath(arity:Int):Array<String> {
-    return ["quadrants", "kernel", 'QKernel${arity}'];
-  }
 
   public static function wrapperTypePath(arity:Int):TypePath {
     return {pack: ["quadrants", "kernel"], name: 'QKernel${arity}'};
