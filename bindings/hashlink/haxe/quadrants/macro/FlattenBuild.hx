@@ -55,7 +55,7 @@ class FlattenBuild {
       hasFlatten = true;
       var members = flattenMembers(arg.name, identExpr(arg.name, functionExpr.pos), arg.type, functionExpr.pos, mapping);
       for (member in members) {
-        var transformedType = member.role == "spec" ? specComplexType(member.type) : member.type;
+        var transformedType = member.type;
         transformedArgs.push({name: member.flatName, opt: false, type: transformedType, value: null});
         appendStatements.push(quadrants.macro.TypedKernelBuild.appendStatementForExpr(member.accessExpr, transformedType, functionExpr.pos));
         metadataArgs.push({path: member.path, role: member.role, kind: paramKindForComplexType(member.type, functionExpr.pos), dtype: dtypeForComplexType(member.type, functionExpr.pos), rank: rankForComplexType(member.type, functionExpr.pos)});
@@ -81,6 +81,7 @@ class FlattenBuild {
       returnType = quadrants.macro.TypedKernelBuild.voidType();
     }
 
+    QKernelTypeBuilder.ensure(sourceArgs.length, functionExpr.pos);
     var wrapperType = quadrants.macro.TypedKernelBuild.wrapperComplexType([for (arg in sourceArgs) {name: arg.name, opt: false, type: arg.type, value: null}], returnType);
     var kernelName = kernelNameFromOptions(optionsExpr, functionExpr.pos);
     var metadataJson = descriptorMetadataJson(kernelName, metadataArgs);
@@ -118,9 +119,6 @@ class FlattenBuild {
     };
   }
 
-  static function specComplexType(inner:ComplexType):ComplexType {
-    return TPath({pack: ["quadrants"], name: "Spec", params: [TPType(inner)]});
-  }
 
   static function buildLaunchFunction(args:Array<FunctionArg>, appendStatements:Array<Expr>, returnType:ComplexType, useStream:Bool, useGraph:Bool, pos:Position):Expr {
     var closureArgs = new Array<FunctionArg>();
@@ -216,12 +214,46 @@ class FlattenBuild {
 
   static function isSpecComplexType(type:ComplexType):Bool {
     return switch (stripType(type)) {
-      case TPath(path):
-        var fullName = (path.pack == null || path.pack.length == 0 ? "" : path.pack.join(".") + ".") + path.name;
-        fullName == "Spec" || fullName == "quadrants.Spec";
-      default:
-        false;
+      case TPath(path): isSpecPath(path);
+      default: false;
     };
+  }
+
+  static function isSpecPath(path:TypePath):Bool {
+    var fullName = (path.pack == null || path.pack.length == 0 ? "" : path.pack.join(".") + ".") + path.name;
+    return fullName == "Spec" || fullName == "quadrants.Spec";
+  }
+
+  static function specInnerComplexType(type:ComplexType, pos:Position):ComplexType {
+    return switch (stripType(type)) {
+      case TPath(path) if (isSpecPath(path)):
+        if (path.params == null || path.params.length != 1) {
+          Context.error("Quadrants Spec<T> requires exactly one type parameter", pos);
+        }
+        switch (path.params[0]) {
+          case TPType(inner): inner;
+          default: Context.error("Quadrants Spec<T> type parameter must be a type", pos);
+        }
+      default:
+        Context.error("Quadrants expected a Spec<T> field type", pos);
+    };
+  }
+
+  static function validateSpecComplexType(type:ComplexType, pos:Position, path:String):Void {
+    var inner = specInnerComplexType(type, pos);
+    var resolved = Context.resolveType(inner, pos);
+    if (isDynamicType(resolved)) {
+      Context.error('Quadrants QdArgs field ${path} Spec<T> cannot wrap Dynamic', pos);
+    }
+    if (isArrayType(resolved)) {
+      Context.error('Quadrants QdArgs field ${path} Spec<T> cannot wrap Array<T>', pos);
+    }
+    if (isStringType(resolved)) {
+      Context.error('Quadrants QdArgs field ${path} Spec<T> cannot wrap String', pos);
+    }
+    if (isSpecComplexType(inner) || isResourceType(resolved) || flattenClassType(inner, pos) != null || !isAllowedScalarType(resolved)) {
+      Context.error('Quadrants QdArgs field ${path} Spec<T> must wrap a primitive or enum scalar', pos);
+    }
   }
 
   static function dtypeFromTypeParam(param:TypeParam, pos:Position):Int {
@@ -321,6 +353,13 @@ class FlattenBuild {
       }
       var fieldAccess = fieldAccessExpr(rootExpr, field.name, field.pos);
       var fieldPath = rootName + "." + field.name;
+      if (isSpecComplexType(fieldType)) {
+        validateSpecComplexType(fieldType, field.pos, fieldPath);
+        var flatName = sanitizePath(fieldPath);
+        mapping.set(fieldPath, flatName);
+        result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: "spec"});
+        continue;
+      }
       var nestedClass = flattenClassType(fieldType, field.pos);
       if (nestedClass != null) {
         for (member in flattenMembers(fieldPath, fieldAccess, fieldType, field.pos, mapping)) {
@@ -343,12 +382,12 @@ class FlattenBuild {
         result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: "runtime"});
         continue;
       }
-      if (!isAllowedSpecType(field.type)) {
-        Context.error('Quadrants QdArgs field ${fieldPath} has unsupported type; use Tensor/Field resources, primitive/enum spec constants, nested QdArgs, or @:hostOnly', field.pos);
+      if (!isAllowedScalarType(field.type)) {
+        Context.error('Quadrants QdArgs field ${fieldPath} has unsupported type; use Tensor/Field resources, primitive/enum runtime scalars, Spec<T> specialization constants, nested QdArgs, or @:hostOnly', field.pos);
       }
       var flatName = sanitizePath(fieldPath);
       mapping.set(fieldPath, flatName);
-      result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: "spec"});
+      result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: "runtime"});
     }
     return result;
   }
@@ -404,6 +443,13 @@ class FlattenBuild {
       }
       var fieldAccess = fieldAccessExpr(rootExpr, field.name, field.pos);
       var fieldPath = rootName + "." + field.name;
+      if (isSpecComplexType(fieldType)) {
+        validateSpecComplexType(fieldType, field.pos, fieldPath);
+        var flatName = sanitizePath(fieldPath);
+        mapping.set(fieldPath, flatName);
+        result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: "spec"});
+        continue;
+      }
       var nestedClass = flattenClassType(fieldType, field.pos);
       if (nestedClass != null) {
         for (member in flattenMembers(fieldPath, fieldAccess, fieldType, field.pos, mapping)) {
@@ -426,12 +472,12 @@ class FlattenBuild {
         result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: "runtime"});
         continue;
       }
-      if (!isAllowedSpecComplexType(fieldType, field.pos)) {
-        Context.error('Quadrants QdArgs field ${fieldPath} has unsupported type; use Tensor/Field resources, primitive/enum spec constants, nested QdArgs, or @:hostOnly', field.pos);
+      if (!isAllowedScalarComplexType(fieldType, field.pos)) {
+        Context.error('Quadrants QdArgs field ${fieldPath} has unsupported type; use Tensor/Field resources, primitive/enum runtime scalars, Spec<T> specialization constants, nested QdArgs, or @:hostOnly', field.pos);
       }
       var flatName = sanitizePath(fieldPath);
       mapping.set(fieldPath, flatName);
-      result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: "spec"});
+      result.push({flatName: flatName, path: fieldPath, type: fieldType, accessExpr: fieldAccess, role: "runtime"});
     }
     return result;
   }
@@ -519,11 +565,11 @@ class FlattenBuild {
     };
   }
 
-  static function isAllowedSpecComplexType(type:ComplexType, pos:Position):Bool {
-    return isAllowedSpecType(Context.resolveType(type, pos));
+  static function isAllowedScalarComplexType(type:ComplexType, pos:Position):Bool {
+    return isAllowedScalarType(Context.resolveType(type, pos));
   }
 
-  static function isAllowedSpecType(type:Type):Bool {
+  static function isAllowedScalarType(type:Type):Bool {
     return switch (Context.followWithAbstracts(type)) {
       case TAbstract(_, _): true;
       case TEnum(_, _): true;

@@ -13,6 +13,7 @@ private typedef QdArgsMember = {
   var pos:Position;
   var resource:Bool;
   var spec:Bool;
+  var nested:Bool;
 }
 
 class QdArgs {
@@ -32,15 +33,17 @@ class QdArgs {
         continue;
       }
       if (hasBuildMeta(field.meta, ":param") || hasBuildMeta(field.meta, "param") || hasBuildMeta(field.meta, ":template") || hasBuildMeta(field.meta, "template")) {
-        Context.error('Quadrants QdArgs field ${field.name} must not use legacy @:param or @:template metadata; primitive members are specialization constants and runtime scalars must be explicit kernel parameters', field.pos);
+        Context.error('Quadrants QdArgs field ${field.name} must not use legacy @:param or @:template metadata; QdArgs scalars are runtime kernel arguments and specialization constants must use Spec<T>', field.pos);
       }
       var fieldType = fieldComplexType(field);
       if (fieldType == null) {
         Context.error('Quadrants QdArgs field ${field.name} requires an explicit type annotation', field.pos);
       }
       validateMember(field.name, fieldType, field.pos);
-      var resource = isResourceComplexType(fieldType, field.pos);
-      members.push({name: field.name, type: fieldType, pos: field.pos, resource: resource, spec: !resource});
+      var spec = isSpecComplexType(fieldType);
+      var resource = !spec && isResourceComplexType(fieldType, field.pos);
+      var nested = !spec && isQdArgsComplexType(fieldType, field.pos);
+      members.push({name: field.name, type: fieldType, pos: field.pos, resource: resource, spec: spec, nested: nested});
       dataNames.set(field.name, true);
     }
 
@@ -84,10 +87,14 @@ class QdArgs {
     if (isStringType(resolved)) {
       Context.error('Quadrants QdArgs field ${name} cannot use String; mark it @:hostOnly if it is host-only state', pos);
     }
-    if (isResourceType(resolved) || isQdArgsType(resolved) || isAllowedSpecType(resolved)) {
+    if (isSpecComplexType(type)) {
+      validateSpecMember(name, type, pos);
       return;
     }
-    Context.error('Quadrants QdArgs field ${name} has unsupported type; use Tensor/Field resources, primitive/enum spec constants, nested QdArgs, or @:hostOnly', pos);
+    if (isResourceType(resolved) || isQdArgsType(resolved) || isAllowedScalarType(resolved)) {
+      return;
+    }
+    Context.error('Quadrants QdArgs field ${name} has unsupported type; use Tensor/Field resources, primitive/enum runtime scalars, Spec<T> specialization constants, nested QdArgs, or @:hostOnly', pos);
   }
 
   static function contextMethod(local:ClassType, members:Array<QdArgsMember>):Field {
@@ -104,7 +111,7 @@ class QdArgs {
       statements.push(macro if (this.ctx != null) return this.ctx);
     }
     for (member in members) {
-      if (member.resource || !isQdArgsComplexType(member.type, member.pos)) {
+      if (member.resource || !member.nested) {
         continue;
       }
       var access = fieldExpr({expr: EConst(CIdent("this")), pos: pos}, member.name, pos);
@@ -122,7 +129,7 @@ class QdArgs {
 
   static function schemaMethod(local:ClassType, members:Array<QdArgsMember>):Field {
     var pos = Context.currentPos();
-    var fieldEntries = [for (member in members) macro {name: $v{member.name}, role: $v{member.resource ? "runtime" : "spec"}}];
+    var fieldEntries = [for (member in members) schemaEntry(member, pos)];
     var fieldsExpr:Expr = {expr: EArrayDecl(fieldEntries), pos: pos};
     return {
       name: "schema",
@@ -133,13 +140,29 @@ class QdArgs {
     };
   }
 
+  static function schemaEntry(member:QdArgsMember, pos:Position):Expr {
+    var role = member.spec ? "spec" : "runtime";
+    var fields:Array<ObjectField> = [
+      {field: "name", expr: macro $v{member.name}},
+      {field: "role", expr: macro $v{role}},
+    ];
+    if (member.nested) {
+      var nestedSchema = qdArgsStaticCall(member.type, "schema", [], pos);
+      fields.push({field: "fields", expr: fieldExpr(nestedSchema, "fields", pos)});
+    }
+    return {expr: EObjectDecl(fields), pos: pos};
+  }
+
   static function appendArgsMethod(local:ClassType, members:Array<QdArgsMember>):Field {
     var pos = Context.currentPos();
     var valueType = classComplexType(local);
     var statements = new Array<Expr>();
     for (member in members) {
-      if (member.resource) {
-        statements.push(macro quadrants.kernel.ArgEncoding.append(buf, $e{fieldExpr({expr: EConst(CIdent("value")), pos: pos}, member.name, pos)}));
+      var access = fieldExpr({expr: EConst(CIdent("value")), pos: pos}, member.name, pos);
+      if (member.nested) {
+        statements.push(qdArgsStaticCall(member.type, "appendArgs", [{expr: EConst(CIdent("buf")), pos: pos}, access], pos));
+      } else if (!member.spec) {
+        statements.push(macro quadrants.kernel.ArgEncoding.append(buf, $e{access}));
       }
     }
     statements.push(macro return);
@@ -160,8 +183,12 @@ class QdArgs {
     var valueType = classComplexType(local);
     var statements = new Array<Expr>();
     for (member in members) {
-      if (member.spec) {
-        statements.push(macro key.addTemplate($v{member.name}, $e{fieldExpr({expr: EConst(CIdent("value")), pos: pos}, member.name, pos)}));
+      var access = fieldExpr({expr: EConst(CIdent("value")), pos: pos}, member.name, pos);
+      if (member.nested) {
+        statements.push(qdArgsStaticCall(member.type, "appendSpec", [{expr: EConst(CIdent("key")), pos: pos}, access], pos));
+      } else if (member.spec) {
+        var unwrapped = {expr: ECall(fieldExpr(access, "value", pos), []), pos: pos};
+        statements.push(macro key.addTemplate($v{member.name}, $e{unwrapped}));
       }
     }
     statements.push(macro return);
@@ -316,6 +343,30 @@ class QdArgs {
     return {expr: EField(base, name), pos: pos};
   }
 
+  static function qdArgsStaticCall(type:ComplexType, method:String, args:Array<Expr>, pos:Position):Expr {
+    var target = qdArgsClassExpr(type, pos);
+    return {expr: ECall(fieldExpr(target, method, pos), args), pos: pos};
+  }
+
+  static function qdArgsClassExpr(type:ComplexType, pos:Position):Expr {
+    return switch (Context.followWithAbstracts(Context.resolveType(type, pos))) {
+      case TInst(classRef, _):
+        var cls = classRef.get();
+        if (cls.meta.extract(":qdArgs").length == 0 && cls.meta.extract("qdArgs").length == 0) {
+          Context.error("Quadrants expected a nested QdArgs class", pos);
+        }
+        var parts = cls.pack.copy();
+        parts.push(cls.name);
+        var result:Expr = {expr: EConst(CIdent(parts[0])), pos: pos};
+        for (index in 1...parts.length) {
+          result = fieldExpr(result, parts[index], pos);
+        }
+        result;
+      default:
+        Context.error("Quadrants expected a nested QdArgs class", pos);
+    };
+  }
+
   static function isInstanceDataField(field:Field):Bool {
     if (field.access != null) {
       for (access in field.access) {
@@ -404,7 +455,58 @@ class QdArgs {
     };
   }
 
-  static function isAllowedSpecType(type:Type):Bool {
+  static function isSpecComplexType(type:ComplexType):Bool {
+    return switch (stripComplexType(type)) {
+      case TPath(path): isSpecPath(path);
+      default: false;
+    };
+  }
+
+  static function isSpecPath(path:TypePath):Bool {
+    var fullName = typePathName(path);
+    return fullName == "Spec" || fullName == "quadrants.Spec";
+  }
+
+  static function stripComplexType(type:ComplexType):ComplexType {
+    return switch (type) {
+      case TParent(inner): stripComplexType(inner);
+      default: type;
+    };
+  }
+
+  static function specInnerComplexType(type:ComplexType, pos:Position):ComplexType {
+    return switch (stripComplexType(type)) {
+      case TPath(path) if (isSpecPath(path)):
+        if (path.params == null || path.params.length != 1) {
+          Context.error("Quadrants Spec<T> requires exactly one type parameter", pos);
+        }
+        switch (path.params[0]) {
+          case TPType(inner): inner;
+          default: Context.error("Quadrants Spec<T> type parameter must be a type", pos);
+        }
+      default:
+        Context.error("Quadrants expected a Spec<T> field type", pos);
+    };
+  }
+
+  static function validateSpecMember(name:String, type:ComplexType, pos:Position):Void {
+    var inner = specInnerComplexType(type, pos);
+    var resolved = Context.resolveType(inner, pos);
+    if (isDynamicType(resolved)) {
+      Context.error('Quadrants QdArgs field ${name} Spec<T> cannot wrap Dynamic', pos);
+    }
+    if (isArrayType(resolved)) {
+      Context.error('Quadrants QdArgs field ${name} Spec<T> cannot wrap Array<T>', pos);
+    }
+    if (isStringType(resolved)) {
+      Context.error('Quadrants QdArgs field ${name} Spec<T> cannot wrap String', pos);
+    }
+    if (isSpecComplexType(inner) || isResourceType(resolved) || isQdArgsType(resolved) || !isAllowedScalarType(resolved)) {
+      Context.error('Quadrants QdArgs field ${name} Spec<T> must wrap a primitive or enum scalar', pos);
+    }
+  }
+
+  static function isAllowedScalarType(type:Type):Bool {
     return switch (Context.followWithAbstracts(type)) {
       case TAbstract(_, _): true;
       case TEnum(_, _): true;
