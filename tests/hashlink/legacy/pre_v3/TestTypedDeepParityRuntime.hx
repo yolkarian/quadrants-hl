@@ -73,7 +73,7 @@ class TestTypedDeepParityRuntime {
 
     var qfloatField = new Field<F32>(ctx);
     var qfloatSpec = Quant.floatF32(5, 10, QuantSignedness.Signed);
-    ctx.root.dense(Axis.i, 1).bitStruct(32).placeQuant(qfloatField, qfloatSpec);
+    ctx.root.dense(Axis.i, 1).bitStruct(QuantBits.Bits32).placeQuant(qfloatField, qfloatSpec);
     qfloatField.write(0, 1.5);
     expectNear("typed_quant_bitstruct_float", qfloatField.read(0), 1.5);
     qfloatField.close();

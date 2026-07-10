@@ -50,11 +50,38 @@ class QdStruct {
     return macro cast quadrants.StructTensor.__create($e{ctx}, $e{shape}, $e{layoutExpr}, $e{schema});
   }
 
-  public static function structFieldAlloc(ctx:Expr, shape:Expr, layout:Null<Expr>):Expr {
+  public static function structFieldAlloc(ctx:Expr,
+      shape:Expr,
+      layout:Null<Expr>,
+      placement:Null<Expr>):Expr {
     var structType = expectedStructArg("StructField", Context.currentPos());
     var schema = schemaCall(structType, Context.currentPos());
-    var layoutExpr = layout == null ? macro quadrants.LayoutPolicy.SOA : layout;
-    return macro cast quadrants.StructField.__create($e{ctx}, $e{shape}, $e{layoutExpr}, $e{schema});
+    var layoutExpr = layout == null ? macro quadrants.LayoutPolicy.AOS : layout;
+    var placementExpr:Expr = placement == null ? macro null : fieldPlacementExpr(placement);
+    return macro cast quadrants.StructField.__create($e{ctx}, $e{shape}, $e{layoutExpr}, $e{schema}, $e{placementExpr});
+  }
+
+  static function fieldPlacementExpr(placement:Expr):Expr {
+    return switch (placement.expr) {
+      case EConst(CIdent("null")):
+        placement;
+      default:
+        switch (Context.followWithAbstracts(Context.typeExpr(placement).t)) {
+          case TInst(classRef, _):
+            var cls = classRef.get();
+            var fullName = (cls.pack.length == 0 ? "" : cls.pack.join(".") + ".") + cls.name;
+            switch (fullName) {
+              case "quadrants.snode.FieldPlacementPath":
+                placement;
+              case "quadrants.FieldsBuilder":
+                macro $e{placement}.path();
+              default:
+                Context.error("Quadrants StructField.alloc placement must be a FieldPlacementPath or FieldsBuilder", placement.pos);
+            }
+          default:
+            Context.error("Quadrants StructField.alloc placement must be a FieldPlacementPath or FieldsBuilder", placement.pos);
+        };
+    };
   }
 
   static function expectedStructArg(containerName:String, pos:Position):Type {

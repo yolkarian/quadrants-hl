@@ -959,7 +959,7 @@ class V3RuntimeSemantic {
 
     var qfloatField = new Field<F32>(ctx);
     var qfloatSpec = quadrants.quant.Quant.floatF32(5, 10, QuantSignedness.Signed);
-    ctx.root.dense([1]).bitStruct(32).placeQuant(qfloatField, qfloatSpec);
+    ctx.root.dense([1]).bitStruct(QuantBits.Bits32).placeQuant(qfloatField, qfloatSpec);
     qfloatField.write(0, 1.5);
     near("quant_float", qfloatField.read(0), 1.5, 0.1);
 

@@ -16,6 +16,19 @@ typedef FieldPlacementOptions = {
   ?chunkSize:Int,
 }
 
+typedef FieldPlacementEntry = {
+  var field:FieldRuntime;
+  var laneShape:Array<Int>;
+}
+
+private typedef PreparedFieldPlacement = {
+  var field:FieldRuntime;
+  var shape:Array<Int>;
+  var steps:Array<FieldPlacementStep>;
+  var offset:Array<Int>;
+  var snodeId:Int;
+}
+
 class FieldsBuilder {
   static inline var SNODE_DENSE = 1;
   static inline var SNODE_DYNAMIC = 2;
@@ -86,17 +99,15 @@ class FieldsBuilder {
     return add(SNODE_DYNAMIC, dims, options);
   }
 
-  public function bitStruct(maxBits:Int):FieldsBuilder {
+  public function bitStruct(physicalBits:quadrants.quant.QuantBits):FieldsBuilder {
     ensureMutable();
-    if (maxBits <= 0 || maxBits > 64) {
-      throw "Quadrants bitStruct maxBits must be in 1...64";
-    }
+    var maxBits = quadrants.quant.QuantBits.requirePhysicalContainerWidth(physicalBits);
     steps.push({kind: SNODE_BIT_STRUCT, axes: [], sizes: [], chunkSize: maxBits});
     return this;
   }
 
-  public function quantArray(dims:Array<Int>, maxNumBits:quadrants.quant.QuantBits, ?options:FieldPlacementOptions):FieldsBuilder {
-    return add(SNODE_QUANT_ARRAY, dims, options, maxNumBits);
+  public function quantArray(dims:Array<Int>, physicalBits:quadrants.quant.QuantBits, ?options:FieldPlacementOptions):FieldsBuilder {
+    return add(SNODE_QUANT_ARRAY, dims, options, quadrants.quant.QuantBits.requirePhysicalContainerWidth(physicalBits));
   }
 
   public function offset(offset:Array<Int>):FieldsBuilder {
@@ -105,11 +116,6 @@ class FieldsBuilder {
       throw "Quadrants field placement offset is required";
     }
     placementOffset = [for (value in offset) value];
-    for (value in placementOffset) {
-      if (value < 0) {
-        throw "Quadrants field placement offset values must be non-negative";
-      }
-    }
     return this;
   }
 
@@ -151,13 +157,7 @@ class FieldsBuilder {
     if (offset.length != shape.length) {
       throw 'Quadrants field placement offset rank must match field shape rank (offset=${offset.length}, shape=${shape.length})';
     }
-    var result = [for (value in offset) value];
-    for (value in result) {
-      if (value < 0) {
-        throw "Quadrants field placement offset values must be non-negative";
-      }
-    }
-    return result;
+    return [for (value in offset) value];
   }
 
   static function copySteps(steps:Array<FieldPlacementStep>):Array<FieldPlacementStep> {
@@ -215,6 +215,23 @@ class FieldsBuilder {
     return false;
   }
 
+  static function denseStep(axisBase:Int, shape:Array<Int>):FieldPlacementStep {
+    return {
+      kind: SNODE_DENSE,
+      axes: [for (axis in 0...shape.length) axisBase + axis],
+      sizes: [for (dim in shape) dim],
+      chunkSize: DEFAULT_DYNAMIC_CHUNK_SIZE
+    };
+  }
+
+  static function validateQuantContainerWidths(steps:Array<FieldPlacementStep>):Void {
+    for (step in steps) {
+      if (step.kind == SNODE_QUANT_ARRAY || step.kind == SNODE_BIT_STRUCT) {
+        quadrants.quant.QuantBits.requirePhysicalContainerWidth(step.chunkSize);
+      }
+    }
+  }
+
   static function placeStructuralSteps(tree:QSNodeTree, parent:Int, steps:Array<FieldPlacementStep>):Int {
     var current = parent;
     for (step in steps) {
@@ -232,39 +249,143 @@ class FieldsBuilder {
 
   public static function placeDense(context:Context, field:FieldRuntime, shape:Array<Int>):Void {
     var checkedShape = TensorStorage.validateShape(shape);
-    var denseSteps = [{kind: SNODE_DENSE, axes: identityOrder(checkedShape.length), sizes: [for (dim in checkedShape) dim], chunkSize: DEFAULT_DYNAMIC_CHUNK_SIZE}];
-    placeWithSteps(context, field, checkedShape, denseSteps);
+    placeWithSteps(context, field, checkedShape, [denseStep(0, checkedShape)]);
   }
 
   public static function placeWithSteps(context:Context, field:FieldRuntime, shape:Array<Int>, steps:Array<FieldPlacementStep>, ?offset:Array<Int>):Void {
-    field.ensurePlaceable();
-    var checkedShape = TensorStorage.validateShape(shape);
+    placeFieldsWithSteps(context, [field], shape, steps, offset);
+  }
+
+  public static function placeFieldsWithSteps(context:Context,
+      fields:Array<FieldRuntime>,
+      shape:Array<Int>,
+      steps:Array<FieldPlacementStep>,
+      ?offset:Array<Int>):Void {
+    if (fields == null || fields.length == 0) {
+      throw "Quadrants shared field placement requires at least one field";
+    }
+    var entries = new Array<FieldPlacementEntry>();
+    for (field in fields) {
+      entries.push({field: field, laneShape: []});
+    }
+    placeFieldEntriesWithSteps(context, entries, shape, steps, offset);
+  }
+
+  public static function placeFieldEntriesWithSteps(context:Context,
+      entries:Array<FieldPlacementEntry>,
+      batchShape:Array<Int>,
+      steps:Array<FieldPlacementStep>,
+      ?offset:Array<Int>):Void {
+    if (context == null) {
+      throw "Quadrants shared field placement requires a Context";
+    }
+    if (entries == null || entries.length == 0) {
+      throw "Quadrants shared field placement requires at least one field";
+    }
+    var checkedBatchShape = TensorStorage.validateShape(batchShape);
     var checkedSteps = copySteps(steps);
-    validateStepsMatchShape(checkedShape, checkedSteps);
-    var checkedOffset = validatePlacementOffset(checkedShape, offset);
+    validateStepsMatchShape(checkedBatchShape, checkedSteps);
+    var checkedBatchOffset = validatePlacementOffset(checkedBatchShape, offset);
     if (hasQuantArrayStep(checkedSteps)) {
       throw "Quadrants quantArray placement requires placeQuant(field, quantSpec)";
     }
-    for (step in checkedSteps) {
-      if (step.kind == SNODE_BIT_STRUCT) {
-        throw "Quadrants bitStruct placement requires placeQuant(field, quantSpec)";
+    if (hasBitStructStep(checkedSteps)) {
+      throw "Quadrants bitStruct placement requires placeQuant(field, quantSpec)";
+    }
+
+    var prepared = new Array<PreparedFieldPlacement>();
+    var seen = new haxe.ds.ObjectMap<FieldRuntime, Bool>();
+    for (entry in entries) {
+      if (entry == null || entry.field == null) {
+        throw "Quadrants shared field placement requires non-null fields";
+      }
+      var field = entry.field;
+      if (field.context != context) {
+        throw "Quadrants shared field placement requires fields from the same Context";
+      }
+      if (seen.exists(field)) {
+        throw "Quadrants shared field placement cannot place a field more than once";
+      }
+      seen.set(field, true);
+      field.ensurePlaceable();
+      if (entry.laneShape == null) {
+        throw "Quadrants shared field placement lane shape is required";
+      }
+      var laneShape = TensorStorage.validateShape(entry.laneShape);
+      var fullShape = TensorStorage.copyIntArray(checkedBatchShape);
+      for (dim in laneShape) {
+        fullShape.push(dim);
+      }
+      var fullSteps = copySteps(checkedSteps);
+      if (laneShape.length != 0) {
+        fullSteps.push(denseStep(checkedBatchShape.length, laneShape));
+      }
+      validateStepsMatchShape(fullShape, fullSteps);
+      var fullOffset = TensorStorage.copyIntArray(checkedBatchOffset);
+      if (fullOffset.length != 0) {
+        for (_ in laneShape) {
+          fullOffset.push(0);
+        }
+      }
+      prepared.push({
+        field: field,
+        shape: fullShape,
+        steps: fullSteps,
+        offset: fullOffset,
+        snodeId: -1
+      });
+    }
+
+    var tree = Native.snode_tree_create(context.nativeHandle());
+    var treeClosed = false;
+    function closeTree():Void {
+      if (!treeClosed) {
+        treeClosed = true;
+        Native.snode_tree_close(tree);
       }
     }
-    var tree = Native.snode_tree_create(context.nativeHandle());
-    var parent = Native.snode_tree_root_id(tree);
     try {
+      var parent = Native.snode_tree_root_id(tree);
       parent = placeStructuralSteps(tree, parent, checkedSteps);
       var name = @:privateAccess "".toUtf8();
-      var snodeId = checkedOffset.length == 0
-        ? Native.snode_tree_place(tree, parent, field.dtype, name)
-        : Native.snode_tree_place_with_offset(tree, parent, field.dtype, TensorStorage.nativeIntArray(checkedOffset), name);
+      for (placement in prepared) {
+        var leafParent = parent;
+        if (placement.shape.length != checkedBatchShape.length) {
+          var laneStep = placement.steps[placement.steps.length - 1];
+          leafParent = Native.snode_tree_child(
+            tree,
+            leafParent,
+            laneStep.kind,
+            TensorStorage.nativeIntArray(laneStep.axes),
+            TensorStorage.nativeIntArray(laneStep.sizes),
+            laneStep.chunkSize
+          );
+        }
+        placement.snodeId = placement.offset.length == 0
+          ? Native.snode_tree_place(tree, leafParent, placement.field.dtype, name)
+          : Native.snode_tree_place_with_offset(
+            tree,
+            leafParent,
+            placement.field.dtype,
+            TensorStorage.nativeIntArray(placement.offset),
+            name
+          );
+      }
       var treeId = Native.snode_tree_commit(context.nativeHandle(), tree);
-      field.placeSNode(quadrants.TensorStorage.copyIntArray(checkedShape), snodeId, treeId, checkedSteps, checkedOffset);
+      for (placement in prepared) {
+        placement.field.placeSNode(
+          TensorStorage.copyIntArray(placement.shape),
+          placement.snodeId,
+          treeId,
+          copySteps(placement.steps),
+          TensorStorage.copyIntArray(placement.offset)
+        );
+      }
     } catch (e:Dynamic) {
-      Native.snode_tree_close(tree);
+      closeTree();
       throw e;
     }
-    Native.snode_tree_close(tree);
+    closeTree();
   }
 
   public static function placeQuantWithSteps<T>(context:Context,
@@ -291,14 +412,22 @@ class FieldsBuilder {
     if (!hasQuantArrayStep(checkedSteps) && !hasBitStructStep(checkedSteps)) {
       throw "Quadrants placeQuant requires a quantArray or bitStruct placement step";
     }
+    validateQuantContainerWidths(checkedSteps);
     for (step in checkedSteps) {
       if ((step.kind == SNODE_QUANT_ARRAY || step.kind == SNODE_BIT_STRUCT) && spec.bits > step.chunkSize) {
         throw "Quadrants quant spec bit width exceeds quant placement maxNumBits";
       }
     }
     var tree = Native.snode_tree_create(context.nativeHandle());
-    var parent = Native.snode_tree_root_id(tree);
+    var treeClosed = false;
+    function closeTree():Void {
+      if (!treeClosed) {
+        treeClosed = true;
+        Native.snode_tree_close(tree);
+      }
+    }
     try {
+      var parent = Native.snode_tree_root_id(tree);
       for (step in checkedSteps) {
         if (step.kind == SNODE_BIT_STRUCT) {
           parent = Native.snode_tree_bit_struct_quant_child(
@@ -357,10 +486,10 @@ class FieldsBuilder {
       var treeId = Native.snode_tree_commit(context.nativeHandle(), tree);
       runtime.placeSNode(quadrants.TensorStorage.copyIntArray(checkedShape), snodeId, treeId, checkedSteps, checkedOffset);
     } catch (e:Dynamic) {
-      Native.snode_tree_close(tree);
+      closeTree();
       throw e;
     }
-    Native.snode_tree_close(tree);
+    closeTree();
   }
 
   public function path():quadrants.snode.FieldPlacementPath {

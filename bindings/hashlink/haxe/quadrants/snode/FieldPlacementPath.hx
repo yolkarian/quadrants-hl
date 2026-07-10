@@ -5,6 +5,7 @@ import quadrants.Field;
 import quadrants.FieldRuntime;
 import quadrants.FieldsBuilder;
 import quadrants.FieldsBuilder.FieldPlacementStep;
+import quadrants.FieldsBuilder.FieldPlacementEntry;
 
 class FieldPlacementPath {
   public final context:Context;
@@ -30,8 +31,13 @@ class FieldPlacementPath {
   }
 
   public function place(field:FieldRuntime):FieldRuntime {
-    FieldsBuilder.placeWithSteps(context, field, shape.copy(), copySteps(steps), copyOffset(offset));
+    var entries:Array<FieldPlacementEntry> = [{field: field, laneShape: []}];
+    placeFieldEntries(entries);
     return field;
+  }
+
+  public function placeFieldEntries(entries:Array<FieldPlacementEntry>):Void {
+    FieldsBuilder.placeFieldEntriesWithSteps(context, entries, shape.copy(), copySteps(steps), copyOffset(offset));
   }
 
   public function placeField<T>(field:Field<T>):Field<T> {
@@ -48,9 +54,11 @@ class FieldPlacementPath {
     if (fields == null || fields.length == 0) {
       throw "Quadrants typed field placement path requires at least one field";
     }
+    var entries = new Array<FieldPlacementEntry>();
     for (field in fields) {
-      placeField(field);
+      entries.push({field: cast field, laneShape: []});
     }
+    placeFieldEntries(entries);
   }
 
   public function lazyFieldGrad<T>(field:Field<T>):Field<T> {
