@@ -229,6 +229,11 @@ if (QD_WITH_CUDA AND QD_WITH_CUDA_TOOLKIT)
     find_package(CUDAToolkit REQUIRED)
     message(STATUS "Found CUDAToolkit ${CUDAToolkit_VERSION}")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DQD_WITH_CUDA_TOOLKIT")
+    # The toolkit define is global, so the CUDA headers must be visible to every
+    # target compiled under it (spirv_codegen, gfx_runtime, ...), not just the
+    # core library. Use a directory-level include so later add_subdirectory targets
+    # inherit it alongside the global define.
+    include_directories(${CUDAToolkit_INCLUDE_DIRS})
     target_include_directories(${CORE_LIBRARY_NAME} PUBLIC ${CUDAToolkit_INCLUDE_DIRS})
     target_link_libraries(${CORE_LIBRARY_NAME} PUBLIC CUDA::cupti)
 endif()
