@@ -85,6 +85,10 @@ class KernelProfilerBase {
     return traced_records_;
   }
 
+  const std::vector<KernelProfileTracedRecord> &traced_records() const {
+    return traced_records_;
+  }
+
   double get_total_time() const;
 
   void insert_record(const std::string &kernel_name, double duration_ms);

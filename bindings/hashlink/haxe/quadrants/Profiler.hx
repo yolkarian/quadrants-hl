@@ -90,12 +90,31 @@ class Profiler {
     clear();
   }
 
+  public function traceRecords():Array<{name:String, durationMs:Float}> {
+    var count = Native.profiler_trace_count(context.nativeHandle());
+    var records = new Array<{name:String, durationMs:Float}>();
+    for (index in 0...count) {
+      var length = Native.profiler_trace_name(context.nativeHandle(), index, null, 0);
+      var buffer = new hl.Bytes(length + 1);
+      Native.profiler_trace_name(context.nativeHandle(), index, buffer, length + 1);
+      records.push({
+        name: @:privateAccess String.fromUTF8(buffer),
+        durationMs: Native.profiler_trace_duration_ms(context.nativeHandle(), index),
+      });
+    }
+    return records;
+  }
+
   public function printInfo(mode:ProfilerPrintMode = Count):Void {
     switch (mode) {
       case Count:
         Sys.println('Quadrants kernel profiler total time: ${totalTime()} s');
       case Trace:
-        Sys.println('Quadrants HashLink profiler trace listing is unavailable; use record(...), count(...), min(...), max(...), and avg(...) for named kernels.');
+        var records = traceRecords();
+        Sys.println('Quadrants kernel profiler trace (${records.length} records):');
+        for (record in records) {
+          Sys.println('  ${record.name}: ${record.durationMs} ms');
+        }
         Sys.println('Quadrants kernel profiler total time: ${totalTime()} s');
       default:
         Sys.println('Quadrants kernel profiler total time: ${totalTime()} s');

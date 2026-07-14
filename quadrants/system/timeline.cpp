@@ -89,6 +89,9 @@ void Timelines::save(const std::string &filename) {
     QD_WARN("Timeline filename {} should end with '.json'.", filename);
   }
   std::ofstream fout(filename);
+  if (!fout) {
+    QD_ERROR("Failed to open timeline output file {} for writing.", filename);
+  }
   fout << "[";
   bool first = true;
   for (auto &e : events_) {
@@ -100,6 +103,10 @@ void Timelines::save(const std::string &filename) {
     fout << e.to_json() << std::endl;
   }
   fout << "]";
+  fout.flush();
+  if (!fout.good()) {
+    QD_ERROR("Failed to write timeline output file {}.", filename);
+  }
 }
 
 void Timelines::insert_timeline(Timeline *timeline) {
@@ -109,7 +116,7 @@ void Timelines::insert_timeline(Timeline *timeline) {
 
 void Timelines::remove_timeline(Timeline *timeline) {
   std::lock_guard<std::mutex> _(mut_);
-  trash(std::remove(timelines_.begin(), timelines_.end(), timeline));
+  timelines_.erase(std::remove(timelines_.begin(), timelines_.end(), timeline), timelines_.end());
 }
 
 bool Timelines::get_enabled() {

@@ -38,7 +38,19 @@ class Context {
     if (options != null && options.profilerEnabled) {
       profilerEnabled = true;
     }
-    handle = Native.context_create_configured(selectedArch, profilerEnabled ? 1 : 0);
+    var compileThreads = options != null && options.compileNumThreads != null ? (options.compileNumThreads : Int) : 0;
+    if (compileThreads < 0 || (options != null && options.compileNumThreads != null && compileThreads == 0)) {
+      throw "Quadrants compile thread count must be positive";
+    }
+    var cudaStackLimit = options != null && options.cudaStackLimitBytes != null ? (options.cudaStackLimitBytes : Int) : 0;
+    if (cudaStackLimit < 0) {
+      throw "Quadrants cuda stack limit must be non-negative";
+    }
+    var memoryFraction = options != null && options.deviceMemoryFraction != null ? (options.deviceMemoryFraction : Float) : 0.0;
+    if (memoryFraction != 0.0 && !(memoryFraction > 0.0 && memoryFraction <= 1.0)) {
+      throw "Quadrants device memory fraction must be in (0, 1]";
+    }
+    handle = Native.context_create_configured(selectedArch, profilerEnabled ? 1 : 0, compileThreads, haxe.Int64.ofInt(cudaStackLimit), memoryFraction);
     root = new FieldsBuilder(this);
     configuredOptions = options == null ? ContextOptions.create() : options.copy();
     configuredOptions.arch = selectedArch;
@@ -231,6 +243,72 @@ class Context {
   public function setBoundsCheck(enabled:Bool):Void {
     Native.context_set_bounds_check(nativeHandle(), enabled ? 1 : 0);
     configuredOptions.boundsCheckEnabled = enabled;
+  }
+
+  public function setOfflineCachePolicy(policy:CacheCleanPolicy):Void {
+    if (policy == null) {
+      throw "Quadrants offline cache clean policy is required";
+    }
+    var policyBytes = @:privateAccess (policy : String).toUtf8();
+    Native.context_set_offline_cache_clean_policy(nativeHandle(), policyBytes);
+    configuredOptions.offlineCacheCleanPolicy = policy;
+  }
+
+  public function setOfflineCacheMaxSizeBytes(maxSizeBytes:haxe.Int64):Void {
+    if (haxe.Int64.compare(maxSizeBytes, haxe.Int64.make(0, 0)) <= 0) {
+      throw "Quadrants offline cache max size must be positive";
+    }
+    Native.context_set_offline_cache_max_size(nativeHandle(), maxSizeBytes);
+    configuredOptions.offlineCacheMaxSizeBytes = maxSizeBytes;
+  }
+
+  public function setOfflineCacheCleanFactor(factor:Float):Void {
+    if (!(factor >= 0.0 && factor <= 1.0)) {
+      throw "Quadrants offline cache clean factor must be in [0, 1]";
+    }
+    Native.context_set_offline_cache_clean_factor(nativeHandle(), factor);
+    configuredOptions.offlineCacheCleanFactor = factor;
+  }
+
+  public function setDebugMode(enabled:Bool):Void {
+    Native.context_set_debug_mode(nativeHandle(), enabled ? 1 : 0);
+    configuredOptions.debugLaunchEnabled = enabled;
+  }
+
+  public function setTimeline(enabled:Bool):Void {
+    Native.context_set_timeline(nativeHandle(), enabled ? 1 : 0);
+    configuredOptions.debugTimelineEnabled = enabled;
+  }
+
+  public function setCfgOptimization(enabled:Bool):Void {
+    Native.context_set_cfg_optimization(nativeHandle(), enabled ? 1 : 0);
+    configuredOptions.compileCfgOptimization = enabled;
+  }
+
+
+  public function setOptLevel(level:OptLevel):Void {
+    Native.context_set_opt_level(nativeHandle(), level.toInt());
+    configuredOptions.compileOptLevel = level;
+  }
+
+  public function setExternalOptLevel(level:OptLevel):Void {
+    Native.context_set_external_opt_level(nativeHandle(), level.toInt());
+    configuredOptions.compileExternalOptLevel = level;
+  }
+
+
+  public static function timelineClear():Void {
+    Native.ensureConfigured();
+    Native.timeline_clear();
+  }
+
+  public static function timelineSave(path:String):Void {
+    if (path == null || path.length == 0) {
+      throw "Quadrants timelineSave requires a path";
+    }
+    Native.ensureConfigured();
+    var pathBytes = @:privateAccess path.toUtf8();
+    Native.timeline_save(pathBytes);
   }
 
   public function setDebugDump(path:String, printIr:Bool = true, printPreprocessedIr:Bool = false, printIrDebugInfo:Bool = false):Void {

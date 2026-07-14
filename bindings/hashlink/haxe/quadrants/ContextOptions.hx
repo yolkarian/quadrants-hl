@@ -2,7 +2,6 @@ package quadrants;
 
 import haxe.Int64;
 import quadrants.Types.Arch;
-import quadrants.Types.DType;
 
 typedef OfflineCacheOptions = {
   var enabled:Bool;
@@ -18,12 +17,6 @@ typedef CompileOptions = {
   @:optional var numCompileThreads:Int;
   @:optional var optLevel:OptLevel;
   @:optional var externalOptLevel:OptLevel;
-}
-
-typedef DefaultDTypeOptions = {
-  @:optional var fp:DType;
-  @:optional var ip:DType;
-  @:optional var up:DType;
 }
 
 typedef MemoryOptions = {
@@ -71,9 +64,6 @@ typedef DebugOptions = {
   public var compileNumThreads:Null<Int> = null;
   public var compileOptLevel:Null<OptLevel> = null;
   public var compileExternalOptLevel:Null<OptLevel> = null;
-  public var defaultFpDType:Null<DType> = null;
-  public var defaultIpDType:Null<DType> = null;
-  public var defaultUpDType:Null<DType> = null;
   public var deviceMemoryFraction:Null<Float> = null;
   public var cudaStackLimitBytes:Null<Int> = null;
 
@@ -141,9 +131,6 @@ typedef DebugOptions = {
     clone.compileNumThreads = compileNumThreads;
     clone.compileOptLevel = compileOptLevel;
     clone.compileExternalOptLevel = compileExternalOptLevel;
-    clone.defaultFpDType = defaultFpDType;
-    clone.defaultIpDType = defaultIpDType;
-    clone.defaultUpDType = defaultUpDType;
     clone.deviceMemoryFraction = deviceMemoryFraction;
     clone.cudaStackLimitBytes = cudaStackLimitBytes;
     return clone;
@@ -154,13 +141,13 @@ typedef DebugOptions = {
       context.setOfflineCache(offlineCacheEnabled == true, offlineCachePath);
     }
     if (offlineCacheCleanPolicy != null) {
-      context.recordOptionWarning('ContextOptions.offlineCache.cleanPolicy=${offlineCacheCleanPolicy} is parsed but not yet applied by the HashLink bridge');
+      context.setOfflineCachePolicy(offlineCacheCleanPolicy);
     }
     if (offlineCacheMaxSizeBytes != null) {
-      context.recordOptionWarning('ContextOptions.offlineCache.maxSizeBytes=${offlineCacheMaxSizeBytes} is parsed but not yet applied by the HashLink bridge');
+      context.setOfflineCacheMaxSizeBytes(offlineCacheMaxSizeBytes);
     }
     if (offlineCacheCleanFactor != null) {
-      context.recordOptionWarning('ContextOptions.offlineCache.cleanFactor=${offlineCacheCleanFactor} is parsed but not yet applied by the HashLink bridge');
+      context.setOfflineCacheCleanFactor(offlineCacheCleanFactor);
     }
     if (adstackExperimentalEnabled != null) {
       context.setAdstackConfig(adstackExperimentalEnabled == true, adstackSize, adstackSparseThresholdBytes);
@@ -181,31 +168,19 @@ typedef DebugOptions = {
       context.setDebugDump(cast debugDumpPath, debugDumpPrintIr, debugDumpPrintPreprocessedIr, debugDumpPrintIrDebugInfo);
     }
     if (debugLaunchEnabled != null) {
-      context.recordOptionWarning('ContextOptions.debug.launchDebug=${debugLaunchEnabled} is parsed but not yet applied by the HashLink bridge');
+      context.setDebugMode(debugLaunchEnabled == true);
     }
     if (debugTimelineEnabled != null) {
-      context.recordOptionWarning('ContextOptions.debug.timeline=${debugTimelineEnabled} is parsed but not yet applied by the HashLink bridge');
+      context.setTimeline(debugTimelineEnabled == true);
     }
     if (compileCfgOptimization != null) {
-      context.recordOptionWarning('ContextOptions.compile.cfgOptimization=${compileCfgOptimization} is parsed but not yet applied by the HashLink bridge');
-    }
-    if (compileNumThreads != null) {
-      context.recordOptionWarning('ContextOptions.compile.numCompileThreads=${compileNumThreads} is parsed but not yet applied by the HashLink bridge');
+      context.setCfgOptimization(compileCfgOptimization == true);
     }
     if (compileOptLevel != null) {
-      context.recordOptionWarning('ContextOptions.compile.optLevel=${compileOptLevel} is parsed but not yet applied by the HashLink bridge');
+      context.setOptLevel(compileOptLevel);
     }
     if (compileExternalOptLevel != null) {
-      context.recordOptionWarning('ContextOptions.compile.externalOptLevel=${compileExternalOptLevel} is parsed but not yet applied by the HashLink bridge');
-    }
-    if (defaultFpDType != null || defaultIpDType != null || defaultUpDType != null) {
-      context.recordOptionWarning('ContextOptions.defaults are parsed but not yet applied by the HashLink bridge');
-    }
-    if (deviceMemoryFraction != null) {
-      context.recordOptionWarning('ContextOptions.memory.deviceMemoryFraction=${deviceMemoryFraction} is parsed but not yet applied by the HashLink bridge');
-    }
-    if (cudaStackLimitBytes != null) {
-      context.recordOptionWarning('ContextOptions.memory.cudaStackLimitBytes=${cudaStackLimitBytes} is parsed but not yet applied by the HashLink bridge');
+      context.setExternalOptLevel(compileExternalOptLevel);
     }
   }
 

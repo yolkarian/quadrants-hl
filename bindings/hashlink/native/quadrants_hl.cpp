@@ -41,6 +41,7 @@
 #include "quadrants/rhi/arch.h"
 #include "quadrants/rhi/llvm/llvm_device.h"
 #include "quadrants/util/lang_util.h"
+#include "quadrants/system/timeline.h"
 #include "dlpack/dlpack.h"
 
 #if defined(QD_HASHLINK_CUDA_GL_INTEROP)
@@ -3289,12 +3290,52 @@ HL_PRIM qd_context *HL_NAME(context_create)(int arch) {
   });
 }
 
-HL_PRIM qd_context *HL_NAME(context_create_configured)(int arch, int enable_profiler) {
+HL_PRIM qd_context *HL_NAME(context_create_configured)(int arch,
+                                                       int enable_profiler,
+                                                       int num_compile_threads,
+                                                       int64 cuda_stack_limit,
+                                                       double device_memory_fraction) {
   return guard([&]() -> qd_context * {
     const auto qdArch = arch_from_bridge_id(arch);
     configure_runtime_lib_dir_for_arch(qdArch);
-    BlockingSection blocking;
-    auto *state = new QdContextState(qdArch, enable_profiler != 0);
+    if (num_compile_threads < 0) {
+      throw std::runtime_error("Quadrants compile thread count must be positive");
+    }
+    if (cuda_stack_limit < 0) {
+      throw std::runtime_error("Quadrants cuda stack limit must be non-negative");
+    }
+    if (device_memory_fraction != 0.0 && !(device_memory_fraction > 0.0 && device_memory_fraction <= 1.0)) {
+      throw std::runtime_error("Quadrants device memory fraction must be in (0, 1]");
+    }
+    // These settings are consumed while the Program is constructed and its runtime
+    // is materialized (compile worker pool, CUDA stack limit, device preallocation),
+    // so they must be staged on the defaults the Program constructor copies from.
+    auto &defaults = quadrants::lang::default_compile_config;
+    const int saved_threads = defaults.num_compile_threads;
+    const std::size_t saved_stack = defaults.cuda_stack_limit;
+    const double saved_fraction = defaults.device_memory_fraction;
+    if (num_compile_threads > 0) {
+      defaults.num_compile_threads = num_compile_threads;
+    }
+    if (cuda_stack_limit > 0) {
+      defaults.cuda_stack_limit = static_cast<std::size_t>(cuda_stack_limit);
+    }
+    if (device_memory_fraction > 0.0) {
+      defaults.device_memory_fraction = device_memory_fraction;
+    }
+    QdContextState *state = nullptr;
+    try {
+      BlockingSection blocking;
+      state = new QdContextState(qdArch, enable_profiler != 0);
+    } catch (...) {
+      defaults.num_compile_threads = saved_threads;
+      defaults.cuda_stack_limit = saved_stack;
+      defaults.device_memory_fraction = saved_fraction;
+      throw;
+    }
+    defaults.num_compile_threads = saved_threads;
+    defaults.cuda_stack_limit = saved_stack;
+    defaults.device_memory_fraction = saved_fraction;
     auto *handle = static_cast<qd_context *>(hl_gc_alloc_finalizer(sizeof(qd_context)));
     new (handle) qd_context();
     handle->finalize = finalize_context;
@@ -3449,6 +3490,99 @@ HL_PRIM void HL_NAME(context_set_debug_dump)(qd_context *ctx,
     config.print_ir_dbg_info = print_ir_debug_info != 0;
   });
 }
+
+HL_PRIM void HL_NAME(context_set_offline_cache_clean_policy)(qd_context *ctx, vbyte *policy) {
+  guard([&]() {
+    if (policy == nullptr) {
+      throw std::runtime_error("Quadrants offline cache clean policy requires a policy string");
+    }
+    const std::string value(reinterpret_cast<const char *>(policy));
+    if (value != "never" && value != "version" && value != "lru" && value != "fifo") {
+      throw std::runtime_error("Quadrants offline cache clean policy must be never, version, lru, or fifo");
+    }
+    QdContextState &state = require_context(ctx);
+    state.program->mutable_compile_config().offline_cache_cleaning_policy = value;
+  });
+}
+
+HL_PRIM void HL_NAME(context_set_offline_cache_max_size)(qd_context *ctx, int64 max_size_bytes) {
+  guard([&]() {
+    if (max_size_bytes <= 0) {
+      throw std::runtime_error("Quadrants offline cache max size must be positive");
+    }
+    if (max_size_bytes > static_cast<int64>(std::numeric_limits<int>::max())) {
+      throw std::runtime_error("Quadrants offline cache max size must fit in a 32-bit byte count");
+    }
+    QdContextState &state = require_context(ctx);
+    state.program->mutable_compile_config().offline_cache_max_size_of_files = static_cast<int>(max_size_bytes);
+  });
+}
+
+HL_PRIM void HL_NAME(context_set_offline_cache_clean_factor)(qd_context *ctx, double factor) {
+  guard([&]() {
+    if (!(factor >= 0.0 && factor <= 1.0)) {
+      throw std::runtime_error("Quadrants offline cache clean factor must be in [0, 1]");
+    }
+    QdContextState &state = require_context(ctx);
+    state.program->mutable_compile_config().offline_cache_cleaning_factor = factor;
+  });
+}
+
+HL_PRIM void HL_NAME(context_set_debug_mode)(qd_context *ctx, int enabled) {
+  guard([&]() {
+    QdContextState &state = require_context(ctx);
+    state.program->mutable_compile_config().debug = enabled != 0;
+  });
+}
+
+HL_PRIM void HL_NAME(context_set_timeline)(qd_context *ctx, int enabled) {
+  guard([&]() {
+    QdContextState &state = require_context(ctx);
+    state.program->mutable_compile_config().timeline = enabled != 0;
+    quadrants::Timelines::get_instance().set_enabled(enabled != 0);
+  });
+}
+
+HL_PRIM void HL_NAME(context_set_cfg_optimization)(qd_context *ctx, int enabled) {
+  guard([&]() {
+    QdContextState &state = require_context(ctx);
+    state.program->mutable_compile_config().cfg_optimization = enabled != 0;
+  });
+}
+
+HL_PRIM void HL_NAME(context_set_opt_level)(qd_context *ctx, int level) {
+  guard([&]() {
+    if (level < 0 || level > 3) {
+      throw std::runtime_error("Quadrants opt level must be in [0, 3]");
+    }
+    QdContextState &state = require_context(ctx);
+    state.program->mutable_compile_config().opt_level = level;
+  });
+}
+
+HL_PRIM void HL_NAME(context_set_external_opt_level)(qd_context *ctx, int level) {
+  guard([&]() {
+    if (level < 0 || level > 3) {
+      throw std::runtime_error("Quadrants external opt level must be in [0, 3]");
+    }
+    QdContextState &state = require_context(ctx);
+    state.program->mutable_compile_config().external_optimization_level = level;
+  });
+}
+
+
+HL_PRIM void HL_NAME(timeline_clear)() {
+  guard([&]() { quadrants::Timelines::get_instance().clear(); });
+}
+
+HL_PRIM void HL_NAME(timeline_save)(vbyte *path) {
+  guard([&]() {
+    if (path == nullptr) {
+      throw std::runtime_error("Quadrants timeline save requires a path");
+    }
+    quadrants::Timelines::get_instance().save(std::string(reinterpret_cast<const char *>(path)));
+  });
+}
 HL_PRIM void HL_NAME(profiler_start)(qd_context *ctx, vbyte *kernel_name) {
   guard([&]() {
     QdContextState &state = require_context(ctx);
@@ -3548,6 +3682,44 @@ HL_PRIM double HL_NAME(profiler_query_avg)(qd_context *ctx, vbyte *kernel_name) 
     auto result = state.program->query_kernel_profile_info(
         kernel_name == nullptr ? std::string() : std::string(reinterpret_cast<const char *>(kernel_name)));
     return result.avg;
+  });
+}
+
+HL_PRIM int HL_NAME(profiler_trace_count)(qd_context *ctx) {
+  return guard([&]() -> int {
+    QdContextState &state = require_context(ctx);
+    auto &profiler = require_profiler(state);
+    // Flush pending backend events (CUDA/AMDGPU write durations in update()).
+    profiler.update();
+    return static_cast<int>(profiler.traced_records().size());
+  });
+}
+
+HL_PRIM double HL_NAME(profiler_trace_duration_ms)(qd_context *ctx, int index) {
+  return guard([&]() -> double {
+    QdContextState &state = require_context(ctx);
+    const auto &records = require_profiler(state).traced_records();
+    if (index < 0 || static_cast<std::size_t>(index) >= records.size()) {
+      throw std::runtime_error("Quadrants profiler trace record index is out of range");
+    }
+    return static_cast<double>(records[static_cast<std::size_t>(index)].kernel_elapsed_time_in_ms);
+  });
+}
+
+HL_PRIM int HL_NAME(profiler_trace_name)(qd_context *ctx, int index, vbyte *out, int capacity) {
+  return guard([&]() -> int {
+    QdContextState &state = require_context(ctx);
+    const auto &records = require_profiler(state).traced_records();
+    if (index < 0 || static_cast<std::size_t>(index) >= records.size()) {
+      throw std::runtime_error("Quadrants profiler trace record index is out of range");
+    }
+    const std::string &name = records[static_cast<std::size_t>(index)].name;
+    if (out != nullptr && capacity > 0) {
+      const std::size_t copy_length = std::min(name.size(), static_cast<std::size_t>(capacity - 1));
+      std::memcpy(out, name.data(), copy_length);
+      out[copy_length] = 0;
+    }
+    return static_cast<int>(name.size());
   });
 }
 
@@ -5300,7 +5472,7 @@ DEFINE_PRIM(_I32, hashlink_descriptor_schema_version, _NO_ARG);
 DEFINE_PRIM(_VOID, runtime_set_lib_dir, _BYTES);
 
 DEFINE_PRIM(_QD_CONTEXT, context_create, _I32);
-DEFINE_PRIM(_QD_CONTEXT, context_create_configured, _I32 _I32);
+DEFINE_PRIM(_QD_CONTEXT, context_create_configured, _I32 _I32 _I32 _I64 _F64);
 DEFINE_PRIM(_VOID, context_sync, _QD_CONTEXT);
 DEFINE_PRIM(_VOID, context_close, _QD_CONTEXT);
 DEFINE_PRIM(_QD_STREAM, stream_create, _QD_CONTEXT);
@@ -5319,6 +5491,16 @@ DEFINE_PRIM(_VOID, context_set_random_seed, _QD_CONTEXT _I32);
 DEFINE_PRIM(_VOID, context_set_cpu_max_num_threads, _QD_CONTEXT _I32);
 DEFINE_PRIM(_VOID, context_set_fast_math, _QD_CONTEXT _I32);
 DEFINE_PRIM(_VOID, context_set_bounds_check, _QD_CONTEXT _I32);
+DEFINE_PRIM(_VOID, context_set_offline_cache_clean_policy, _QD_CONTEXT _BYTES);
+DEFINE_PRIM(_VOID, context_set_offline_cache_max_size, _QD_CONTEXT _I64);
+DEFINE_PRIM(_VOID, context_set_offline_cache_clean_factor, _QD_CONTEXT _F64);
+DEFINE_PRIM(_VOID, context_set_debug_mode, _QD_CONTEXT _I32);
+DEFINE_PRIM(_VOID, context_set_timeline, _QD_CONTEXT _I32);
+DEFINE_PRIM(_VOID, context_set_cfg_optimization, _QD_CONTEXT _I32);
+DEFINE_PRIM(_VOID, context_set_opt_level, _QD_CONTEXT _I32);
+DEFINE_PRIM(_VOID, context_set_external_opt_level, _QD_CONTEXT _I32);
+DEFINE_PRIM(_VOID, timeline_clear, _NO_ARG);
+DEFINE_PRIM(_VOID, timeline_save, _BYTES);
 DEFINE_PRIM(_VOID, profiler_start, _QD_CONTEXT _BYTES);
 DEFINE_PRIM(_VOID, profiler_stop, _QD_CONTEXT);
 DEFINE_PRIM(_VOID, profiler_clear, _QD_CONTEXT);
@@ -5327,6 +5509,9 @@ DEFINE_PRIM(_I32, profiler_query_count, _QD_CONTEXT _BYTES);
 DEFINE_PRIM(_F64, profiler_query_min, _QD_CONTEXT _BYTES);
 DEFINE_PRIM(_F64, profiler_query_max, _QD_CONTEXT _BYTES);
 DEFINE_PRIM(_F64, profiler_query_avg, _QD_CONTEXT _BYTES);
+DEFINE_PRIM(_I32, profiler_trace_count, _QD_CONTEXT);
+DEFINE_PRIM(_F64, profiler_trace_duration_ms, _QD_CONTEXT _I32);
+DEFINE_PRIM(_I32, profiler_trace_name, _QD_CONTEXT _I32 _BYTES _I32);
 DEFINE_PRIM(_I32, profiler_is_enabled, _QD_CONTEXT);
 DEFINE_PRIM(_I32, profiler_scoped_available, _QD_CONTEXT);
 DEFINE_PRIM(_I32, profiler_memory_available, _QD_CONTEXT);

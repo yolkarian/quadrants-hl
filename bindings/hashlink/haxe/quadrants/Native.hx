@@ -1,5 +1,9 @@
 package quadrants;
 
+#if (haxe_ver < 4.306)
+#error "Quadrants HashLink bindings require Haxe 4.3.6 or newer in the 4.3 line"
+#end
+
 abstract QContext(hl.Abstract<"qd_context">) {}
 abstract QKernel(hl.Abstract<"qd_kernel">) {}
 abstract QNdarray(hl.Abstract<"qd_ndarray">) {}
@@ -55,7 +59,7 @@ class Native {
   }
 
   @:hlNative("quadrants", "context_create_configured")
-  public static function context_create_configured(arch:Int, enableProfiler:Int):QContext {
+  public static function context_create_configured(arch:Int, enableProfiler:Int, numCompileThreads:Int, cudaStackLimitBytes:haxe.Int64, deviceMemoryFraction:Float):QContext {
     throw "Quadrants HashLink native bridge is not loaded";
   }
 
@@ -159,6 +163,58 @@ class Native {
   public static function context_set_bounds_check(ctx:QContext, enabled:Int):Void {
     throw "Quadrants HashLink native bridge is not loaded";
   }
+
+  @:hlNative("quadrants", "context_set_offline_cache_clean_policy")
+  public static function context_set_offline_cache_clean_policy(ctx:QContext, policy:hl.Bytes):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "context_set_offline_cache_max_size")
+  public static function context_set_offline_cache_max_size(ctx:QContext, maxSizeBytes:haxe.Int64):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "context_set_offline_cache_clean_factor")
+  public static function context_set_offline_cache_clean_factor(ctx:QContext, factor:Float):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "context_set_debug_mode")
+  public static function context_set_debug_mode(ctx:QContext, enabled:Int):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "context_set_timeline")
+  public static function context_set_timeline(ctx:QContext, enabled:Int):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "context_set_cfg_optimization")
+  public static function context_set_cfg_optimization(ctx:QContext, enabled:Int):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+
+  @:hlNative("quadrants", "context_set_opt_level")
+  public static function context_set_opt_level(ctx:QContext, level:Int):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "context_set_external_opt_level")
+  public static function context_set_external_opt_level(ctx:QContext, level:Int):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+
+  @:hlNative("quadrants", "timeline_clear")
+  public static function timeline_clear():Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "timeline_save")
+  public static function timeline_save(path:hl.Bytes):Void {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
   @:hlNative("quadrants", "profiler_clear")
   public static function profiler_clear(ctx:QContext):Void {
     throw "Quadrants HashLink native bridge is not loaded";
@@ -186,6 +242,21 @@ class Native {
 
   @:hlNative("quadrants", "profiler_query_avg")
   public static function profiler_query_avg(ctx:QContext, kernelName:hl.Bytes):Float {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "profiler_trace_count")
+  public static function profiler_trace_count(ctx:QContext):Int {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "profiler_trace_duration_ms")
+  public static function profiler_trace_duration_ms(ctx:QContext, index:Int):Float {
+    throw "Quadrants HashLink native bridge is not loaded";
+  }
+
+  @:hlNative("quadrants", "profiler_trace_name")
+  public static function profiler_trace_name(ctx:QContext, index:Int, out:hl.Bytes, capacity:Int):Int {
     throw "Quadrants HashLink native bridge is not loaded";
   }
 
