@@ -29,6 +29,10 @@ class Subgroup {
     return value;
   }
 
+  public static function ballot(predicate:Int):quadrants.Types.U64 {
+    return haxe.Int64.ofInt(0);
+  }
+
   public static function sync():Void {}
   public static function barrier():Void {}
   public static function memFence():Void {}

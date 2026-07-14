@@ -178,6 +178,10 @@ ExprOpcode parse_expr_opcode(std::uint8_t value) {
     case ExprOpcode::mesh_relation_size:
     case ExprOpcode::mesh_relation_get:
     case ExprOpcode::mesh_index_convert:
+    case ExprOpcode::clock_i64:
+    case ExprOpcode::cuda_match_any:
+    case ExprOpcode::cuda_match_all:
+    case ExprOpcode::subgroup_ballot_u64:
       return static_cast<ExprOpcode>(value);
   }
   throw std::runtime_error("HashLink kernel descriptor uses an unsupported expression opcode");
@@ -223,6 +227,9 @@ StmtOpcode parse_stmt_opcode(std::uint8_t value) {
     case StmtOpcode::mesh_for:
     case StmtOpcode::snode_activate:
     case StmtOpcode::snode_deactivate:
+    case StmtOpcode::struct_for_field:
+    case StmtOpcode::stop_grad:
+    case StmtOpcode::print_entries:
       return static_cast<StmtOpcode>(value);
   }
   throw std::runtime_error("HashLink kernel descriptor uses an unsupported statement opcode");

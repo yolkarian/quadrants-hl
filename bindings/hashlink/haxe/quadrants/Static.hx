@@ -8,4 +8,8 @@ class Static {
   public static inline function value<T>(value:T):T {
     return value;
   }
+
+  public static inline function values<T>(list:Array<T>):Array<T> {
+    return list;
+  }
 }

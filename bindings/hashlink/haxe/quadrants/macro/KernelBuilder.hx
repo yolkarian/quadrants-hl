@@ -279,6 +279,10 @@ private class DescriptorBuilder {
   static inline var EXPR_MESH_RELATION_SIZE = 95;
   static inline var EXPR_MESH_RELATION_GET = 96;
   static inline var EXPR_MESH_INDEX_CONVERT = 97;
+  static inline var EXPR_CLOCK_I64 = 98;
+  static inline var EXPR_CUDA_MATCH_ANY = 99;
+  static inline var EXPR_CUDA_MATCH_ALL = 100;
+  static inline var EXPR_SUBGROUP_BALLOT_U64 = 101;
   static inline var STMT_LOCAL_ALLOC = 1;
   static inline var STMT_STORE_INDEX = 2;
   static inline var STMT_RANGE_FOR = 3;
@@ -317,6 +321,9 @@ private class DescriptorBuilder {
   static inline var STMT_MESH_FOR = 36;
   static inline var STMT_SNODE_ACTIVATE = 37;
   static inline var STMT_SNODE_DEACTIVATE = 38;
+  static inline var STMT_STRUCT_FOR_FIELD = 39;
+  static inline var STMT_STOP_GRAD = 40;
+  static inline var STMT_PRINT_ENTRIES = 41;
 
   final params:Array<ParamInfo> = [];
   final paramIds:Map<String, Int> = new Map();
@@ -344,6 +351,10 @@ private class DescriptorBuilder {
   var hasReturn:Bool = false;
   var returnDType:Int = DTYPE_I32;
   var returnDTypes:Array<Int> = [];
+  static inline var STATIC_UNROLL_LIMIT = 1024;
+  final clampBoundaryParams = new Map<String, Bool>();
+  var switchTempCounter:Int = 0;
+  var swizzleTempCounter:Int = 0;
   public function new(args:Array<FunctionArg>, functions:Map<String, QdFunctionInfo>, kernelName:String, ?descriptorMetadataJson:String) {
     for (arg in args) {
       if (paramIds.exists(arg.name) || structResources.exists(arg.name)) {
@@ -389,6 +400,7 @@ private class DescriptorBuilder {
           meshAttributeParamIds[arg.name] = true;
         }
       }
+      applyBoundaryMeta(arg, argPos);
     }
     this.functions = functions;
     this.kernelName = kernelName;
@@ -397,6 +409,42 @@ private class DescriptorBuilder {
     vectorScopes.push(new Map());
     matrixScopes.push(new Map());
     structScopes.push(new Map());
+  }
+
+  function applyBoundaryMeta(arg:FunctionArg, argPos:Position):Void {
+    if (arg.meta == null) {
+      return;
+    }
+    for (entry in arg.meta) {
+      if (entry.name != ":qdBoundary" && entry.name != "qdBoundary") {
+        continue;
+      }
+      if (entry.params == null || entry.params.length != 1) {
+        Context.error("Quadrants @:qdBoundary expects one boundary mode string", entry.pos);
+      }
+      var mode = switch (stripNoCasts(entry.params[0]).expr) {
+        case EConst(CString(value, _)): value;
+        default: Context.error("Quadrants @:qdBoundary expects one boundary mode string", entry.params[0].pos);
+      };
+      if (mode != "clamp") {
+        Context.error("Quadrants @:qdBoundary supports only \"clamp\"", entry.params[0].pos);
+      }
+      registerClampBoundary(arg.name, argPos);
+    }
+  }
+
+  public function registerClampBoundary(name:String, pos:Position):Void {
+    var paramId = paramIds.get(name);
+    var supported = paramId != null
+      && !bufferViewStartParamIds.exists(name)
+      && !meshAttributeParamIds.exists(name)
+      && !meshRelationSizeParamIds.exists(name)
+      && !quantScaleParamIds.exists(name)
+      && params[paramId].kind == PARAM_NDARRAY;
+    if (!supported) {
+      Context.error('Quadrants boundaryClamp requires a Tensor kernel parameter; ${name} does not qualify', pos);
+    }
+    clampBoundaryParams[name] = true;
   }
 
   public function build(functionBody:Expr):Array<Int> {
@@ -821,10 +869,85 @@ private class DescriptorBuilder {
           return encodeInlineFunctionStatementCall(inlineCall.info, inlineCall.args, writer, expr.pos);
         }
         Context.error("Unsupported Quadrants HashLink kernel statement", expr.pos);
+      case ESwitch(subject, switchCases, defaultCase):
+        return encodeSwitchStatement(subject, switchCases, defaultCase, writer, expr.pos);
       default:
         Context.error("Unsupported Quadrants HashLink kernel statement", expr.pos);
     }
     return 1;
+  }
+
+  function encodeSwitchStatement(subject:Expr, switchCases:Array<Case>, defaultCase:Null<Expr>, writer:ByteWriter, pos:Position):Int {
+    var tmpName = '__qdSwitch${switchTempCounter++}';
+    var tmpIdent = {expr: EConst(CIdent(tmpName)), pos: pos};
+    var elseBranch:Null<Expr> = defaultCase;
+    var conditionalCases:Array<{condition:Expr, body:Expr}> = [];
+    for (index in 0...switchCases.length) {
+      var entry = switchCases[index];
+      if (entry.guard != null) {
+        Context.error("Unsupported Quadrants HashLink switch pattern; case guards are not supported", entry.guard.pos);
+      }
+      var body = entry.expr == null ? {expr: EBlock([]), pos: pos} : entry.expr;
+      if (entry.values.length == 1 && isWildcardPattern(entry.values[0])) {
+        if (elseBranch != null) {
+          Context.error("Unsupported Quadrants HashLink switch pattern; duplicate default case", entry.values[0].pos);
+        }
+        if (index != switchCases.length - 1) {
+          Context.error("Unsupported Quadrants HashLink switch pattern; wildcard case must be last", entry.values[0].pos);
+        }
+        elseBranch = body;
+        continue;
+      }
+      var condition:Null<Expr> = null;
+      for (value in entry.values) {
+        for (literal in collectSwitchCaseLiterals(value)) {
+          var comparison = {expr: EBinop(OpEq, tmpIdent, literal), pos: value.pos};
+          condition = condition == null ? comparison : {expr: EBinop(OpBoolOr, condition, comparison), pos: value.pos};
+        }
+      }
+      conditionalCases.push({condition: condition, body: body});
+    }
+    var chain:Null<Expr> = elseBranch;
+    var index = conditionalCases.length - 1;
+    while (index >= 0) {
+      chain = {expr: EIf(conditionalCases[index].condition, conditionalCases[index].body, chain), pos: pos};
+      index--;
+    }
+    var statements:Array<Expr> = [{expr: EVars([{name: tmpName, type: null, expr: subject}]), pos: pos}];
+    if (chain != null) {
+      statements.push(chain);
+    }
+    return encodeStatement({expr: EBlock(statements), pos: pos}, writer);
+  }
+
+  function isWildcardPattern(value:Expr):Bool {
+    return switch (stripNoCasts(value).expr) {
+      case EConst(CIdent("_")): true;
+      default: false;
+    };
+  }
+
+  function collectSwitchCaseLiterals(value:Expr):Array<Expr> {
+    var literals:Array<Expr> = [];
+    function visit(expression:Expr):Void {
+      var expr = stripNoCasts(expression);
+      switch (expr.expr) {
+        case EBinop(OpOr, lhs, rhs):
+          visit(lhs);
+          visit(rhs);
+        case EConst(CInt(_, _)):
+          literals.push(expr);
+        case EUnop(OpNeg, false, inner):
+          switch (stripNoCasts(inner).expr) {
+            case EConst(CInt(_, _)): literals.push(expr);
+            default: Context.error("Unsupported Quadrants HashLink switch pattern; use integer literal cases", expr.pos);
+          }
+        default:
+          Context.error("Unsupported Quadrants HashLink switch pattern; use integer literal cases", expr.pos);
+      }
+    }
+    visit(value);
+    return literals;
   }
 
   function encodeBuiltinStatementCall(callee:Expr, args:Array<Expr>, writer:ByteWriter, pos:Position):Null<Int> {
@@ -841,6 +964,19 @@ private class DescriptorBuilder {
     var quantWriteCount = encodeQuantWriteStatement(callee, args, writer, pos);
     if (quantWriteCount != null) {
       return quantWriteCount;
+    }
+    if (name == "stopGrad") {
+      if (args.length != 1) {
+        Context.error("Quadrants stopGrad(field) expects one Field parameter argument", pos);
+      }
+      var stopGradParamId = structForFieldParamId(args[0]);
+      if (stopGradParamId == null) {
+        Context.error("Quadrants stopGrad requires a direct Field kernel parameter", pos);
+      }
+      writer.u8(STMT_STOP_GRAD);
+      writer.u8(EXPR_ARG_LOAD);
+      writer.u32(stopGradParamId);
+      return 1;
     }
     var meshAttrWrite = meshAttributeMethodTarget(callee, "write");
     if (meshAttrWrite != null) {
@@ -908,18 +1044,21 @@ private class DescriptorBuilder {
     }
     switch (name) {
       case "print":
-        if (args.length != 1) {
-          Context.error("Quadrants HashLink print expects one argument", pos);
+        if (args.length < 1 || args.length > 16) {
+          Context.error("Quadrants HashLink print expects one to sixteen arguments", pos);
         }
-        writer.u8(STMT_PRINT);
-        var arg = strip(args[0]);
-        switch (arg.expr) {
-          case EConst(CString(value, _)):
+        var entries = collectPrintEntries(args);
+        entries.push({text: "\n", value: null});
+        writer.u8(STMT_PRINT_ENTRIES);
+        writer.u32(entries.length);
+        for (entry in entries) {
+          if (entry.text != null) {
             writer.u8(0);
-            writer.string(value);
-          default:
+            writer.string(entry.text);
+          } else {
             writer.u8(1);
-            encodeExpression(args[0], writer);
+            encodeExpression(entry.value, writer);
+          }
         }
         return 1;
       case "assert":
@@ -941,6 +1080,52 @@ private class DescriptorBuilder {
         return 1;
       default:
         return null;
+    }
+  }
+
+  function collectPrintEntries(args:Array<Expr>):Array<{text:Null<String>, value:Null<Expr>}> {
+    var entries:Array<{text:Null<String>, value:Null<Expr>}> = [];
+    for (index in 0...args.length) {
+      if (index > 0) {
+        entries.push({text: " ", value: null});
+      }
+      appendPrintEntry(args[index], entries);
+    }
+    return entries;
+  }
+
+  function appendPrintEntry(expression:Expr, entries:Array<{text:Null<String>, value:Null<Expr>}>):Void {
+    var expr = strip(expression);
+    switch (expr.expr) {
+      case EConst(CString(value, SingleQuotes)):
+        entries.push({text: value, value: null});
+      case EConst(CString(value, _)):
+        entries.push({text: value, value: null});
+      case EBinop(OpAdd, _, _) if (concatContainsStringLiteral(expr)):
+        flattenPrintConcat(expr, entries);
+      default:
+        entries.push({text: null, value: expression});
+    }
+  }
+
+  function concatContainsStringLiteral(expression:Expr):Bool {
+    return switch (strip(expression).expr) {
+      case EConst(CString(_, _)): true;
+      case EBinop(OpAdd, lhs, rhs): concatContainsStringLiteral(lhs) || concatContainsStringLiteral(rhs);
+      default: false;
+    };
+  }
+
+  function flattenPrintConcat(expression:Expr, entries:Array<{text:Null<String>, value:Null<Expr>}>):Void {
+    var expr = strip(expression);
+    switch (expr.expr) {
+      case EBinop(OpAdd, lhs, rhs) if (concatContainsStringLiteral(lhs) || concatContainsStringLiteral(rhs)):
+        flattenPrintConcat(lhs, entries);
+        flattenPrintConcat(rhs, entries);
+      case EConst(CString(value, _)):
+        entries.push({text: value, value: null});
+      default:
+        entries.push({text: null, value: expr});
     }
   }
 
@@ -1177,6 +1362,9 @@ private class DescriptorBuilder {
             if (isStaticRangeCall(callee)) {
               return encodeStaticRangeFor(loopName, args, body, writer, rangeExpr.pos);
             }
+            if (isStaticValuesCall(callee)) {
+              return encodeStaticValuesFor(loopName, args, body, writer, rangeExpr.pos);
+            }
             var meshInfo = meshForInfo(callee, args);
             if (meshInfo != null) {
               encodeMeshFor(loopName, loopVariable.pos, meshInfo, body, writer);
@@ -1185,6 +1373,15 @@ private class DescriptorBuilder {
             if (isGroupedCall(callee)) {
               var structTarget = groupedStructForTarget(args);
               if (structTarget != null) {
+                var fieldParamId = structForFieldParamId(structTarget);
+                if (fieldParamId != null) {
+                  var groupRank = args.length >= 2 ? staticIntLiteral(args[1], args[1].pos) : 1;
+                  encodeStructForField(loopName, loopVariable.pos, fieldParamId, groupRank, body, writer);
+                  return 1;
+                }
+                if (args.length >= 2) {
+                  Context.error("Quadrants Grouped.of rank argument requires a Field kernel parameter target", args[1].pos);
+                }
                 encodeStructForExternalTensor(loopName, loopVariable.pos, structTarget, body, writer);
                 return 1;
               }
@@ -1241,6 +1438,9 @@ private class DescriptorBuilder {
     }
     var begin = staticIntLiteral(bounds[0], bounds[0].pos);
     var end = staticIntLiteral(bounds[1], bounds[1].pos);
+    if (end - begin > STATIC_UNROLL_LIMIT) {
+      Context.error('Quadrants static unroll exceeds limit ${STATIC_UNROLL_LIMIT}', pos);
+    }
     var count = 0;
     for (value in begin...end) {
       var argScope = new Map<String, Expr>();
@@ -1252,6 +1452,51 @@ private class DescriptorBuilder {
       inlineArgScopes.pop();
     }
     return count;
+  }
+
+  function encodeStaticValuesFor(loopName:String, args:Array<Expr>, body:Expr, writer:ByteWriter, pos:Position):Int {
+    if (args.length != 1) {
+      Context.error("Quadrants Static.values expects one array literal argument", pos);
+    }
+    var elements = switch (stripNoCasts(args[0]).expr) {
+      case EArrayDecl(values): values;
+      default: Context.error("Quadrants Static.values expects an array literal", args[0].pos);
+    };
+    if (elements.length == 0) {
+      Context.error("Quadrants Static.values requires at least one literal element", args[0].pos);
+    }
+    if (elements.length > STATIC_UNROLL_LIMIT) {
+      Context.error('Quadrants static unroll exceeds limit ${STATIC_UNROLL_LIMIT}', pos);
+    }
+    var count = 0;
+    for (element in elements) {
+      var literal = staticScalarLiteralExpr(element);
+      var argScope = new Map<String, Expr>();
+      argScope[loopName] = literal;
+      inlineArgScopes.push(argScope);
+      pushScope();
+      count += encodeStatementList(statementsOf(body), writer);
+      popScope();
+      inlineArgScopes.pop();
+    }
+    return count;
+  }
+
+  function staticScalarLiteralExpr(expression:Expr):Expr {
+    var expr = stripNoCasts(expression);
+    return switch (expr.expr) {
+      case EConst(CInt(_, _)) | EConst(CFloat(_, _)):
+        expr;
+      case EUnop(OpNeg, false, inner):
+        switch (stripNoCasts(inner).expr) {
+          case EConst(CInt(_, _)) | EConst(CFloat(_, _)): expr;
+          default: Context.error("Quadrants Static.values elements must be integer or float literals", expr.pos);
+        }
+      case ECall(callee, callArgs) if (isStaticValueCall(callee) && callArgs.length == 1):
+        staticScalarLiteralExpr(callArgs[0]);
+      default:
+        Context.error("Quadrants Static.values elements must be integer or float literals", expr.pos);
+    };
   }
 
   function staticIntLiteral(expression:Expr, pos:Position):Int {
@@ -1332,6 +1577,10 @@ private class DescriptorBuilder {
     if (param.kind == PARAM_SCALAR) {
       Context.error('Quadrants parameter ${param.name} is used as both scalar and struct-for target', target.pos);
     }
+    if (param.kind == PARAM_FIELD) {
+      encodeStructForField(loopName, loopPos, paramId, 1, body, writer);
+      return;
+    }
     param.kind = PARAM_NDARRAY;
     if (param.rank == 0) {
       param.rank = 1;
@@ -1348,6 +1597,53 @@ private class DescriptorBuilder {
 
     writer.u8(STMT_STRUCT_FOR_EXTERNAL_TENSOR);
     writer.u32(localId);
+    writer.u8(EXPR_ARG_LOAD);
+    writer.u32(paramId);
+    writer.u32(bodyCount);
+    writer.append(bodyBytes.bytes);
+  }
+
+  function structForFieldParamId(target:Expr):Null<Int> {
+    return switch (strip(target).expr) {
+      case EConst(CIdent(name)):
+        var paramId = paramIds.get(name);
+        paramId != null && params[paramId].kind == PARAM_FIELD ? paramId : null;
+      default:
+        null;
+    };
+  }
+
+  function encodeStructForField(loopName:String, loopPos:Position, paramId:Int, groupRank:Int, body:Expr, writer:ByteWriter):Void {
+    if (groupRank < 1 || groupRank > 8) {
+      Context.error("Quadrants field struct-for rank must be in 1...8", loopPos);
+    }
+    markParamField(paramId, groupRank, loopPos);
+    var bodyBytes = new ByteWriter();
+    pushScope();
+    var localIds:Array<Int> = [];
+    if (groupRank == 1) {
+      localIds.push(declareLocal(loopName, loopPos, false, DTYPE_I32));
+    } else {
+      var vectorScope = new Map<String, Array<Int>>();
+      for (dim in 0...groupRank) {
+        localIds.push(declareLocal('__qd_${loopName}_${dim}', loopPos, false, DTYPE_I32));
+      }
+      vectorScope[loopName] = localIds;
+      indexVectorScopes.push(vectorScope);
+    }
+    loopDepth++;
+    var bodyCount = encodeStatementList(statementsOf(body), bodyBytes);
+    loopDepth--;
+    if (groupRank > 1) {
+      indexVectorScopes.pop();
+    }
+    popScope();
+
+    writer.u8(STMT_STRUCT_FOR_FIELD);
+    writer.u32(localIds.length);
+    for (id in localIds) {
+      writer.u32(id);
+    }
     writer.u8(EXPR_ARG_LOAD);
     writer.u32(paramId);
     writer.u32(bodyCount);
@@ -2397,6 +2693,18 @@ private class DescriptorBuilder {
         }
         var dtype = promoteDType(lhsVector.dtype, rhsVector.dtype);
         return {values: [for (i in 0...lhsVector.localIds.length) binaryExpr(op, vectorComponentExpr(lhsName, i, expr.pos), vectorComponentExpr(rhsName, i, expr.pos), expr.pos)], dtype: dtype};
+      case EField(base, field):
+        var name = directVectorName(base);
+        if (name == null) return null;
+        var indices = swizzleIndices(field);
+        if (indices == null) return null;
+        var vector = lookupVector(name);
+        for (dim in indices) {
+          if (dim >= vector.localIds.length) {
+            Context.error('Quadrants vector ${name} swizzle ${field} is out of range', expr.pos);
+          }
+        }
+        return {values: [for (dim in indices) vectorComponentExpr(name, dim, expr.pos)], dtype: vector.dtype};
       case EBlock(expressions):
         var values = vectorValuesFromLoweredConstructorBlock(expressions);
         if (values == null) return null;
@@ -2616,12 +2924,34 @@ private class DescriptorBuilder {
 
   function vectorFieldIndex(field:String):Int {
     return switch (field) {
-      case "x" | "r": 0;
-      case "y" | "g": 1;
-      case "z" | "b": 2;
-      case "w" | "a": 3;
+      case "x" | "r" | "s": 0;
+      case "y" | "g" | "t": 1;
+      case "z" | "b" | "p": 2;
+      case "w" | "a" | "q": 3;
       default: -1;
     }
+  }
+
+  function swizzleIndices(field:String):Null<Array<Int>> {
+    if (field.length < 2 || field.length > 4) {
+      return null;
+    }
+    for (group in ["xyzw", "rgba", "stpq"]) {
+      var indices:Array<Int> = [];
+      var matched = true;
+      for (i in 0...field.length) {
+        var componentIndex = group.indexOf(field.charAt(i));
+        if (componentIndex < 0) {
+          matched = false;
+          break;
+        }
+        indices.push(componentIndex);
+      }
+      if (matched) {
+        return indices;
+      }
+    }
+    return null;
   }
 
   function vectorComponentLocalId(expression:Expr):Null<Int> {
@@ -2640,6 +2970,9 @@ private class DescriptorBuilder {
         var name = directVectorName(base);
         if (name == null) return null;
         var vector = lookupVector(name);
+        if (field.length > 1 && swizzleIndices(field) != null) {
+          return null;
+        }
         var dim = vectorFieldIndex(field);
         if (dim < 0 || dim >= vector.localIds.length) {
           Context.error('Quadrants vector ${name} has no component ${field}', expr.pos);
@@ -2830,6 +3163,10 @@ private class DescriptorBuilder {
         if (memberAccess != null) {
           encodeStructMemberStore(memberAccess, valueExpr, writer, pos);
         } else {
+          var swizzleCount = encodeSwizzleAssignment(lhs, valueExpr, writer, pos);
+          if (swizzleCount != null) {
+            return extraCount + swizzleCount;
+          }
           var fieldLocalId = vectorComponentLocalId(lhs);
           if (fieldLocalId == null) {
             fieldLocalId = structFieldLocalId(lhs);
@@ -2846,6 +3183,56 @@ private class DescriptorBuilder {
         Context.error("Quadrants HashLink only supports ndarray element, vector component, matrix element, struct field, or local variable assignments", pos);
     }
     return extraCount + 1;
+  }
+
+  function encodeSwizzleAssignment(lhs:Expr, valueExpr:Expr, writer:ByteWriter, pos:Position):Null<Int> {
+    switch (stripNoCasts(lhs).expr) {
+      case EField(base, field):
+        var name = directVectorName(base);
+        if (name == null) {
+          return null;
+        }
+        var indices = swizzleIndices(field);
+        if (indices == null) {
+          return null;
+        }
+        var vector = lookupVector(name);
+        for (dim in indices) {
+          if (dim >= vector.localIds.length) {
+            Context.error('Quadrants vector ${name} swizzle ${field} is out of range', pos);
+          }
+        }
+        var seen = new Map<Int, Bool>();
+        for (dim in indices) {
+          if (seen.exists(dim)) {
+            Context.error("Quadrants swizzle assignment requires distinct components", pos);
+          }
+          seen[dim] = true;
+        }
+        var source = vectorValuesForExpression(valueExpr);
+        if (source == null || source.values.length != indices.length) {
+          Context.error('Quadrants swizzle assignment requires a ${indices.length}-component vector value', pos);
+        }
+        var tempIds:Array<Int> = [];
+        for (i in 0...indices.length) {
+          var tempId = declareLocal('__qdSwz${swizzleTempCounter++}', pos, true, vector.dtype);
+          writer.u8(STMT_ASSIGN);
+          writer.u8(EXPR_LOCAL_LOAD);
+          writer.u32(tempId);
+          encodeExpressionWithExpectedDType(source.values[i], vector.dtype, writer);
+          tempIds.push(tempId);
+        }
+        for (i in 0...indices.length) {
+          writer.u8(STMT_ASSIGN);
+          writer.u8(EXPR_LOCAL_LOAD);
+          writer.u32(vector.localIds[indices[i]]);
+          writer.u8(EXPR_LOCAL_LOAD);
+          writer.u32(tempIds[i]);
+        }
+        return indices.length * 2;
+      default:
+        return null;
+    }
   }
 
   function encodeCompoundAssignment(op:Binop, lhs:Expr, rhs:Expr, writer:ByteWriter, pos:Position):Int {
@@ -3097,8 +3484,13 @@ private class DescriptorBuilder {
   function encodeArrayIndices(base:Expr, indices:Array<Expr>, writer:ByteWriter):Void {
     var startParamId = bufferViewStartParamId(base);
     if (startParamId == null) {
-      for (index in indices) {
-        encodeExpression(index, writer);
+      var clampParamId = clampBoundaryParamId(base);
+      for (axis in 0...indices.length) {
+        if (clampParamId != null) {
+          encodeClampedIndex(clampParamId, axis, indices[axis], writer);
+        } else {
+          encodeExpression(indices[axis], writer);
+        }
       }
       return;
     }
@@ -3109,6 +3501,29 @@ private class DescriptorBuilder {
     encodeExpression(indices[0], writer);
     writer.u8(EXPR_ARG_LOAD);
     writer.u32(startParamId);
+  }
+
+  function clampBoundaryParamId(base:Expr):Null<Int> {
+    var name = directIdentifier(base);
+    if (name == null || !clampBoundaryParams.exists(name)) {
+      return null;
+    }
+    return paramIds.get(name);
+  }
+
+  function encodeClampedIndex(paramId:Int, axis:Int, index:Expr, writer:ByteWriter):Void {
+    writer.u8(EXPR_MIN);
+    writer.u8(EXPR_MAX);
+    encodeExpression(index, writer);
+    writer.u8(EXPR_CONST_I32);
+    writer.i32(0);
+    writer.u8(EXPR_BINARY_SUB);
+    writer.u8(EXPR_SHAPE_AXIS);
+    writer.u8(EXPR_ARG_LOAD);
+    writer.u32(paramId);
+    writer.u32(axis);
+    writer.u8(EXPR_CONST_I32);
+    writer.i32(1);
   }
 
   function encodeIndexVectorAccess(expression:Expr, writer:ByteWriter):Bool {
@@ -3678,6 +4093,8 @@ private class DescriptorBuilder {
     return switch (name) {
       case "randI32": DTYPE_I32;
       case "randU32": DTYPE_U32;
+      case "randI64": DTYPE_I64;
+      case "randU64": DTYPE_U64;
       case "randF32": DTYPE_F32;
       case "randF64": DTYPE_F64;
       default: null;
@@ -3889,12 +4306,16 @@ private class DescriptorBuilder {
     if (pathIs(path, "Workgroup", "globalInvocationId")) return EXPR_GLOBAL_INVOCATION_ID;
     if (pathIs(path, "Grid", "vkGlobalThreadIdx")) return EXPR_VK_GLOBAL_THREAD_IDX;
     if (pathIs(path, "Grid", "activeMask")) return EXPR_CUDA_ACTIVE_MASK;
+    if (pathIs(path, "Subgroup", "ballot")) return EXPR_SUBGROUP_BALLOT_U64;
+    if (pathIs(path, "Grid", "matchAnySync")) return EXPR_CUDA_MATCH_ANY;
+    if (pathIs(path, "Grid", "matchAllSync")) return EXPR_CUDA_MATCH_ALL;
+    if (pathIs(path, "SpecialOps", "clockI64") || pathIs(path, "quadrants.SpecialOps", "clockI64")) return EXPR_CLOCK_I64;
     return null;
   }
 
   function encodeInternalExpressionCall(path:String, opcode:Int, args:Array<Expr>, writer:ByteWriter, pos:Position):Void {
     writer.u8(opcode);
-    if (opcode == EXPR_SUBGROUP_SHUFFLE || opcode == EXPR_SUBGROUP_SHUFFLE_DOWN || opcode == EXPR_SUBGROUP_SHUFFLE_UP || opcode == EXPR_SUBGROUP_BROADCAST) {
+    if (opcode == EXPR_SUBGROUP_SHUFFLE || opcode == EXPR_SUBGROUP_SHUFFLE_DOWN || opcode == EXPR_SUBGROUP_SHUFFLE_UP || opcode == EXPR_SUBGROUP_BROADCAST || opcode == EXPR_CUDA_MATCH_ANY || opcode == EXPR_CUDA_MATCH_ALL) {
       if (args.length != 2) {
         Context.error('Quadrants HashLink function ${path} expects two arguments', pos);
       }
@@ -3902,7 +4323,7 @@ private class DescriptorBuilder {
       encodeExpression(args[1], writer);
       return;
     }
-    if (opcode == EXPR_BLOCK_BARRIER_AND || opcode == EXPR_BLOCK_BARRIER_OR || opcode == EXPR_BLOCK_BARRIER_COUNT) {
+    if (opcode == EXPR_BLOCK_BARRIER_AND || opcode == EXPR_BLOCK_BARRIER_OR || opcode == EXPR_BLOCK_BARRIER_COUNT || opcode == EXPR_SUBGROUP_BALLOT_U64) {
       if (args.length != 1) {
         Context.error('Quadrants HashLink function ${path} expects one argument', pos);
       }
@@ -4306,7 +4727,7 @@ private class DescriptorBuilder {
     return path == "Grouped.of" || path == "quadrants.Grouped.of";
   }
   function groupedStructForTarget(args:Array<Expr>):Null<Expr> {
-    if (args.length != 1) {
+    if (args.length < 1 || args.length > 2) {
       return null;
     }
     var target = strip(args[0]);
@@ -4323,6 +4744,11 @@ private class DescriptorBuilder {
   function isStaticRangeCall(callee:Expr):Bool {
     var path = callPath(callee, callee.pos);
     return path == "Static.range" || path == "quadrants.Static.range";
+  }
+
+  function isStaticValuesCall(callee:Expr):Bool {
+    var path = callPath(callee, callee.pos);
+    return path == "Static.values" || path == "quadrants.Static.values";
   }
 
   function isStaticValueCall(callee:Expr):Bool {
@@ -5396,6 +5822,9 @@ class KernelBuilder {
 
     var kernelName = kernelNameFromOptions(options, functionExpr.pos);
     var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(options), kernelName, descriptorMetadataFromOptions(options));
+    for (entry in boundaryClampFromOptions(options)) {
+      builder.registerClampBoundary(entry.name, entry.pos);
+    }
     var descriptorBytes = builder.build(functionDef.expr);
     var descriptorExpr = bytesExpression(descriptorBytes, functionExpr.pos);
     var autodiffMode = autodiffModeFromOptions(options);
@@ -5419,6 +5848,9 @@ class KernelBuilder {
 
     var kernelName = kernelNameFromOptions(options, functionExpr.pos);
     var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(options), kernelName, descriptorMetadataFromOptions(options));
+    for (entry in boundaryClampFromOptions(options)) {
+      builder.registerClampBoundary(entry.name, entry.pos);
+    }
     var descriptorBytes = builder.build(functionDef.expr);
     var descriptorExpr = bytesExpression(descriptorBytes, functionExpr.pos);
     var autodiffMode = autodiffModeFromOptions(options);
@@ -5440,6 +5872,9 @@ class KernelBuilder {
       Context.error("Quadrants HashLink kernel function must have a body", functionExpr.pos);
     }
     var builder = new DescriptorBuilder(functionDef.args, collectQdFunctions(options), kernelNameFromOptions(options, functionExpr.pos), descriptorMetadataFromOptions(options));
+    for (entry in boundaryClampFromOptions(options)) {
+      builder.registerClampBoundary(entry.name, entry.pos);
+    }
     var descriptorBytes = builder.build(functionDef.expr);
     return bytesExpression(descriptorBytes, functionExpr.pos);
   }
@@ -5789,6 +6224,41 @@ class KernelBuilder {
     };
   }
 
+  static function boundaryClampFromOptions(options:Null<Expr>):Array<{name:String, pos:Position}> {
+    if (options == null) {
+      return [];
+    }
+    var expr = DescriptorBuilder.strip(options);
+    if (isNullLiteral(expr)) {
+      return [];
+    }
+    return switch (expr.expr) {
+      case EObjectDecl(fields):
+        var entries:Array<{name:String, pos:Position}> = [];
+        for (field in fields) {
+          if (field.field != "boundaryClamp") {
+            continue;
+          }
+          switch (DescriptorBuilder.strip(field.expr).expr) {
+            case EArrayDecl(values):
+              for (value in values) {
+                switch (DescriptorBuilder.strip(value).expr) {
+                  case EConst(CString(name, _)):
+                    entries.push({name: name, pos: value.pos});
+                  default:
+                    Context.error("quadrants.Kernel.build boundaryClamp option must be an array of parameter name strings", value.pos);
+                }
+              }
+            default:
+              Context.error("quadrants.Kernel.build boundaryClamp option must be an array of parameter name strings", field.expr.pos);
+          }
+        }
+        entries;
+      default:
+        Context.error("quadrants.Kernel.build options must be an object literal", expr.pos);
+    };
+  }
+
   static function descriptorMetadataFromOptions(options:Null<Expr>):Null<String> {
     if (options == null) {
       return null;
@@ -5914,8 +6384,26 @@ class KernelBuilder {
         EFunction(decodeQuotedFunctionKind(parts.params[0]), decodeQuotedFunction(parts.params[1]));
       case "EParenthesis":
         EParenthesis(decodeQuotedExpr(parts.params[0]));
+      case "ESwitch":
+        ESwitch(decodeQuotedExpr(parts.params[0]),
+            [for (item in arrayElements(parts.params[1])) decodeQuotedCase(item)],
+            parts.params.length >= 3 && !isNullLiteral(parts.params[2]) ? decodeQuotedExpr(parts.params[2]) : null);
       default:
         Context.error('Unsupported quoted Haxe expression node ${parts.name}', source.pos);
+    };
+  }
+
+  static function decodeQuotedCase(source:Expr):Case {
+    var valuesExpr = objectField(source, "values");
+    if (valuesExpr == null) {
+      Context.error("Quoted Haxe switch case is missing values", source.pos);
+    }
+    var guardExpr = objectField(source, "guard");
+    var bodyExpr = objectField(source, "expr");
+    return {
+      values: [for (item in arrayElements(valuesExpr)) decodeQuotedExpr(item)],
+      guard: guardExpr == null || isNullLiteral(guardExpr) ? null : decodeQuotedExpr(guardExpr),
+      expr: bodyExpr == null || isNullLiteral(bodyExpr) ? null : decodeQuotedExpr(bodyExpr),
     };
   }
 
@@ -5941,12 +6429,26 @@ class KernelBuilder {
     }
     var optExpr = objectField(source, "opt");
     var typeExpr = objectField(source, "type");
+    var metaExpr = objectField(source, "meta");
     return {
       name: stringLiteral(nameExpr),
       opt: optExpr == null ? false : boolLiteral(optExpr),
       type: typeExpr == null || isNullLiteral(typeExpr) ? null : decodeQuotedComplexType(typeExpr),
       value: null,
-      meta: null,
+      meta: metaExpr == null || isNullLiteral(metaExpr) ? null : [for (item in arrayElements(metaExpr)) decodeQuotedMetadataEntry(item)],
+    };
+  }
+
+  static function decodeQuotedMetadataEntry(source:Expr):MetadataEntry {
+    var nameExpr = objectField(source, "name");
+    if (nameExpr == null) {
+      Context.error("Quoted Haxe metadata entry is missing a name", source.pos);
+    }
+    var paramsExpr = objectField(source, "params");
+    return {
+      name: stringLiteral(nameExpr),
+      params: paramsExpr == null || isNullLiteral(paramsExpr) ? [] : [for (item in arrayElements(paramsExpr)) decodeQuotedExpr(item)],
+      pos: source.pos,
     };
   }
 

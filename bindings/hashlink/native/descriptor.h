@@ -138,6 +138,10 @@ enum class ExprOpcode : std::uint8_t {
   mesh_relation_size = 95,
   mesh_relation_get = 96,
   mesh_index_convert = 97,
+  clock_i64 = 98,
+  cuda_match_any = 99,
+  cuda_match_all = 100,
+  subgroup_ballot_u64 = 101,
 };
 
 enum class StmtOpcode : std::uint8_t {
@@ -179,6 +183,9 @@ enum class StmtOpcode : std::uint8_t {
   mesh_for = 36,
   snode_activate = 37,
   snode_deactivate = 38,
+  struct_for_field = 39,
+  stop_grad = 40,
+  print_entries = 41,
 };
 
 struct ParameterDescriptor {
@@ -326,9 +333,16 @@ struct ExpressionDescriptor {
   std::unique_ptr<ExpressionDescriptor> value;
   std::unique_ptr<ExpressionDescriptor> expected;
 };
+struct PrintEntryDescriptor {
+  bool is_string{false};
+  std::string text;
+  std::unique_ptr<ExpressionDescriptor> value;
+};
+
 
 struct StatementDescriptor {
   StmtOpcode opcode{StmtOpcode::return_void};
+  std::vector<PrintEntryDescriptor> print_entries;
   std::uint32_t local_id{0};
   std::uint32_t hint_value{0};
   std::uint8_t mesh_element_type{0};
@@ -338,6 +352,7 @@ struct StatementDescriptor {
   std::string message;
   std::unique_ptr<ExpressionDescriptor> target;
   std::vector<std::unique_ptr<ExpressionDescriptor>> indices;
+  std::vector<std::uint32_t> local_ids;
   std::unique_ptr<ExpressionDescriptor> value;
   std::vector<std::unique_ptr<ExpressionDescriptor>> values;
   std::unique_ptr<ExpressionDescriptor> begin;

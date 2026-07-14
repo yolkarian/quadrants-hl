@@ -57,4 +57,8 @@ class SpecialOps {
   public static function volatileLoad<T>(value:T):T {
     throw "Quadrants SpecialOps.volatileLoad is a kernel-only construct";
   }
+
+  public static function clockI64():quadrants.Types.I64 {
+    throw "Quadrants SpecialOps.clockI64 is a kernel-only construct";
+  }
 }

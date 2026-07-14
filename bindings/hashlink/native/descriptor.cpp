@@ -288,6 +288,7 @@ std::unique_ptr<ExpressionDescriptor> parse_expression(DescriptorReader &reader,
     case ExprOpcode::global_invocation_id:
     case ExprOpcode::vk_global_thread_idx:
     case ExprOpcode::cuda_active_mask:
+    case ExprOpcode::clock_i64:
       break;
     case ExprOpcode::arg_load:
       expr->index = reader.read_u32();
@@ -399,6 +400,8 @@ std::unique_ptr<ExpressionDescriptor> parse_expression(DescriptorReader &reader,
     case ExprOpcode::subgroup_shuffle_down:
     case ExprOpcode::subgroup_shuffle_up:
     case ExprOpcode::subgroup_broadcast:
+    case ExprOpcode::cuda_match_any:
+    case ExprOpcode::cuda_match_all:
       expr->lhs = parse_expression(reader, descriptor, depth + 1);
       expr->rhs = parse_expression(reader, descriptor, depth + 1);
       break;
@@ -445,6 +448,7 @@ std::unique_ptr<ExpressionDescriptor> parse_expression(DescriptorReader &reader,
     case ExprOpcode::block_barrier_and:
     case ExprOpcode::block_barrier_or:
     case ExprOpcode::block_barrier_count:
+    case ExprOpcode::subgroup_ballot_u64:
       expr->operand = parse_expression(reader, descriptor, depth + 1);
       break;
   }
@@ -491,6 +495,27 @@ std::unique_ptr<StatementDescriptor> parse_statement(DescriptorReader &reader,
       stmt->target = parse_expression(reader, descriptor, depth + 1);
       const std::uint32_t body_count = reader.read_u32();
       stmt->body = parse_statement_list(reader, descriptor, body_count, depth + 1);
+      break;
+    }
+    case StmtOpcode::struct_for_field: {
+      const std::uint32_t var_count = reader.read_u32();
+      if (var_count == 0 || var_count > 8) {
+        throw std::runtime_error("HashLink kernel descriptor field struct-for uses an invalid loop-variable count");
+      }
+      for (std::uint32_t i = 0; i < var_count; ++i) {
+        const std::uint32_t local_id = reader.read_u32();
+        if (local_id >= descriptor.locals.size()) {
+          throw std::runtime_error("HashLink kernel descriptor field struct-for uses an invalid local");
+        }
+        stmt->local_ids.push_back(local_id);
+      }
+      stmt->target = parse_expression(reader, descriptor, depth + 1);
+      const std::uint32_t body_count = reader.read_u32();
+      stmt->body = parse_statement_list(reader, descriptor, body_count, depth + 1);
+      break;
+    }
+    case StmtOpcode::stop_grad: {
+      stmt->target = parse_expression(reader, descriptor, depth + 1);
       break;
     }
     case StmtOpcode::mesh_for: {
@@ -578,6 +603,23 @@ std::unique_ptr<StatementDescriptor> parse_statement(DescriptorReader &reader,
         stmt->message = reader.read_string(reader.read_u32());
       }
       break;
+    case StmtOpcode::print_entries: {
+      const std::uint32_t entry_count = reader.read_u32();
+      if (entry_count == 0 || entry_count > 64) {
+        throw std::runtime_error("HashLink kernel descriptor print entry count is out of range");
+      }
+      for (std::uint32_t i = 0; i < entry_count; ++i) {
+        PrintEntryDescriptor entry;
+        entry.is_string = reader.read_u8() == 0;
+        if (entry.is_string) {
+          entry.text = reader.read_string(reader.read_u32());
+        } else {
+          entry.value = parse_expression(reader, descriptor, depth + 1);
+        }
+        stmt->print_entries.push_back(std::move(entry));
+      }
+      break;
+    }
     case StmtOpcode::assert_stmt:
       stmt->condition = parse_expression(reader, descriptor, depth + 1);
       stmt->has_message = reader.read_u8() != 0;
@@ -920,9 +962,41 @@ class LoweringContext {
       case ExprOpcode::vk_global_thread_idx:
       case ExprOpcode::cuda_active_mask:
         return lower_internal_call(lower_internal_expr_opcode(expr.opcode), {});
-      case ExprOpcode::shape_axis:
+      case ExprOpcode::clock_i64: {
+        if (program_ == nullptr) {
+          throw std::runtime_error("HashLink descriptor lowering has no Program for clock lowering");
+        }
+        lang::InternalOp clock_op;
+        const auto arch = program_->compile_config().arch;
+        if (arch_is_cuda(arch)) {
+          clock_op = lang::InternalOp::cuda_clock_i64;
+        } else if (arch_is_amdgpu(arch)) {
+          clock_op = lang::InternalOp::amdgpu_clock_i64;
+        } else if (arch == Arch::vulkan) {
+          clock_op = lang::InternalOp::spirv_clock_i64;
+        } else if (arch_is_cpu(arch)) {
+          clock_op = lang::InternalOp::cpu_clock_i64;
+        } else {
+          throw std::runtime_error("Quadrants clockI64 is not supported on this backend");
+        }
+        return lower_internal_call(clock_op, {});
+      }
+      case ExprOpcode::shape_axis: {
+        auto target = lower_expression(*expr.target);
+        if (target.is<lang::FieldExpression>()) {
+          lang::SNode *snode = target.cast<lang::FieldExpression>()->snode;
+          if (snode == nullptr) {
+            throw std::runtime_error("HashLink shape() on a Field requires a placed SNode");
+          }
+          const int shape_axis_index = static_cast<int>(expr.axis);
+          if (shape_axis_index < 0 || shape_axis_index >= snode->num_active_indices) {
+            throw std::runtime_error("HashLink shape() axis is out of range for the field");
+          }
+          return const_i32(snode->shape_along_axis(shape_axis_index));
+        }
         return type_checked(lang::Expr::make<lang::ExternalTensorShapeAlongAxisExpression>(
-            lower_expression(*expr.target), static_cast<int>(expr.axis)));
+            std::move(target), static_cast<int>(expr.axis)));
+      }
       case ExprOpcode::arg_load:
         return params_.at(expr.index);
       case ExprOpcode::local_load:
@@ -1001,6 +1075,17 @@ class LoweringContext {
       case ExprOpcode::subgroup_broadcast:
         return lower_internal_call(lower_internal_expr_opcode(expr.opcode),
                                    {lower_expression(*expr.lhs), lower_expression(*expr.rhs)});
+      case ExprOpcode::cuda_match_any:
+      case ExprOpcode::cuda_match_all: {
+        if (program_ == nullptr || !arch_is_cuda(program_->compile_config().arch)) {
+          throw std::runtime_error("Quadrants matchAnySync/matchAllSync require a CUDA context");
+        }
+        const auto match_op = expr.opcode == ExprOpcode::cuda_match_any ? lang::InternalOp::cuda_match_any_sync_i32
+                                                                        : lang::InternalOp::cuda_match_all_sync_i32;
+        return lower_internal_call(match_op, {lower_expression(*expr.lhs), lower_expression(*expr.rhs)});
+      }
+      case ExprOpcode::subgroup_ballot_u64:
+        return lower_internal_call(lang::InternalOp::subgroupBallotU64, {lower_expression(*expr.operand)});
       case ExprOpcode::fns_u32:
         return lower_fns_u32(expr);
       case ExprOpcode::assume_in_range:
@@ -1125,6 +1210,32 @@ class LoweringContext {
         builder_.pop_scope();
         return;
       }
+      case StmtOpcode::stop_grad: {
+        auto target = lower_expression(*stmt.target);
+        builder_.stop_gradient(field_snode_from_expression(target));
+        return;
+      }
+      case StmtOpcode::struct_for_field: {
+        lang::ExprGroup loop_vars;
+        for (const auto local_id : stmt.local_ids) {
+          loop_vars.push_back(locals_.at(local_id));
+        }
+        auto target = lower_expression(*stmt.target);
+        if (!target.is<lang::FieldExpression>()) {
+          throw std::runtime_error("HashLink field struct-for target must be a Field kernel parameter");
+        }
+        lang::SNode *snode = target.cast<lang::FieldExpression>()->snode;
+        if (snode == nullptr) {
+          throw std::runtime_error("HashLink field struct-for target is not bound to a placed SNode");
+        }
+        if (static_cast<std::size_t>(snode->num_active_indices) != loop_vars.size()) {
+          throw std::runtime_error("HashLink field struct-for loop-variable count must match the field rank");
+        }
+        builder_.begin_frontend_struct_for_on_snode(loop_vars, snode, debug_info_);
+        lower_statements(stmt.body);
+        builder_.pop_scope();
+        return;
+      }
       case StmtOpcode::mesh_for: {
         const auto mesh_ptr = create_mesh(stmt);
         builder_.begin_frontend_mesh_for(locals_.at(stmt.local_id),
@@ -1199,6 +1310,22 @@ class LoweringContext {
           contents.emplace_back(stmt.message);
         }
         formats.emplace_back(std::nullopt);
+        builder_.create_print(std::move(contents), std::move(formats), debug_info_);
+        return;
+      }
+      case StmtOpcode::print_entries: {
+        std::vector<std::variant<lang::Expr, std::string>> contents;
+        std::vector<std::optional<std::string>> formats;
+        contents.reserve(stmt.print_entries.size());
+        formats.reserve(stmt.print_entries.size());
+        for (const auto &entry : stmt.print_entries) {
+          if (entry.is_string) {
+            contents.emplace_back(entry.text);
+          } else {
+            contents.emplace_back(lower_expression(*entry.value));
+          }
+          formats.emplace_back(std::nullopt);
+        }
         builder_.create_print(std::move(contents), std::move(formats), debug_info_);
         return;
       }

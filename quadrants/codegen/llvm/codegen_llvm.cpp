@@ -2461,6 +2461,35 @@ void TaskCodeGenLLVM::visit(ClearListStmt *stmt) {
 }
 
 void TaskCodeGenLLVM::visit(InternalFuncStmt *stmt) {
+  // Width-1 subgroup semantics for host-serial LLVM backends (the CPU backend
+  // does not override this visitor): every lane is its own subgroup, so the
+  // data-movement ops are identities, votes are trivially true, and ballots
+  // reduce to the lane's own predicate bit.
+  if (stmt->func_name == "subgroupSize") {
+    llvm_val[stmt] = tlctx->get_constant(1);
+    return;
+  }
+  if (stmt->func_name == "subgroupInvocationId") {
+    llvm_val[stmt] = tlctx->get_constant(0);
+    return;
+  }
+  if (stmt->func_name == "subgroupElect") {
+    llvm_val[stmt] = llvm::ConstantInt::get(tlctx->get_data_type(stmt->ret_type), 1);
+    return;
+  }
+  if (stmt->func_name == "subgroupShuffle" || stmt->func_name == "subgroupShuffleDown" ||
+      stmt->func_name == "subgroupShuffleUp" || stmt->func_name == "subgroupBroadcast") {
+    llvm_val[stmt] = llvm_val[stmt->args[0]];
+    return;
+  }
+  if (stmt->func_name == "subgroupBallotU32" || stmt->func_name == "subgroupBallotU64") {
+    auto *predicate = llvm_val[stmt->args[0]];
+    auto *nonzero = builder->CreateICmpNE(predicate, llvm::ConstantInt::get(predicate->getType(), 0));
+    auto *result_type = stmt->func_name == "subgroupBallotU64" ? llvm::Type::getInt64Ty(*llvm_context)
+                                                               : llvm::Type::getInt32Ty(*llvm_context);
+    llvm_val[stmt] = builder->CreateZExt(nonzero, result_type);
+    return;
+  }
   std::vector<llvm::Value *> args;
 
   if (stmt->with_runtime_context)
