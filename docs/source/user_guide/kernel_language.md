@@ -40,6 +40,16 @@ A `BufferView<T>` kernel parameter is flattened at launch to the underlying tens
 
 `Field<T>` parameters lower to native field expressions. `field[i]` reads/writes the placed SNode directly, and launch passes the field's SNode id instead of copying through the tensor mirror. Dynamic fields expose `field.append(indexPrefix, value)` and `field.length(indexPrefix)` in kernels; pointer/hash/bitmasked fields expose `field.isActive(index)`, `field.activate(index)`, and `field.deactivate(index)`. The native specialization validates that the launched field placement supports the requested SNode operation.
 
+The `boundaryClamp` kernel option lists `Tensor<T>` parameter names whose element accesses are clamped per axis to `[0, shape(axis) - 1]`, mirroring the Python binding's `boundary="clamp"` ndarray annotation (which is likewise ndarray-only). All other parameters keep unchecked (`unsafe`) indexing:
+
+```haxe
+var blur = Kernel.build(ctx, macro (a:Tensor<F32>, out:Tensor<F32>) -> {
+  for (i in 0...4) {
+    out[i] = a[i - 1] + a[i + 1];
+  }
+}, {boundaryClamp: ["a"]});
+```
+
 ## Supported statements
 
 - Blocks.
@@ -47,16 +57,18 @@ A `BufferView<T>` kernel parameter is flattened at launch to the underlying tens
 - `for (i in start...end)` range loops.
 - `for (I in Ndrange.of2(a, b))` and the other typed `Ndrange.of1`/`of3`/`of4` helpers for one- to four-dimensional nested range loops from zero, or `Ndrange.ranges2(begin0, end0, begin1, end1)` and the other typed `rangesN` helpers for explicit begin/end pairs; use `I[0]`, `I[1]`, ... inside the body.
 - `Ndrange.of2Axes(a, b, AxisOrder.of2(1, 0))` and `rangesNAxes(...)` variants to change iteration nesting order. The `AxisOrder.ofN(...)` arguments are canonical axis indices listed outermost first and must be a permutation of `0...N`; yielded `I[axis]` values remain in canonical axis order.
-- `for (i in fieldOrTensor)` or `for (i in Grouped.of(fieldOrTensor))` struct-for over a direct `Field<T>` or `Tensor<T>` parameter. `Grouped.of(Ndrange.of3Axes(...))` supports the same typed ndrange domains and axis order controls.
-- `for (i in Static.range(begin, end))` static loops over integer literals; `Static.value(literal)` can wrap compile-time literal constants used in static bounds or expressions.
+- `for (i in fieldOrTensor)` or `for (i in Grouped.of(fieldOrTensor))` struct-for over a direct `Field<T>` or `Tensor<T>` parameter. Field struct-for lowers to the native SNode loop, so it visits only active cells of sparse (pointer/bitmasked/dynamic) fields; `Grouped.of(field, rank)` iterates a multi-dimensional field with `I[0]`, `I[1]`, ... index components. `Grouped.of(Ndrange.of3Axes(...))` supports the same typed ndrange domains and axis order controls.
+- `for (i in Static.range(begin, end))` static loops over integer literals, and `for (v in Static.values([a, b, ...]))` static loops over integer or float literal lists; `Static.value(literal)` can wrap compile-time literal constants used in static bounds or expressions. Static unrolling is capped at 1024 iterations per loop.
 - `for (v in Mesh.forVertices(count))`, `Mesh.forEdges(count)`, `Mesh.forFaces(count)`, or `Mesh.forCells(count)` static mesh-for over a non-negative integer literal count. `quadrants.mesh.MeshRelation` / `MeshAttribute` kernel parameters support `size`, `get`, `read`, and `write` through QDHL mesh resource metadata and native topology/field resources.
 - `while` loops.
 - `break` and `continue` inside loops.
 - `if` / `else` statements. Literal `if (true)` / `if (false)` and `if (Static.value(trueOrFalse))` conditions are expanded at macro time.
+- `switch (scalar)` statements with integer-literal cases (`case 1:`, `case 1, 2:`), an optional trailing `default:` or `case _:`, desugared to if/else chains. Case guards, value captures, and non-literal patterns are rejected.
 - Ndarray and field element assignment, vector/matrix component assignment, and struct-field assignment for kernel locals.
 - Atomic compound assignment (`+=`, `-=`, `*=`, `&=`, `|=`, `^=`) on ndarray elements. Use `atomicAdd(a[i], value)` and related atomic calls when the old value is needed.
 - Loop scheduling hints before the loop they decorate: `blockDim(n)`, `parallelize(n)`, and `serialize()`. The same lowered hints are available through `quadrants.runtime.LoopConfig.blockDim(...)`, `parallelize(...)`, and `serialize()`.
-- `print(valueOrLiteral)` and `assert(condition, "message")` frontend statements.
+- `print(...)` with one to sixteen arguments: string literals and scalar expressions are joined with single spaces and terminated with a newline, matching the Python binding's `print` semantics (`print("lane", i, "value=", a[i])`). String `+` concatenation of literals and expressions splits into print entries. `assert(condition, "message")` frontend statements.
+- `stopGrad(field)` marks a `Field<T>` parameter's SNode as gradient-stopped for reverse-mode autodiff, mirroring the Python binding's `stop_grad`.
 - `return;` with no value, primitive scalar `return value;` returned directly from typed `k.launch(...)`, fixed primitive tuple returns written as `return [a, b, ...];`, and flattened vector/matrix/struct local returns decoded by the typed wrapper. Struct locals may contain previously declared struct locals; nested field access uses `outer.inner.field`.
 
 ## Local scopes
@@ -90,18 +102,18 @@ Kernel parameters may not be shadowed by locals. Re-declaring the same local nam
 - Explicit casts/check types to supported primitive dtypes, plus `bitCast(x, "I32")` or another dtype name for bit-preserving casts.
 - `CompilerHints.assumeInRange(value, base, low, high)` lowers to the native range-assumption expression and returns `value` semantically; `low` and `high` must be integer literals with `high > low`.
 - Math calls: `abs`, `sin`, `asin`, `cos`, `acos`, `tan`, `atan`, `tanh`, `exp`, `log`, `sqrt`, `rsqrt`, `floor`, `ceil`, `round`, `min`, `max`, `atan2`, `pow`, `inv`, `rcp`, `popcnt`, `clz`, `ffs`, `sgn`, `isnan`, `isinf`, and `select(cond, a, b)`.
-- Special ops from `quadrants.SpecialOps`: `randnF32()` / `randnF64()` use the same deterministic random stream as `randF32` / `randF64`; `fnsU32(mask, base, offset)` returns the bit index of the offset-th set bit from `base` or `0xffffffff`; `rawDiv(lhs, rhs)` and `rawMod(lhs, rhs)` expose truncating native integer division/remainder; `frexpF32/F64(x)` returns a kernel struct with `.significand` and `.exponent` (AMDGPU currently rejects this HashLink form explicitly); `volatileLoad(tensor[i])` emits a volatile ndarray load on LLVM-backed backends and is rejected for unsupported backends/forms.
-- Random scalar calls: `randI32()`, `randU32()`, `randF32()`, and `randF64()`.
+- Special ops from `quadrants.SpecialOps`: `randnF32()` / `randnF64()` use the same deterministic random stream as `randF32` / `randF64`; `fnsU32(mask, base, offset)` returns the bit index of the offset-th set bit from `base` or `0xffffffff`; `rawDiv(lhs, rhs)` and `rawMod(lhs, rhs)` expose truncating native integer division/remainder; `frexpF32/F64(x)` returns a kernel struct with `.significand` and `.exponent` (AMDGPU currently rejects this HashLink form explicitly); `volatileLoad(tensor[i])` emits a volatile ndarray load on LLVM-backed backends and is rejected for unsupported backends/forms; `clockI64()` reads the backend cycle counter (CUDA SM clock, AMDGPU clock, Vulkan shader clock; the CPU runtime stub returns 0).
+- Random scalar calls: `randI32()`, `randU32()`, `randI64()`, `randU64()`, `randF32()`, and `randF64()`.
 - Atomic fetch operations: `atomicAdd`, `atomicSub`, `atomicMul`, `atomicMin`, `atomicMax`, `atomicAnd`, `atomicOr`, `atomicXor`, `atomicExchange`, and `atomicCompareExchange(target, expected, desired)` on ndarray elements return the previous value.
 - `shape(tensor, axis)` or `tensor.shape(axis)` returns a tensor/field parameter's runtime extent along a literal axis.
-- Vector locals from `Vec2`/`Vec3`/`Vec4` factories or `Vector.ofArray([...])`, with component/index access, elementwise arithmetic, `dot`, `cross`, `norm`, `normalized`, and `outer` lowering to scalar IR.
+- Vector locals from `Vec2`/`Vec3`/`Vec4` factories or `Vector.ofArray([...])`, with component/index access, elementwise arithmetic, `dot`, `cross`, `norm`, `normalized`, and `outer` lowering to scalar IR. Multi-component swizzle reads (`v.xy`, `v.zyx`, `v.rgb`, `v.stp`; duplicates allowed) produce vector values, and swizzle assignment (`v.xz = w`) stores per component through temporaries; write swizzles require distinct components.
 - Matrix locals from `Mat2`/`Mat3`/`Mat4` factories or `Matrix.ofArray(rows, cols, [...])`, with constant row/column indexing, elementwise arithmetic, `matmul`, `matvec`/`multiplyVector`, `transpose`, `trace`, `determinant`, `inverse` (F32/F64 matrices only), `frobeniusSquared`, `frobeniusNorm`, `diagonal`, `Matrix.diag(vector)`, and `Matrix.outer(lhs, rhs)` lowering to scalar IR for sizes up to 4x4.
 - `VectorNdarray<T>` / `VectorField<T>` parameters support `readVec2/3/4(index)` and `writeVec2/3/4(index, value)`, lowering to flat scalar loads/stores over first-class compound storage.
 - `MatrixNdarray<T>` / `MatrixField<T>` parameters support `readMat2/3/4(index)` and `writeMat2/3/4(index, value)`, lowering to row-major scalar matrix loads/stores.
 - Shared local arrays from `Shared.arrayI8/I16/I32/I64/U8/U16/U32/U64/U1/F16/F32/F64(size)` or `Shared.array(DType.I32, size)`, plus fixed 16x16 tiles from the matching `Shared.tile16*()` or `Shared.tile16(DType.F32)` factories, with normal `shared[i]` indexing inside kernels.
 - Struct locals from `Struct.ofN("field", value, ...)` or object literals such as `{mass: value, velocity: value + 1}`, with scalar/nested struct fields, field reads, and field assignment/compound assignment.
 - `Grid.threadIdx()` returns the backend linear thread index for the current lowered loop.
-- SIMT helpers: `Block.threadIdx()`, `Block.barrierAnd(value)`, `Block.barrierOr(value)`, `Block.barrierCount(value)`, `Subgroup.size()`, `Subgroup.invocationId()`, `Subgroup.elect()`, `Subgroup.shuffle(value, lane)`, `Subgroup.shuffleUp(value, delta)`, `Subgroup.shuffleDown(value, delta)`, `Subgroup.broadcast(value, lane)`, `Workgroup.localInvocationId()`, `Workgroup.globalInvocationId()`, `Grid.activeMask()`, and `Grid.vkGlobalThreadIdx()`. `quadrants.simt` adds typed block reductions/scans, `SubgroupCompat.shuffleXor*/broadcastFirst*/laneMask*`, and explicit tile qdFuncs for 16x16/32x32 F32/F64 flat tile storage.
+- SIMT helpers: `Block.threadIdx()`, `Block.barrierAnd(value)`, `Block.barrierOr(value)`, `Block.barrierCount(value)`, `Subgroup.size()`, `Subgroup.invocationId()`, `Subgroup.elect()`, `Subgroup.shuffle(value, lane)`, `Subgroup.shuffleUp(value, delta)`, `Subgroup.shuffleDown(value, delta)`, `Subgroup.broadcast(value, lane)`, `Subgroup.ballot(predicate)` (returns the subgroup predicate bitmask as `U64`), `Workgroup.localInvocationId()`, `Workgroup.globalInvocationId()`, `Grid.activeMask()`, `Grid.matchAnySync(mask, value)` / `Grid.matchAllSync(mask, value)` (CUDA only; other backends reject at kernel compile), and `Grid.vkGlobalThreadIdx()`. On the CPU backend every lane is its own width-1 subgroup: shuffles and broadcasts are identities, `ballot` reduces to the lane's own predicate bit. `quadrants.simt` adds typed block reductions/scans, subgroup votes/scans/segmented reductions/bitonic sorts, `SubgroupCompat.shuffleXor*/broadcastFirst*/laneMask*`, and explicit tile qdFuncs for 16x16/32x32 F32/F64 flat tile storage.
 
 ## Dtypes in annotations and casts
 
@@ -189,7 +201,7 @@ Common unsupported constructs include:
 
 - General Haxe arrays, classes, strings, and dynamic objects inside kernel bodies. `return [a, b, ...]`, `Vector.ofArray([...])`, `Struct.ofN(...)`, and struct-style object literals are the supported structured-value constructs; arbitrary objects remain unsupported.
 - Function calls other than the supported math, atomic, `shape`, `bitCast`, `CompilerHints.assumeInRange`, loop-hint / `LoopConfig`, SIMT, first-class compound storage read/write, `Grid.threadIdx`, `Mesh.for*`, `Shared.array(...)`, `Shared.tile16(...)`, tensor `kernelRead`/`kernelWrite` inside helper bodies, and local or explicitly listed `@:qdFunc` helper calls.
-- `switch`, `try`/`catch`, `throw`, `do while`, and `for` over arbitrary iterables.
+- `try`/`catch`, `throw`, `do while`, and `for` over arbitrary iterables.
 - Assigning to anything except a local variable, ndarray element, vector/matrix component, or struct field.
 - Re-declaring a local variable in the same scope or shadowing a kernel parameter.
 - Using a parameter as both a scalar and an ndarray.

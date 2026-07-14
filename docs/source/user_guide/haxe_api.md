@@ -43,11 +43,14 @@ final ctx = Context.create({
   arch: Arch.Cpu,
   fastMath: true,
   boundsCheck: true,
-  offlineCache: {enabled: true, path: ".qd-cache"},
-  compile: {numThreads: 8, cfgOptimization: true},
-  debug: {printIr: false, timeline: false}
+  offlineCache: {enabled: true, path: ".qd-cache", cleanPolicy: CacheCleanPolicy.Lru, maxSizeBytes: haxe.Int64.ofInt(64 * 1024 * 1024), cleanFactor: 0.25},
+  compile: {numThreads: 8, cfgOptimization: true, optLevel: OptLevel.O2, externalOptLevel: OptLevel.O1},
+  debug: {printIr: false, launchDebug: false, timeline: false},
+  memory: {deviceMemoryFraction: 0.5, cudaStackLimitBytes: 8192}
 });
 ```
+
+Every documented `ContextOptions` field is applied to the native runtime configuration: offline-cache eviction (`cleanPolicy` accepts `Lru`, `Never`, `Version`, `Fifo`, plus `maxSizeBytes` and `cleanFactor`), compile options (`cfgOptimization`, `numThreads`, `optLevel`/`externalOptLevel` as `O0`..`O3`), debug mode and timeline recording, and memory limits (`deviceMemoryFraction`, `cudaStackLimitBytes`). `numThreads`, `cudaStackLimitBytes`, and `deviceMemoryFraction` are consumed while the native runtime is constructed (compile worker pool, CUDA stack limit, device preallocation), so they can only be set through `Context.create` options. The remaining settings also have typed post-creation setters (`ctx.setOptLevel(...)`, `ctx.setTimeline(...)`, `ctx.setOfflineCachePolicy(...)`, ...), and invalid values throw. When `debug.timeline` is enabled, `Context.timelineClear()` and `Context.timelineSave(path)` reset and export the recorded timeline events as JSON; `timelineSave` throws when the output file cannot be written.
 
 Call `ctx.sync()` before reading host results that were produced by launched kernels or backend operations. Close kernels and long-lived resources before closing the context:
 
@@ -342,6 +345,24 @@ final qi8 = Quant.intI32({bits: 8, signed: true});
 
 `QuantizedF32Tensor` kernel parameters support `read(i)` dequantization and `write(i, value)` quantization through descriptor-expanded raw storage and quantization constants. `bitStruct(...).placeQuant(...)` supports quant-float placement. Unsupported native sparse/mesh/quant paths throw capability or validation errors instead of silently falling back.
 
+## Sparse grids, index rescaling, and host linalg
+
+`quadrants.sparse.SparseGrid` builds a 2D/3D bitmasked grid of named member fields under one shared bitmasked parent, mirroring the Python binding's `qd.sparse.grid(...)`:
+
+```haxe
+final grid = quadrants.sparse.SparseGrid.create2(ctx, 64, 64);
+final mass = grid.addF32("mass");
+final id = grid.addI32("id");
+grid.commit();
+// kernel writes activate cells; struct-for over a member visits active cells only
+trace(grid.activeCount());
+trace(grid.usage()); // active fraction in [0, 1]
+```
+
+Field placement offsets may be negative (`ctx.root.dense([8], {offset: [-4]})`); host accessors keep zero-based flat indices over the declared shape while kernels see logical offset-based indices. `quadrants.snode.RescaleIndex.map(fromShape, toShape, index)` rescales grouped loop indices between fields whose shapes are related by integer factors, matching the Python `rescale_index` semantics.
+
+`quadrants.funcs.Linalg.symEigGeneral(m)` computes the symmetric eigendecomposition of any square host `Matrix<T>` via cyclic Jacobi (ascending eigenvalues, eigenvector columns), and `Linalg.makeSpd(m)` now accepts any square size. `quadrants.simt.SubgroupSegmented` provides kernel-side segmented subgroup reductions (`segmentedReduceAdd/Min/MaxI32`, `...F32`) that reset at non-zero head flags.
+
 ## Capabilities, diagnostics, and profiler
 
 Use capabilities instead of backend-name checks when feature availability matters:
@@ -371,3 +392,5 @@ if (ctx.capabilities().memoryProfiler) {
 ```
 
 Memory profiler counters are typed `haxe.Int64` values. `allocatedBytes` is the total tracked allocation count currently exposed by the HashLink bridge; `snodeBytes` and `ndarrayBytes` split SNode-backed and ndarray-backed storage where the backend reports those values.
+
+`ctx.profiler().traceRecords()` returns the backend kernel profiler's per-launch trace records as `{name, durationMs}` entries, and `printInfo(Trace)` prints the same listing followed by the total time, matching the Python binding's `print_kernel_profiler_info("trace")`.

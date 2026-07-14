@@ -154,23 +154,21 @@ var k = Kernel.build(ctx, macro (input:Tensor<I32>, out:Tensor<I32>) -> {
 
 `quadrants.coverage.Coverage` records kernel builds, launches, and descriptor source-span probe counts, then writes JSON artifacts with `Coverage.flush(path)`. `quadrants.compat.Diagnostics` exposes descriptor dumps, descriptor hashes, value info, and runtime health checks.
 
-## Packed data, SNode helpers, sparse, and profiler bridge
+## Compound storage, SNode helpers, sparse, and profiler bridge
 
-`quadrants.packed` provides workaround storage for non-scalar data without claiming final native compound-field parity. `PackedVectorTensor<T>` / `PackedVectorField<T>` and `PackedMatrixTensor<T>` / `PackedMatrixField<T>` store logical vectors or matrices in typed primitive `Tensor<T>` / `Field<T>` storage, while `PackedStructTensor` and `StructOfArraysField` keep named primitive members in separate tensors/fields. Prefer `StructMember<T>` plus `addMember` / `readMember` / `writeMember` for typed struct member access; the string-keyed `Dynamic` methods are compatibility shims. Kernel helper calls such as `PackedHelpers.readVec2I32(...)` and `PackedHelpers.writeVec2I32(...)` lower to scalar tensor loads/stores.
+`VectorNdarray<T>`, `MatrixNdarray<T>`, `VectorField<T>`, `MatrixField<T>`, `StructTensor<S>`, and `StructField<S>` are the first-class compound storage names, with N-D batch shapes and AOS/SOA layout control. Vector/matrix containers expose kernel methods such as `readVec2(...)`, `writeVec2(...)`, `readMat2(...)`, and `writeMat2(...)`; struct storage uses `@:build(quadrants.macro.QdStruct.build())` element types.
 
-`VectorNdarray<T>`, `MatrixNdarray<T>`, `VectorField<T>`, `MatrixField<T>`, and `StructField` are the first-class compound storage names. Vector/matrix containers are typed wrappers around primitive `Tensor<T>` / `Field<T>` flat storage with native `TensorHandle` launch behavior and kernel methods such as `readVec2(...)`, `writeVec2(...)`, `readMat2(...)`, and `writeMat2(...)`; `StructField` keeps named field members in a supported SOA layout. `fromPacked(...)` / `toPacked()` adapters preserve the Phase 6 migration path.
+`FieldsBuilder.placeMany(...)`, `FieldsBuilder.finalize()`, `quadrants.snode.FieldPlacementPath`, `quadrants.snode.FieldTree`, `quadrants.snode.RescaleIndex`, and `quadrants.runtime.LoopConfig` centralize placement and loop-control ergonomics while keeping explicit `Context` ownership. Placement offsets may be negative, and `quadrants.sparse.SparseGrid` builds bitmasked struct-of-arrays grids with `usage()` occupancy reporting.
 
-`FieldsBuilder.placeMany(...)`, `FieldsBuilder.finalize()`, `quadrants.snode.FieldPlacementPath`, `quadrants.snode.FieldTree`, and `quadrants.runtime.LoopConfig` centralize placement and loop-control ergonomics while keeping explicit `Context` ownership.
+`quadrants.linalg` exposes the native sparse bridge: `SparseMatrix`, `SparseMatrixBuilder`, `SparseSolver`, and `SparseCG` for F32/F64 COO/CSR usage with explicit host-dense fallback policy. `ContextOptions` applies every typed native-backed context setting at creation (offline-cache eviction, compile options, debug/timeline, memory limits), and `quadrants.profiler` provides feature probes, scoped profiler blocks, per-launch trace listings, print/clear convenience, typed CUPTI metric presets, and typed memory-profiler counters.
 
-`quadrants.linalg` exposes the first native sparse bridge: `SparseMatrix`, `SparseMatrixBuilder`, `SparseSolver`, and `SparseCG` for F32 sparse CPU/runtime smoke usage. `ContextOptions` applies the typed native-backed context setters at creation, and `quadrants.profiler` provides feature probes, scoped profiler blocks, print/clear convenience, typed CUPTI metric presets, and explicit unavailable memory-profiler status.
+`CompilerHints.assumeInRange(value, base, low, high)` lowers to the native range-assumption IR expression. Other deep compiler hints (block-local storage, cache hints, loop uniqueness) remain unavailable unless the runtime/compiler exposes a concrete hook.
 
-`CompilerHints.assumeInRange(value, base, low, high)` lowers to the native range-assumption IR expression. Other deep compiler hints remain unavailable unless the runtime/compiler exposes a concrete hook.
+`quadrants.mesh` adds typed host-side mesh domains, elements, relations, and attributes (`MeshKinds.vertex`, `MeshRelation<Vertex, Face>`, `MeshAttribute<Vertex, T>`); relation/attribute kernel parameters lower through QDHL mesh resource metadata.
 
-`quadrants.mesh` adds typed host-side mesh domains, elements, relations, and attributes (`MeshKinds.vertex`, `MeshRelation<Vertex, Face>`, `MeshAttribute<Vertex, T>`). Kernel mesh-for remains the descriptor-backed loop primitive; relation access and mesh attributes inside kernels are explicitly deferred until native descriptor metadata exists.
+`quadrants.quant` adds typed quant storage descriptors (`QuantBits` with 8/16/32/64-bit physical widths, `QuantSignedness`, `QuantStorageSpec<T>`), quantized tensor kernel parameters, and quant-array/bit-struct SNode placement.
 
-`quadrants.quant` adds typed quant storage descriptors (`QuantBits`, `QuantSignedness`, `QuantStorageSpec<T>`) and a Haxe-only `QuantizedF32Tensor` reference container backed by `Tensor<I32>`. Native quant SNode placement and quantized kernel parameters are intentionally not exposed.
-
-`bindings/hashlink/haxe/quadrants/DYNAMIC_BOUNDARIES.md` records every retained public `Dynamic` boundary and whether it is a permanent interop boundary or a compatibility shim.
+`docs/source/user_guide/dynamic_boundaries.md` records every retained public `Dynamic` boundary and whether it is a permanent interop boundary or a compatibility shim.
 
 Release-readiness status, API classification, backend support tables, and performance-baseline guidance are summarized in `docs/source/user_guide/haxe_release_readiness.md`.
 
