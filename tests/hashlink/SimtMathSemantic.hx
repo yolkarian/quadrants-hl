@@ -97,6 +97,7 @@ class SimtMathSemantic {
 
     var ctx = Context.create({arch: Arch.Cpu, boundsCheck: true});
     try {
+      MathHelpersSemantic.run(ctx);
       testSegmentedCpuDegenerate(ctx);
     } catch (e:Dynamic) {
       ctx.close();

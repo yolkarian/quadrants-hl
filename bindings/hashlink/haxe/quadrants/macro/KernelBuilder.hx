@@ -4556,10 +4556,24 @@ private class DescriptorBuilder {
     }
     var argScope = new Map<String, Expr>();
     for (i in 0...args.length) {
-      argScope[info.args[i].name] = substituteInlineArgs(args[i]);
+      var actual = substituteInlineArgs(args[i]);
+      argScope[info.args[i].name] = preserveInlineF32ArgumentType(info.args[i].type, actual);
     }
     inlineFunctionStack.push(info.name);
     inlineArgScopes.push(argScope);
+  }
+
+  function preserveInlineF32ArgumentType(type:Null<ComplexType>, actual:Expr):Expr {
+    var isF32 = switch (type) {
+      case TPath(path):
+        switch (typePathName(path)) {
+          case "hl.F32", "F32", "quadrants.F32", "quadrants.Types.F32", "Types.F32": true;
+          default: false;
+        }
+      default:
+        false;
+    };
+    return isF32 ? {expr: ECheckType(actual, type), pos: actual.pos} : actual;
   }
 
   function encodeInlineFunctionCall(info:QdFunctionInfo, args:Array<Expr>, writer:ByteWriter, pos:Position):Void {
