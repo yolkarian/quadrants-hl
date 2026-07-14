@@ -30,12 +30,12 @@ private typedef PreparedFieldPlacement = {
 }
 
 class FieldsBuilder {
-  static inline var SNODE_DENSE = 1;
-  static inline var SNODE_DYNAMIC = 2;
-  static inline var SNODE_POINTER = 3;
-  static inline var SNODE_BITMASKED = 4;
-  static inline var SNODE_QUANT_ARRAY = 6;
-  static inline var SNODE_BIT_STRUCT = 7;
+  public static inline var SNODE_DENSE = 1;
+  public static inline var SNODE_DYNAMIC = 2;
+  public static inline var SNODE_POINTER = 3;
+  public static inline var SNODE_BITMASKED = 4;
+  public static inline var SNODE_QUANT_ARRAY = 6;
+  public static inline var SNODE_BIT_STRUCT = 7;
   static inline var DEFAULT_DYNAMIC_CHUNK_SIZE = 128;
 
   final context:Context;

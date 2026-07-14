@@ -37,6 +37,21 @@ class Linalg {
     return cast symEig3Float(toFloatArray(m));
   }
 
+  public static function symEigGeneral<T>(m:Matrix<T>):EigResult<T> {
+    if (m == null || m.rows != m.cols || m.rows < 1) {
+      throw "Quadrants Linalg.symEigGeneral requires a square matrix";
+    }
+    var n = m.rows;
+    if (n == 2) {
+      return symEig2(m);
+    }
+    if (n == 3) {
+      return symEig3(m);
+    }
+    var result = symEigGeneralFloat(toFloatArray(m), n);
+    return cast {values: vector(result.values), vectors: matrix(n, n, result.vectors)};
+  }
+
   public static function eig2<T>(m:Matrix<T>):EigResult<T> {
     requireShape(m, 2, 2, "eig2");
     var a = f(m.get(0, 0));
@@ -85,8 +100,8 @@ class Linalg {
   }
 
   public static function makeSpd<T>(a:Matrix<T>):Matrix<T> {
-    if (a.rows != a.cols || (a.rows != 2 && a.rows != 3)) {
-      throw "Quadrants Linalg.makeSpd supports only 2x2 and 3x3 matrices";
+    if (a == null || a.rows != a.cols || a.rows < 2) {
+      throw "Quadrants Linalg.makeSpd requires a square matrix of size 2 or larger";
     }
     var n = a.rows;
     var sym = new Array<Float>();
@@ -95,11 +110,130 @@ class Linalg {
         sym.push(0.5 * (f(a.get(row, col)) + f(a.get(col, row))));
       }
     }
-    var eig = n == 2 ? symEig2Float(sym) : symEig3Float(sym);
+    var eig = if (n == 2) {
+      symEig2Float(sym);
+    } else if (n == 3) {
+      symEig3Float(sym);
+    } else {
+      var general = symEigGeneralFloat(sym, n);
+      {values: (cast vector(general.values) : Vector<Float>), vectors: (cast matrix(n, n, general.vectors) : Matrix<Float>)};
+    };
     var values = eig.values.toArray();
     var vectors = toFloatArray(eig.vectors);
     var clamped = [for (value in values) Math.max(f(value), EPS)];
     return cast matrix(n, n, multiplyMatrices(multiplyMatrices(vectors, diagonal(clamped, n), n), transpose(vectors, n), n));
+  }
+
+  static function symEigGeneralFloat(source:Array<Float>, n:Int):{values:Array<Float>, vectors:Array<Float>} {
+    var maxSweeps = 30;
+    var work = [for (value in source) value];
+    var vectors = [for (row in 0...n) for (col in 0...n) row == col ? 1.0 : 0.0];
+    inline function at(row:Int, col:Int):Int return row * n + col;
+
+    var scale = 0.0;
+    for (value in work) {
+      var magnitude = Math.abs(value);
+      if (magnitude > scale) {
+        scale = magnitude;
+      }
+    }
+    // Skip rotations for pivots that are negligible relative to the matrix
+    // scale (double-precision noise floor), with an absolute floor for the
+    // all-zero matrix. A fixed absolute threshold would silently return the
+    // diagonal for matrices whose overall scale is below it.
+    var considerAsZero = Math.max(1.0e-300, scale * 1.0e-15);
+    var converged = scale == 0.0;
+
+    for (_ in 0...maxSweeps) {
+      if (converged) {
+        break;
+      }
+      var rotated = false;
+      for (p in 0...n) {
+        for (q in (p + 1)...n) {
+          var apq = work[at(p, q)];
+          if (Math.abs(apq) <= considerAsZero) {
+            continue;
+          }
+          rotated = true;
+          var app = work[at(p, p)];
+          var aqq = work[at(q, q)];
+          var diff = aqq - app;
+          var tau = 1.0;
+          if (Math.abs(diff) < considerAsZero) {
+            if (apq < 0.0) {
+              tau = -1.0;
+            }
+          } else {
+            var theta = diff / (2.0 * apq);
+            tau = 1.0 / (Math.abs(theta) + Math.sqrt(1.0 + theta * theta));
+            if (theta < 0.0) {
+              tau = -tau;
+            }
+          }
+          var gc = 1.0 / Math.sqrt(1.0 + tau * tau);
+          var gs = tau * gc;
+          for (r in 0...n) {
+            var arp = work[at(r, p)];
+            var arq = work[at(r, q)];
+            work[at(r, p)] = gc * arp - gs * arq;
+            work[at(r, q)] = gs * arp + gc * arq;
+          }
+          for (k in 0...n) {
+            var akp = work[at(p, k)];
+            var akq = work[at(q, k)];
+            work[at(p, k)] = gc * akp - gs * akq;
+            work[at(q, k)] = gs * akp + gc * akq;
+          }
+          work[at(p, q)] = 0.0;
+          work[at(q, p)] = 0.0;
+          for (r in 0...n) {
+            var vrp = vectors[at(r, p)];
+            var vrq = vectors[at(r, q)];
+            vectors[at(r, p)] = gc * vrp - gs * vrq;
+            vectors[at(r, q)] = gs * vrp + gc * vrq;
+          }
+        }
+      }
+      if (!rotated) {
+        converged = true;
+      }
+    }
+    if (!converged) {
+      var maxOffDiagonal = 0.0;
+      for (p in 0...n) {
+        for (q in (p + 1)...n) {
+          var magnitude = Math.abs(work[at(p, q)]);
+          if (magnitude > maxOffDiagonal) {
+            maxOffDiagonal = magnitude;
+          }
+        }
+      }
+      if (maxOffDiagonal > scale * 1.0e-10) {
+        throw "Quadrants Linalg.symEigGeneral did not converge";
+      }
+    }
+    var values = [for (i in 0...n) work[at(i, i)]];
+    for (i in 0...n) {
+      var minIndex = i;
+      var minValue = values[i];
+      for (j in (i + 1)...n) {
+        if (values[j] < minValue) {
+          minValue = values[j];
+          minIndex = j;
+        }
+      }
+      if (minIndex != i) {
+        values[minIndex] = values[i];
+        values[i] = minValue;
+        for (k in 0...n) {
+          var tmp = vectors[at(k, i)];
+          vectors[at(k, i)] = vectors[at(k, minIndex)];
+          vectors[at(k, minIndex)] = tmp;
+        }
+      }
+    }
+    return {values: values, vectors: vectors};
   }
 
   static function svd<T>(m:Matrix<T>, n:Int):SvdResult<Float> {
