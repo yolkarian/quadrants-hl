@@ -10,9 +10,11 @@
 HAXE ?= haxe
 HL ?= hl
 # quadrants-dox is the HashLink-running Dox fork (supersedes upstream `haxelib run dox`).
-# Resolve its install root from the haxelib classpath and invoke its prebuilt run.hl with `hl`.
-QDOX_DIR := $(shell haxelib path quadrants-dox 2>/dev/null | head -1 | xargs dirname 2>/dev/null)
-QDOX ?= $(HL) $(QDOX_DIR)/run.hl
+# `haxelib libpath` prints exactly the library root as a single line (unlike `haxelib path`,
+# which also prints dependency classpaths in an order that varies across haxelib versions).
+QDOX_DIR := $(shell haxelib libpath quadrants-dox 2>/dev/null)
+QDOX_HL := $(QDOX_DIR)run.hl
+QDOX ?= $(HL) $(QDOX_HL)
 BUILDDIR ?= build
 XMLDIR := $(BUILDDIR)/xml
 HTMLDIR := $(BUILDDIR)/html
@@ -39,12 +41,17 @@ help:
 	@echo "  make clean  Remove $(BUILDDIR)"
 
 html: xml
+	@if [ -z "$(QDOX_DIR)" ] || [ ! -f "$(QDOX_HL)" ]; then \
+	  echo "error: quadrants-dox is not installed (expected run.hl under the haxelib root)."; \
+	  echo "       Install it with: haxelib git quadrants-dox https://github.com/yolkarian/quadrants-dox.git"; \
+	  exit 1; \
+	fi
 	@rm -rf "$(HTMLDIR)"
 	@$(QDOX) -i "$(XMLDIR)" -o "$(HTMLDIR)" --title "$(DOX_TITLE)" --toplevel-package quadrants -in "$(DOX_INCLUDE)" -ex "$(DOX_EXCLUDE)" -D description "$(DOX_DESCRIPTION)" -D version "$(DOX_VERSION)" -D website "$(DOX_WEBSITE)" --guides "$(GUIDESDIR)" $(DOXOPTS)
 
 xml: $(XMLFILE)
 
-$(XMLFILE): dox.hxml ../bindings/hashlink/haxe/quadrants/*.hx ../bindings/hashlink/haxe/quadrants/macro/*.hx $(wildcard $(GUIDESDIR)/*.md $(GUIDESDIR)/**/*.md)
+$(XMLFILE): dox.hxml $(shell find ../bindings/hashlink/haxe/quadrants -name '*.hx') $(wildcard $(GUIDESDIR)/*.md $(GUIDESDIR)/**/*.md)
 	@mkdir -p "$(XMLDIR)"
 	@$(HAXE) dox.hxml
 
